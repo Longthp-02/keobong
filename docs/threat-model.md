@@ -1,7 +1,7 @@
 # Threat Model
 
 ## Feature / System
-Keo MVP: accounts, matches, slots, VietQR display, host payment confirmation, attendance, share links.
+Daghep MVP: accounts, matches, slots, VietQR display, host payment confirmation, attendance, share links.
 
 ## What could go wrong?
 - Two players get the same slot (race condition).
@@ -33,12 +33,15 @@ Every request body, query, path, header, cookie; venue names and descriptions; O
 - Claiming when the match is full, cancelled or in the past.
 - Oversized and script-containing text fields are rejected or escaped.
 - Rate limit on match creation and slot claims (TODO: verify limits).
+- VietQR endpoint returns 403 for users without a held slot.
+- Unconfirmed holds are released after 30 minutes.
+- Guest limit: a fourth slot for the same account is rejected.
 
 ## What should be logged or monitored?
 Auth failures, 403s, slot conflicts, match creation rate per user, no-show markings per host. Never log bank account numbers or tokens.
 
 ## What must never be exposed to the client?
-Other users' emails and provider ids, internal database ids, secrets, full bank details to non-joined users (TODO: verify visibility rule).
+Other users' emails and provider ids, internal database ids, secrets, bank details or VietQR payloads to anyone not currently holding a slot in that match.
 
 ## TODO: verify
-Bank detail visibility, rate limits, no-show dispute process, scam-host reporting.
+Rate limits, scam-host reporting.

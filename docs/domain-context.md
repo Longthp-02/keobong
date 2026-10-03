@@ -1,7 +1,7 @@
 # Domain Context
 
 ## Vocabulary
-- **Match** (Vietnamese slang "keo"): one scheduled game at a venue with a fixed number of slots.
+- **Match** (Vietnamese players call a pickup game "da ghep"; avoid the word "keo", which also means betting odds): one scheduled game at a venue with a fixed number of slots.
 - **Host**: the user who created the match and collects payment.
 - **Slot**: one player position on team A or B.
 - **Format**: 5-a-side, 7-a-side or 11-a-side.
@@ -17,14 +17,16 @@
 - A player takes a specific slot on a specific team.
 - Matches declare a level range and a match type.
 - Sign-in via Google or Zalo.
+- Joining holds a slot for 30 minutes; without host payment confirmation in that window, the slot is released.
+- One account holds its own slot plus up to 2 named guests per match.
+- Only the host marks no-shows; players may dispute; the admin (Long) resolves disputes.
+- Host bank details / VietQR are visible only to current slot holders of that match.
+- Level is self-assessed at sign-up; peer rating is post-MVP.
 
 ## Decisions AI Must Not Invent
-- Slot capacity per format, price rounding, slot hold/expiry timing.
-- Cancellation and refund etiquette (the app has no refunds; what does it show?).
-- Who may mark no-shows and how disputes work.
-- How levels are assigned and updated.
-- Visibility of the host's bank details.
-- Whether one account may take multiple slots.
+- Slot capacity per format and price rounding.
+- Cancellation etiquette for hosts and players (the app has no refunds; what does it show?).
+- Who may host, and whether venues are a separate host type in MVP.
 
 ## Open Questions
 All items under "Decisions AI Must Not Invent" — TODO: verify with Long.

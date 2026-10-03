@@ -1,9 +1,9 @@
-# AGENTS.md — Keo (pickup football matchmaking)
+# AGENTS.md — Daghep (pickup football matchmaking)
 
 Start every AI session by reading this file, then `CONSTITUTION.md`, `memory-bank/activeContext.md` and `memory-bank/progress.md`.
 
 ## What This Is
-Keo is a free, open-source (MIT) web app (PWA) that lets individual players in Ho Chi Minh City join pickup football matches with strangers and split the pitch fee. Hosts post a match with open slots; players join via a shareable link. The app never holds money: players pay the host directly via VietQR. Built as a personal-brand project by Long. MVP target: ~100 users in District 2, designed to scale without rewrites.
+Daghep is a free, open-source (MIT) web app (PWA) that lets individual players in Ho Chi Minh City join pickup football matches with strangers and split the pitch fee. Hosts post a match with open slots; players join via a shareable link. The app never holds money: players pay the host directly via VietQR. Built as a personal-brand project by Long. MVP target: ~100 users in District 2, designed to scale without rewrites.
 
 ## Stack (TODO: verify crate versions at scaffold time)
 - Backend: Rust (stable), Axum, Tokio, sqlx, serde, tower-http, tracing
