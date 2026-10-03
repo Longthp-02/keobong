@@ -1,0 +1,14 @@
+---
+description: Core project rules for Keo
+alwaysApply: true
+---
+
+Before any work, read and follow:
+
+- `AGENTS.md` (source of truth)
+- `CONSTITUTION.md` (non-negotiables)
+- `memory-bank/activeContext.md`
+- `memory-bank/progress.md`
+
+Use `docs/` for architecture and domain context and `prompts/` for task templates.
+Do not invent domain rules; mark unknowns as `TODO: verify` and ask.
