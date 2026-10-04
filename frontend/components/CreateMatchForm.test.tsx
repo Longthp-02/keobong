@@ -129,6 +129,19 @@ describe("CreateMatchForm", () => {
     });
   });
 
+  it("rejects an end time equal to the start time instead of making a 24-hour match", async () => {
+    const onSubmit = vi.fn();
+    render(<CreateMatchForm onSubmit={onSubmit} />);
+    fillRequired();
+    fireEvent.change(field(t.endTime), { target: { value: "18:30" } });
+
+    expect(screen.queryByText(t.nextDay)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: t.submit }));
+
+    expect(await screen.findByRole("alert")).toHaveProperty("textContent", t.errors.endsAt);
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
   it("stays disabled after a successful submit so a second tap cannot duplicate the match", async () => {
     const onSubmit = vi.fn().mockResolvedValue(undefined);
     render(<CreateMatchForm onSubmit={onSubmit} />);

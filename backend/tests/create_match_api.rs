@@ -218,4 +218,10 @@ async fn match_must_start_after_now(pool: PgPool) {
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    let bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let body: Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(
+        body,
+        json!({ "error": "invalid_match", "field": "startsAt" })
+    );
 }

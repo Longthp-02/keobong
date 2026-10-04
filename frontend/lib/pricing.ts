@@ -1,6 +1,14 @@
 import type { MatchView } from "./api";
 
-/** Mirrors the backend rules (backend/src/matches/domain.rs); the API stays authoritative. */
+/**
+ * Mirrors the backend rules in backend/src/matches/domain.rs (MAX_TOTAL_FEE_VND,
+ * SLOT_COUNT_RANGE, Format::default_slot_count). The API stays authoritative;
+ * change both sides together.
+ */
+export const MAX_TOTAL_FEE_VND = 100_000_000;
+export const MIN_SLOT_COUNT = 2;
+export const MAX_SLOT_COUNT = 30;
+
 const DEFAULT_SLOTS: Record<MatchView["format"], number> = {
   five_a_side: 14,
   seven_a_side: 18,

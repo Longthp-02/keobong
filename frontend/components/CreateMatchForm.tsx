@@ -3,7 +3,13 @@
 import { type FormEvent, useState } from "react";
 import type { CreateMatchInput, MatchView } from "../lib/api";
 import { formatVnd } from "../lib/format";
-import { defaultSlotCount, pricePerPlayerVnd } from "../lib/pricing";
+import {
+  MAX_SLOT_COUNT,
+  MAX_TOTAL_FEE_VND,
+  MIN_SLOT_COUNT,
+  defaultSlotCount,
+  pricePerPlayerVnd,
+} from "../lib/pricing";
 import messages from "../messages/vi.json";
 
 const t = messages.create;
@@ -16,8 +22,6 @@ type Props = {
   onSubmit: (input: CreateMatchInput) => Promise<{ field: string } | undefined>;
 };
 
-const MAX_TOTAL_FEE_VND = 100_000_000;
-
 /** Converts a date and time picked in Ho Chi Minh City (UTC+7, no DST) to a UTC ISO string. */
 function toUtcIso(date: string, time: string, addDays = 0): string {
   const instant = new Date(`${date}T${time}:00+07:00`);
@@ -25,9 +29,9 @@ function toUtcIso(date: string, time: string, addDays = 0): string {
   return instant.toISOString();
 }
 
-/** An end time at or before the start time means the match ends after midnight. */
+/** An end time before the start time means the match ends after midnight. */
 function endsNextDay(startTime: string, endTime: string): boolean {
-  return Boolean(startTime && endTime) && endTime <= startTime;
+  return Boolean(startTime && endTime) && endTime < startTime;
 }
 
 function parseWholeNumber(value: string): number | null {
@@ -47,11 +51,11 @@ function checkInputs(values: {
   slotCount: string;
 }): string | null {
   if (!values.date || !values.startTime) return "startsAt";
-  if (!values.endTime) return "endsAt";
+  if (!values.endTime || values.endTime === values.startTime) return "endsAt";
   const fee = parseWholeNumber(values.totalFee);
   if (fee === null || fee < 0 || fee > MAX_TOTAL_FEE_VND) return "totalFeeVnd";
   const slots = parseWholeNumber(values.slotCount);
-  if (slots === null || slots < 2 || slots > 30) return "slotCount";
+  if (slots === null || slots < MIN_SLOT_COUNT || slots > MAX_SLOT_COUNT) return "slotCount";
   return null;
 }
 
@@ -259,8 +263,8 @@ export function CreateMatchForm({ onSubmit }: Props) {
           <input
             type="number"
             inputMode="numeric"
-            min={2}
-            max={30}
+            min={MIN_SLOT_COUNT}
+            max={MAX_SLOT_COUNT}
             value={slotCount}
             onChange={(e) => {
               setSlotsTouched(true);

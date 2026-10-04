@@ -121,6 +121,7 @@ pub fn price_per_player_vnd(total_fee_vnd: i64, slot_count: i16) -> i64 {
     i64::try_from(rounded).unwrap_or(i64::MAX)
 }
 
+// Mirrored for the form preview in frontend/lib/pricing.ts; change both together.
 pub const SLOT_COUNT_RANGE: std::ops::RangeInclusive<i16> = 2..=30;
 pub const VENUE_NAME_MAX_CHARS: usize = 120;
 /// Sanity guard, not a product rule (TODO: verify with Long): 100 million VND.
