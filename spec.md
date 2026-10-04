@@ -49,7 +49,7 @@ See `docs/user-flows.md`.
 Confirmed:
 - The service is free and never handles money; payment goes player → host directly.
 - Football only in MVP. Formats: 5-a-side, 7-a-side, 11-a-side.
-- Match shows two teams (A and B); a player takes one specific open slot.
+- Match shows two teams (A and B); a player picks a team, not a numbered position (confirmed by Long 2026-10-05). Places split evenly; team A takes the odd one.
 - Player level is a number from 1.0 (beginner) to 5.0 (semi-pro) in steps of 0.5; a match declares a level range.
 - Match types: casual, competitive, beginner-friendly.
 - Sign-in methods: Google and Zalo.
@@ -72,6 +72,7 @@ Confirmed:
 - Who can host (2026-10-04): any signed-in user. Venues use the same flow; a "verified venue" badge comes later.
 - Cancellation (2026-10-04): the host can cancel a match and slot holders see "match cancelled" on the page; refunds are between players and host (the app holds no money). A player can leave before kickoff; leaving within 2 hours of kickoff lets the host mark a no-show.
 
+- Joining (confirmed by Long 2026-10-05): the host does not get a place automatically and joins like anyone else. A player may bring up to 2 named guests in the same team, in one request; the whole group fits or nobody is added. To change guests, leave and join again. A player can leave until kickoff; joining and leaving close at kickoff. A player outside the match's level range is warned but not blocked (needs self-assessed levels on profiles, not built yet).
 - Sign-in (PR 3b): Google sign-in is required to create a match; anyone can view matches without signing in. A sign-in lasts 30 days (confirmed by Long 2026-10-05).
 - Match limits (confirmed by Long 2026-10-04): total fee 0–100,000,000 VND (zero-fee matches are allowed); 2–30 slots; a match starts in the future and at most 30 days ahead; lasts at most 4 hours; starts and ends on the same day in Ho Chi Minh City time (no matches past midnight).
 

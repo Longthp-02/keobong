@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { MatchCard } from "../../../components/MatchCard";
-import { getMatch } from "../../../lib/api";
+import { TeamSlots } from "../../../components/TeamSlots";
+import { getMatch, getRoster } from "../../../lib/api";
 import { formatMatchDate, formatTimeRange } from "../../../lib/format";
 import messages from "../../../messages/vi.json";
 
@@ -29,9 +30,14 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
 export default async function MatchPage({ params }: Props) {
   const { shareId } = await params;
-  const match = await getMatch(shareId);
-  if (!match) {
+  const [match, roster] = await Promise.all([getMatch(shareId), getRoster(shareId)]);
+  if (!match || !roster) {
     notFound();
   }
-  return <MatchCard match={match} />;
+  return (
+    <>
+      <MatchCard match={match} />
+      <TeamSlots shareId={match.shareId} startsAt={match.startsAt} initialRoster={roster} />
+    </>
+  );
 }

@@ -1,0 +1,314 @@
+//! Slots domain: taking a place on team A or B, with up to two named guests.
+//! Pure rules plus the storage port. No Axum, sqlx or HTTP types here.
+
+use std::future::Future;
+
+use chrono::{DateTime, Utc};
+
+use crate::auth::UserId;
+use crate::matches::domain::ShareId;
+use crate::text::clean_name;
+
+/// A holder may bring at most this many named guests (confirmed by Long).
+pub const MAX_GUESTS: usize = 2;
+pub const GUEST_NAME_MAX_CHARS: usize = 40;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Team {
+    A,
+    B,
+}
+
+impl Team {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Team::A => "a",
+            Team::B => "b",
+        }
+    }
+
+    pub fn parse(raw: &str) -> Option<Self> {
+        match raw {
+            "a" => Some(Team::A),
+            "b" => Some(Team::B),
+            _ => None,
+        }
+    }
+
+    /// Places split evenly between the teams; team A takes the odd one.
+    pub fn capacity(self, slot_count: i16) -> i64 {
+        let total = i64::from(slot_count);
+        match self {
+            Team::A => (total + 1) / 2,
+            Team::B => total / 2,
+        }
+    }
+}
+
+/// Up to [`MAX_GUESTS`] cleaned, non-empty guest names.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct GuestNames(Vec<String>);
+
+impl GuestNames {
+    pub fn parse(raw: &[String]) -> Option<Self> {
+        if raw.len() > MAX_GUESTS {
+            return None;
+        }
+        raw.iter()
+            .map(|name| {
+                // Reject rather than silently truncate: the holder should see what is shown.
+                let cleaned = clean_name(name, GUEST_NAME_MAX_CHARS + 1)?;
+                (cleaned.chars().count() <= GUEST_NAME_MAX_CHARS).then_some(cleaned)
+            })
+            .collect::<Option<Vec<_>>>()
+            .map(Self)
+    }
+
+    pub fn names(&self) -> &[String] {
+        &self.0
+    }
+
+    /// The holder plus their guests.
+    pub fn party_size(&self) -> i64 {
+        1 + self.0.len() as i64
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct JoinRequest {
+    pub team: Team,
+    pub guests: GuestNames,
+}
+
+/// What the claiming transaction knows, read under a lock on the match.
+#[derive(Debug, Clone, Copy)]
+pub struct ClaimContext {
+    pub now: DateTime<Utc>,
+    pub starts_at: DateTime<Utc>,
+    pub slot_count: i16,
+    /// Active places already taken in the requested team.
+    pub taken_in_team: i64,
+    pub already_joined: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum ClaimRejected {
+    #[error("the match has already started")]
+    MatchStarted,
+    #[error("the user already holds a place in this match")]
+    AlreadyJoined,
+    #[error("not enough open places in this team")]
+    TeamFull,
+}
+
+/// The whole party (holder plus guests) joins one team, or nobody does.
+pub fn check_claim(ctx: &ClaimContext, request: &JoinRequest) -> Result<(), ClaimRejected> {
+    if ctx.now >= ctx.starts_at {
+        return Err(ClaimRejected::MatchStarted);
+    }
+    if ctx.already_joined {
+        return Err(ClaimRejected::AlreadyJoined);
+    }
+    if ctx.taken_in_team + request.guests.party_size() > request.team.capacity(ctx.slot_count) {
+        return Err(ClaimRejected::TeamFull);
+    }
+    Ok(())
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum LeaveRejected {
+    #[error("the match has already started")]
+    MatchStarted,
+}
+
+/// Players can leave until kickoff. Leaving within 2 hours of kickoff will let
+/// the host mark a no-show (spec.md); that marking comes in a later step.
+pub fn check_leave(now: DateTime<Utc>, starts_at: DateTime<Utc>) -> Result<(), LeaveRejected> {
+    if now >= starts_at {
+        return Err(LeaveRejected::MatchStarted);
+    }
+    Ok(())
+}
+
+/// One taken place, as shown publicly on the match page.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RosterEntry {
+    pub team: Team,
+    /// The player's display name, or the guest's name.
+    pub name: Option<String>,
+    pub avatar_url: Option<String>,
+    pub is_guest: bool,
+    /// For a guest, the display name of the player who brought them.
+    pub guest_of: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Roster {
+    pub slot_count: i16,
+    /// In the order places were taken.
+    pub entries: Vec<RosterEntry>,
+}
+
+/// The signed-in user's own place in a match.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MyPlace {
+    pub team: Team,
+    pub guests: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ClaimOutcome {
+    Claimed,
+    MatchNotFound,
+    Rejected(ClaimRejected),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ReleaseOutcome {
+    Released,
+    NotJoined,
+    MatchNotFound,
+    Rejected(LeaveRejected),
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum RepoError {
+    #[error("storage unavailable: {0}")]
+    Unavailable(String),
+    #[error("stored data is invalid: {0}")]
+    Corrupt(String),
+}
+
+/// Storage port. `claim` and `release` must apply the checks above atomically
+/// with their writes (the adapter locks the match row).
+pub trait SlotRepository: Send + Sync {
+    fn claim(
+        &self,
+        match_id: &ShareId,
+        holder: UserId,
+        request: &JoinRequest,
+        now: DateTime<Utc>,
+    ) -> impl Future<Output = Result<ClaimOutcome, RepoError>> + Send;
+
+    fn release(
+        &self,
+        match_id: &ShareId,
+        holder: UserId,
+        now: DateTime<Utc>,
+    ) -> impl Future<Output = Result<ReleaseOutcome, RepoError>> + Send;
+
+    /// `None` when the match does not exist.
+    fn roster(
+        &self,
+        match_id: &ShareId,
+    ) -> impl Future<Output = Result<Option<Roster>, RepoError>> + Send;
+
+    /// Outer `None` when the match does not exist; inner `None` when not joined.
+    fn my_place(
+        &self,
+        match_id: &ShareId,
+        holder: UserId,
+    ) -> impl Future<Output = Result<Option<Option<MyPlace>>, RepoError>> + Send;
+}
+
+#[cfg(test)]
+mod tests {
+    use chrono::Duration;
+
+    use super::*;
+
+    fn names(raw: &[&str]) -> Vec<String> {
+        raw.iter().map(|s| (*s).to_owned()).collect()
+    }
+
+    #[test]
+    fn teams_split_places_with_the_odd_one_in_team_a() {
+        assert_eq!((Team::A.capacity(18), Team::B.capacity(18)), (9, 9));
+        assert_eq!((Team::A.capacity(15), Team::B.capacity(15)), (8, 7));
+        assert_eq!((Team::A.capacity(2), Team::B.capacity(2)), (1, 1));
+    }
+
+    #[test]
+    fn guest_names_are_cleaned_and_limited() {
+        let guests = GuestNames::parse(&names(&["  An ", "Bình"])).unwrap();
+        assert_eq!(guests.names(), ["An", "Bình"]);
+        assert_eq!(guests.party_size(), 3);
+
+        assert!(GuestNames::parse(&names(&["A", "B", "C"])).is_none());
+        assert!(GuestNames::parse(&names(&["  "])).is_none());
+        assert!(GuestNames::parse(&names(&["\u{0}"])).is_none());
+        assert!(GuestNames::parse(&["x".repeat(41)]).is_none());
+        assert!(GuestNames::parse(&["x".repeat(40)]).is_some());
+        assert_eq!(GuestNames::parse(&[]).unwrap().party_size(), 1);
+    }
+
+    fn ctx(taken_in_team: i64) -> ClaimContext {
+        let starts_at: DateTime<Utc> = "2099-10-10T11:30:00Z".parse().unwrap();
+        ClaimContext {
+            now: starts_at - Duration::hours(1),
+            starts_at,
+            slot_count: 18,
+            taken_in_team,
+            already_joined: false,
+        }
+    }
+
+    fn join(team: Team, guests: &[&str]) -> JoinRequest {
+        JoinRequest {
+            team,
+            guests: GuestNames::parse(&names(guests)).unwrap(),
+        }
+    }
+
+    #[test]
+    fn a_party_joins_only_if_the_whole_party_fits() {
+        assert_eq!(check_claim(&ctx(8), &join(Team::A, &[])), Ok(()));
+        assert_eq!(
+            check_claim(&ctx(8), &join(Team::A, &["An"])),
+            Err(ClaimRejected::TeamFull)
+        );
+        assert_eq!(
+            check_claim(&ctx(6), &join(Team::B, &["An", "Bình"])),
+            Ok(())
+        );
+        assert_eq!(
+            check_claim(&ctx(9), &join(Team::B, &[])),
+            Err(ClaimRejected::TeamFull)
+        );
+    }
+
+    #[test]
+    fn nobody_joins_twice_or_after_kickoff() {
+        let joined = ClaimContext {
+            already_joined: true,
+            ..ctx(0)
+        };
+        assert_eq!(
+            check_claim(&joined, &join(Team::A, &[])),
+            Err(ClaimRejected::AlreadyJoined)
+        );
+
+        let started = ClaimContext {
+            now: ctx(0).starts_at,
+            ..ctx(0)
+        };
+        assert_eq!(
+            check_claim(&started, &join(Team::A, &[])),
+            Err(ClaimRejected::MatchStarted)
+        );
+    }
+
+    #[test]
+    fn players_can_leave_until_kickoff() {
+        let starts_at: DateTime<Utc> = "2099-10-10T11:30:00Z".parse().unwrap();
+
+        assert_eq!(
+            check_leave(starts_at - Duration::seconds(1), starts_at),
+            Ok(())
+        );
+        assert_eq!(
+            check_leave(starts_at, starts_at),
+            Err(LeaveRejected::MatchStarted)
+        );
+    }
+}

@@ -6,16 +6,17 @@
 - UI design prototype (external Claude Design canvas).
 - Backend (`backend/`): Axum app with `GET /health` and `GET /api/matches/{shareId}`; `matches` feature split into domain / service / repo / http; first migration (`matches` table, PostGIS, GiST index); `daghep-api migrate` subcommand; lazy DB pool for fast cold starts; multi-stage Dockerfile.
 - Frontend (`frontend/`): Next.js 16 PWA with home page, `/m/[shareId]` match page (server-rendered, Open Graph tags without payment details), not-found page, web manifest, `messages/vi.json`.
-- Tests: backend 39 unit + 38 acceptance/integration; frontend 55.
+- Tests: backend 44 unit + 52 acceptance/integration; frontend 71.
 - Production web: https://daghep.vn on Vercel (www redirects to apex); DNS at iNET.
 - Legal pages: `/privacy`, `/terms`, footer links, `LegalPage` tests.
 - Create match (PR 3a): `POST /api/matches` (validation, share id generation with retry, Clock port), `pricePerPlayerVnd` in the public view, `/create` form with live price preview. Limits: fee 0–100M VND, 2–30 slots, start within 30 days, max 4 hours, same HCMC day. `/create` hidden in production until `API_BASE_URL` is set.
 - Google sign-in (PR 3b): OAuth code flow with PKCE/state/nonce in `backend/src/auth/`, sessions in Postgres (hashed tokens, 30 days), `/api/me`, sign-out, same-origin guard for non-GET requests; `POST /api/matches` requires sign-in and stores `host_user_id`; frontend proxies `/api/*`, sign-in prompt and account bar on `/create`, `/login-failed`. Real Google login not yet exercised (needs the client secret; verify at deploy).
+- Slots (PR 3c): `backend/src/slots/` — public roster, own place, join team A/B with up to 2 guests, leave until kickoff; claims lock the match row (`FOR UPDATE`) so teams never overbook; `TeamSlots` on the match page refreshes the roster on load and after each action.
 - CI: `.github/workflows/ci.yml` (backend fmt/clippy/test with PostGIS service; frontend typecheck/test/build).
 - Local dev: `docker-compose.yml` with PostGIS.
 
 ## Not Built Yet
-- Zalo sign-in, slots and slot claiming, VietQR, payment confirmation, attendance, nearby list, link preview image, deployment.
+- Zalo sign-in, 30-minute hold and payment confirmation, level warning (needs profile levels), VietQR, payment confirmation, attendance, nearby list, link preview image, deployment.
 - Playwright end-to-end test (planned with Step 3).
 - ESLint and dependency audit in CI.
 - Rate limiting for sign-in start and match creation (e.g. Cloud Armor); `__Host-` cookie prefix in production.

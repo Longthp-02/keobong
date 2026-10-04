@@ -16,7 +16,7 @@ Edge cases to verify: start time in the past; players already in ≥ capacity; f
 5. Player transfers money in their banking app.
 6. Host later marks the slot as paid.
 
-Edge cases to verify: slot taken while signing in; match full; match cancelled; player already in another slot; player outside level range (block or warn? TODO: verify).
+Edge cases to verify: slot taken while signing in; match full; match cancelled; player already in another slot; player outside level range (warn only, confirmed by Long 2026-10-05).
 
 ## 3. Browse nearby matches
 1. Player opens the app; location from browser permission or chosen district.

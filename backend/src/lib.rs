@@ -5,6 +5,7 @@ pub mod clock;
 pub mod config;
 pub mod matches;
 pub mod random;
+pub mod slots;
 pub mod text;
 
 use std::sync::Arc;
@@ -48,7 +49,12 @@ pub fn app(deps: Deps) -> Router {
         .route("/health", get(health))
         .merge(auth::router(auth_state.clone()))
         .merge(matches::router(
-            matches::PgMatchRepository::new(deps.pool),
+            matches::PgMatchRepository::new(deps.pool.clone()),
+            deps.clock.clone(),
+            auth_state.clone(),
+        ))
+        .merge(slots::router(
+            slots::PgSlotRepository::new(deps.pool),
             deps.clock,
             auth_state,
         ))

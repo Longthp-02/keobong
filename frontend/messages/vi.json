@@ -34,7 +34,7 @@
     "updatedLabel": "Cập nhật lần cuối:",
     "privacy": {
       "title": "Chính sách bảo mật",
-      "updated": "04/10/2026",
+      "updated": "05/10/2026",
       "intro": "Đá Ghép (daghep.vn) là ứng dụng miễn phí, mã nguồn mở, giúp người chơi tìm và tham gia các trận bóng đá ghép. Dịch vụ do cá nhân Phạm Trịnh Hoàng Long phát triển và vận hành. Ông Long là bên kiểm soát dữ liệu cá nhân của bạn. Trang này giải thích dữ liệu nào được thu thập, dùng để làm gì và bạn có những quyền gì.",
       "sections": [
         {
@@ -74,7 +74,7 @@
           "heading": "5. Nơi lưu trữ",
           "paragraphs": [
             "Máy chủ ứng dụng và cơ sở dữ liệu đặt tại Singapore (Google Cloud, Neon). Giao diện web chạy trên Vercel (vùng Singapore) và được phân phối qua mạng lưới máy chủ toàn cầu của Vercel, nên dữ liệu có thể đi qua máy chủ ở nước ngoài.",
-            "Phông chữ được tải từ Google Fonts, vì vậy Google nhận được địa chỉ IP của trình duyệt khi bạn mở trang.",
+            "Phông chữ được tải từ Google Fonts và ảnh đại diện tài khoản Google được tải từ máy chủ của Google, vì vậy Google nhận được địa chỉ IP của trình duyệt khi bạn mở trang.",
             "Các nhà cung cấp này chỉ xử lý dữ liệu để vận hành dịch vụ."
           ]
         },
@@ -227,5 +227,37 @@
     "failedBody": "Có thể bạn đã huỷ, hoặc liên kết đăng nhập đã hết hạn. Hãy thử lại.",
     "tryAgain": "Thử đăng nhập lại",
     "backHome": "Về trang chủ"
+  },
+  "slots": {
+    "title": "Đội hình",
+    "team": {
+      "a": "Đội A",
+      "b": "Đội B"
+    },
+    "openPlaces": "Còn {count} chỗ",
+    "full": "Đã đủ người",
+    "emptyPlace": "Chỗ trống",
+    "guestOf": "Khách của {name}",
+    "signInToJoin": "Đăng nhập để giữ chỗ",
+    "chooseTeam": "Chọn đội",
+    "guestsLabel": "Bạn đi cùng (tối đa 2 người)",
+    "guestPlaceholder": "Tên bạn đi cùng",
+    "addGuest": "+ Thêm bạn đi cùng",
+    "removeGuest": "Bỏ",
+    "join": "Giữ chỗ ở {team}",
+    "joining": "Đang giữ chỗ…",
+    "joined": "Bạn đã giữ chỗ ở {team}.",
+    "withGuests": "Đi cùng: {names}",
+    "leave": "Rời kèo",
+    "leaving": "Đang rời kèo…",
+    "started": "Kèo đã bắt đầu, không thể giữ chỗ hay rời kèo nữa.",
+    "errors": {
+      "team_full": "Đội này không còn đủ chỗ cho cả nhóm. Hãy chọn đội khác.",
+      "already_joined": "Bạn đã giữ chỗ trong kèo này rồi.",
+      "match_started": "Kèo đã bắt đầu.",
+      "guests": "Tên bạn đi cùng phải có từ 1 đến 40 ký tự.",
+      "unauthenticated": "Phiên đăng nhập đã hết hạn. Hãy đăng nhập lại.",
+      "unexpected": "Có lỗi xảy ra. Hãy thử lại."
+    }
   }
 }
