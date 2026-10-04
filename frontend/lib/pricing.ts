@@ -13,7 +13,7 @@ export function defaultSlotCount(format: MatchView["format"]): number {
 
 /** Total fee split across all slots, rounded up to the next 1,000 VND. */
 export function pricePerPlayerVnd(totalFeeVnd: number, slotCount: number): number | null {
-  if (!Number.isFinite(totalFeeVnd) || totalFeeVnd < 0 || !Number.isInteger(slotCount) || slotCount < 1) {
+  if (!Number.isInteger(totalFeeVnd) || totalFeeVnd < 0 || !Number.isInteger(slotCount) || slotCount < 1) {
     return null;
   }
   return Math.ceil(totalFeeVnd / slotCount / 1000) * 1000;

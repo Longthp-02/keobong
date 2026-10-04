@@ -19,8 +19,8 @@
 | `format` | `five_a_side` \| `seven_a_side` \| `eleven_a_side` | |
 | `matchType` | `casual` \| `competitive` \| `beginner_friendly` | |
 | `levelMin`, `levelMax` | number | 1.0–5.0, steps of 0.5, `levelMax >= levelMin` |
-| `totalFeeVnd` | integer | `>= 0` (zero-fee: TODO: verify) |
-| `slotCount` | integer, optional | 2–30; default 14 / 18 / 28 by format |
+| `totalFeeVnd` | integer | 0–100,000,000 (cap and zero-fee: TODO: verify) |
+| `slotCount` | integer, optional | any integer is accepted by the parser; outside 2–30 is a `422`; default 14 / 18 / 28 by format |
 
 No authentication yet; sign-in is required from PR 3b. The backend is not deployed yet, so this is not publicly reachable.
 
@@ -30,11 +30,13 @@ No authentication yet; sign-in is required from PR 3b. The backend is not deploy
 
 ## Validation / auth / error changes
 - `422 {"error":"invalid_match","field":"<camelCase field>"}` for the first invalid field.
+  Order: `format`, `matchType` (parsed in the HTTP adapter), then `venueName`, `startsAt`, `endsAt`, `levelMin`, `levelMax`, `totalFeeVnd`, `slotCount` (domain validation).
+- `venueName` is trimmed; empty, longer than 120 characters, or containing control / bidi-override characters is a `422`.
 - `400 {"error":"invalid_request"}` for malformed JSON, wrong types or missing fields.
 - `500 {"error":"internal_error"}` otherwise (details only in server logs).
 
 ## Frontend actions required
-Done in this PR: `/create` page (server action calls the API so the API URL stays server-side), `MatchCard` shows the price per player.
+Done in this PR: `/create` page (hidden, and `404`, in production until `API_BASE_URL` is set) (server action calls the API so the API URL stays server-side), `MatchCard` shows the price per player.
 
 ## Example payloads
 ```json
@@ -46,3 +48,5 @@ Done in this PR: `/create` page (server action calls the API so the API URL stay
 
 ## TODO verify
 - Whether zero-fee matches are allowed.
+- Whether 100,000,000 VND is the right fee cap (DB constraint `matches_total_fee_vnd_max`).
+- Whether to limit how far ahead, or how long, a match may be.

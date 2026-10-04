@@ -79,7 +79,7 @@ struct CreateMatchRequest {
     level_min: f64,
     level_max: f64,
     total_fee_vnd: i64,
-    slot_count: Option<i16>,
+    slot_count: Option<i64>,
 }
 
 impl CreateMatchRequest {

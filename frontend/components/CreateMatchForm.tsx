@@ -16,9 +16,43 @@ type Props = {
   onSubmit: (input: CreateMatchInput) => Promise<{ field: string } | undefined>;
 };
 
+const MAX_TOTAL_FEE_VND = 100_000_000;
+
 /** Converts a date and time picked in Ho Chi Minh City (UTC+7, no DST) to a UTC ISO string. */
-function toUtcIso(date: string, time: string): string {
-  return new Date(`${date}T${time}:00+07:00`).toISOString();
+function toUtcIso(date: string, time: string, addDays = 0): string {
+  const instant = new Date(`${date}T${time}:00+07:00`);
+  instant.setUTCDate(instant.getUTCDate() + addDays);
+  return instant.toISOString();
+}
+
+/** An end time at or before the start time means the match ends after midnight. */
+function endsNextDay(startTime: string, endTime: string): boolean {
+  return Boolean(startTime && endTime) && endTime <= startTime;
+}
+
+function parseWholeNumber(value: string): number | null {
+  if (value.trim() === "") {
+    return null;
+  }
+  const parsed = Number(value);
+  return Number.isInteger(parsed) ? parsed : null;
+}
+
+/** Client-side checks for what the browser form cannot express; the API re-validates everything. */
+function checkInputs(values: {
+  date: string;
+  startTime: string;
+  endTime: string;
+  totalFee: string;
+  slotCount: string;
+}): string | null {
+  if (!values.date || !values.startTime) return "startsAt";
+  if (!values.endTime) return "endsAt";
+  const fee = parseWholeNumber(values.totalFee);
+  if (fee === null || fee < 0 || fee > MAX_TOTAL_FEE_VND) return "totalFeeVnd";
+  const slots = parseWholeNumber(values.slotCount);
+  if (slots === null || slots < 2 || slots > 30) return "slotCount";
+  return null;
 }
 
 function errorMessage(field: string): string {
@@ -39,9 +73,13 @@ export function CreateMatchForm({ onSubmit }: Props) {
   const [slotCount, setSlotCount] = useState(String(defaultSlotCount("seven_a_side")));
   const [slotsTouched, setSlotsTouched] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [errorField, setErrorField] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  const price = pricePerPlayerVnd(Number(totalFee), Number(slotCount));
+  const fee = parseWholeNumber(totalFee);
+  const slots = parseWholeNumber(slotCount);
+  const price = fee === null || slots === null ? null : pricePerPlayerVnd(fee, slots);
+  const nextDay = endsNextDay(startTime, endTime);
 
   function chooseFormat(next: MatchView["format"]) {
     setFormat(next);
@@ -50,15 +88,26 @@ export function CreateMatchForm({ onSubmit }: Props) {
     }
   }
 
+  function showError(field: string | null, message: string) {
+    setErrorField(field);
+    setError(message);
+  }
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const invalid = checkInputs({ date, startTime, endTime, totalFee, slotCount });
+    if (invalid) {
+      showError(invalid, errorMessage(invalid));
+      return;
+    }
     setError(null);
+    setErrorField(null);
     setSubmitting(true);
     try {
       const rejected = await onSubmit({
         venueName,
         startsAt: toUtcIso(date, startTime),
-        endsAt: toUtcIso(date, endTime),
+        endsAt: toUtcIso(date, endTime, nextDay ? 1 : 0),
         format,
         matchType,
         levelMin,
@@ -67,14 +116,18 @@ export function CreateMatchForm({ onSubmit }: Props) {
         slotCount: Number(slotCount),
       });
       if (rejected) {
-        setError(errorMessage(rejected.field));
+        showError(rejected.field, errorMessage(rejected.field));
+        setSubmitting(false);
       }
+      // On success the caller navigates away; staying disabled prevents a duplicate match.
     } catch {
-      setError(t.unexpectedError);
-    } finally {
+      showError(null, t.unexpectedError);
       setSubmitting(false);
     }
   }
+
+  const invalidProps = (field: string) =>
+    errorField === field ? { "aria-invalid": true, "aria-describedby": "create-form-error" } : {};
 
   return (
     <form className="create-form" onSubmit={handleSubmit} noValidate>
@@ -88,25 +141,45 @@ export function CreateMatchForm({ onSubmit }: Props) {
           maxLength={120}
           placeholder={t.venuePlaceholder}
           onChange={(e) => setVenueName(e.target.value)}
+          {...invalidProps("venueName")}
           required
         />
       </label>
 
       <label className="field">
         <span>{t.date}</span>
-        <input type="date" value={date} onChange={(e) => setDate(e.target.value)} required />
+        <input
+          type="date"
+          value={date}
+          onChange={(e) => setDate(e.target.value)}
+          required
+          {...invalidProps("startsAt")}
+        />
       </label>
 
       <div className="field-row">
         <label className="field">
           <span>{t.startTime}</span>
-          <input type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} required />
+          <input
+            type="time"
+            value={startTime}
+            onChange={(e) => setStartTime(e.target.value)}
+            required
+            {...invalidProps("startsAt")}
+          />
         </label>
         <label className="field">
           <span>{t.endTime}</span>
-          <input type="time" value={endTime} onChange={(e) => setEndTime(e.target.value)} required />
+          <input
+            type="time"
+            value={endTime}
+            onChange={(e) => setEndTime(e.target.value)}
+            required
+            {...invalidProps("endsAt")}
+          />
         </label>
       </div>
+      {nextDay ? <p className="muted field-hint">{t.nextDay}</p> : null}
 
       <fieldset className="field">
         <legend>{t.format}</legend>
@@ -178,6 +251,7 @@ export function CreateMatchForm({ onSubmit }: Props) {
             value={totalFee}
             onChange={(e) => setTotalFee(e.target.value)}
             required
+            {...invalidProps("totalFeeVnd")}
           />
         </label>
         <label className="field">
@@ -193,18 +267,19 @@ export function CreateMatchForm({ onSubmit }: Props) {
               setSlotCount(e.target.value);
             }}
             required
+            {...invalidProps("slotCount")}
           />
         </label>
       </div>
       <p className="muted field-hint">{t.slotHint}</p>
 
-      <p className="price-preview">
+      <p className="price-preview" aria-live="polite">
         <span>{t.pricePerPlayer}</span>
         <strong data-testid="price-per-player">{price === null ? "—" : formatVnd(price)}</strong>
       </p>
 
       {error ? (
-        <p className="form-error" role="alert">
+        <p className="form-error" role="alert" id="create-form-error">
           {error}
         </p>
       ) : null}

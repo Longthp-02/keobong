@@ -19,5 +19,6 @@ describe("pricing rules (must match the backend)", () => {
     expect(pricePerPlayerVnd(Number.NaN, 18)).toBeNull();
     expect(pricePerPlayerVnd(900_000, 0)).toBeNull();
     expect(pricePerPlayerVnd(-5, 10)).toBeNull();
+    expect(pricePerPlayerVnd(1500.5, 10)).toBeNull();
   });
 });

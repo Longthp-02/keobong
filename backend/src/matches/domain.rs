@@ -96,11 +96,15 @@ const SHARE_ID_ALPHABET: &[u8; 64] =
     b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-";
 const SHARE_ID_LEN: usize = 10;
 
+#[derive(Debug, thiserror::Error)]
+#[error("random source unavailable: {0}")]
+pub struct RandomnessError(String);
+
 impl ShareId {
     /// Random 10-character id (60 bits of entropy) from the OS random source.
-    pub fn generate() -> Result<Self, getrandom::Error> {
+    pub fn generate() -> Result<Self, RandomnessError> {
         let mut bytes = [0u8; SHARE_ID_LEN];
-        getrandom::fill(&mut bytes)?;
+        getrandom::fill(&mut bytes).map_err(|e| RandomnessError(e.to_string()))?;
         let id = bytes
             .iter()
             .map(|b| char::from(SHARE_ID_ALPHABET[usize::from(b & 63)]))
@@ -111,12 +115,16 @@ impl ShareId {
 
 /// Total fee split across all slots, rounded up to the next 1,000 VND; the host keeps the remainder.
 pub fn price_per_player_vnd(total_fee_vnd: i64, slot_count: i16) -> i64 {
-    let divisor = i64::from(slot_count.max(1)) * 1_000;
-    (total_fee_vnd + divisor - 1) / divisor * 1_000
+    // i128 cannot overflow here; saturate in case a stored fee ever exceeds the guard.
+    let divisor = i128::from(slot_count.max(1)) * 1_000;
+    let rounded = (i128::from(total_fee_vnd) + divisor - 1) / divisor * 1_000;
+    i64::try_from(rounded).unwrap_or(i64::MAX)
 }
 
 pub const SLOT_COUNT_RANGE: std::ops::RangeInclusive<i16> = 2..=30;
 pub const VENUE_NAME_MAX_CHARS: usize = 120;
+/// Sanity guard, not a product rule (TODO: verify with Long): 100 million VND.
+pub const MAX_TOTAL_FEE_VND: i64 = 100_000_000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Field {
@@ -141,7 +149,7 @@ pub struct NewMatchInput {
     pub level_min: f64,
     pub level_max: f64,
     pub total_fee_vnd: i64,
-    pub slot_count: Option<i16>,
+    pub slot_count: Option<i64>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -157,12 +165,20 @@ pub struct NewMatch {
     pub slot_count: i16,
 }
 
+/// Control characters break storage and logs; bidi overrides can disguise text.
+fn is_disallowed_in_names(c: char) -> bool {
+    c.is_control() || matches!(c, '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}')
+}
+
 impl NewMatch {
     /// Checks every rule in field order and returns the first offending field.
     pub fn validate(input: NewMatchInput, now: DateTime<Utc>) -> Result<Self, Field> {
         let venue_name = input.venue_name.trim().to_owned();
         let venue_len = venue_name.chars().count();
-        if venue_len == 0 || venue_len > VENUE_NAME_MAX_CHARS {
+        if venue_len == 0
+            || venue_len > VENUE_NAME_MAX_CHARS
+            || venue_name.chars().any(is_disallowed_in_names)
+        {
             return Err(Field::VenueName);
         }
         if input.starts_at <= now {
@@ -175,15 +191,16 @@ impl NewMatch {
         let level_max = Level::from_value(input.level_max)
             .filter(|max| *max >= level_min)
             .ok_or(Field::LevelMax)?;
-        if input.total_fee_vnd < 0 {
+        if !(0..=MAX_TOTAL_FEE_VND).contains(&input.total_fee_vnd) {
             return Err(Field::TotalFeeVnd);
         }
-        let slot_count = input
-            .slot_count
-            .unwrap_or_else(|| input.format.default_slot_count());
-        if !SLOT_COUNT_RANGE.contains(&slot_count) {
-            return Err(Field::SlotCount);
-        }
+        let slot_count = match input.slot_count {
+            None => input.format.default_slot_count(),
+            Some(n) => i16::try_from(n)
+                .ok()
+                .filter(|n| SLOT_COUNT_RANGE.contains(n))
+                .ok_or(Field::SlotCount)?,
+        };
         Ok(Self {
             venue_name,
             starts_at: input.starts_at,
@@ -313,6 +330,54 @@ mod tests {
         assert_eq!(Format::FiveASide.default_slot_count(), 14);
         assert_eq!(Format::SevenASide.default_slot_count(), 18);
         assert_eq!(Format::ElevenASide.default_slot_count(), 28);
+    }
+
+    #[test]
+    fn price_per_player_never_overflows() {
+        // Saturates instead of overflowing; validation keeps real fees far below this.
+        assert_eq!(price_per_player_vnd(i64::MAX, 1), i64::MAX);
+        assert_eq!(price_per_player_vnd(100_000_000, 1), 100_000_000);
+    }
+
+    #[test]
+    fn venue_name_rejects_control_and_bidi_characters() {
+        for bad in ["SSA\u{0}x", "SSA\nCenter", "SSA\u{202E}x", "SSA\u{2066}x"] {
+            let mut i = input();
+            i.venue_name = bad.to_owned();
+            assert_eq!(
+                NewMatch::validate(i, now()).unwrap_err(),
+                Field::VenueName,
+                "{bad:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn boundaries_are_inclusive() {
+        let mut i = input();
+        i.venue_name = "Đ".repeat(120);
+        i.slot_count = Some(2);
+        i.total_fee_vnd = MAX_TOTAL_FEE_VND;
+        assert!(NewMatch::validate(i, now()).is_ok());
+
+        let mut i = input();
+        i.slot_count = Some(30);
+        assert!(NewMatch::validate(i, now()).is_ok());
+
+        let mut i = input();
+        i.total_fee_vnd = MAX_TOTAL_FEE_VND + 1;
+        assert_eq!(
+            NewMatch::validate(i, now()).unwrap_err(),
+            Field::TotalFeeVnd
+        );
+
+        let mut i = input();
+        i.slot_count = Some(40_000);
+        assert_eq!(NewMatch::validate(i, now()).unwrap_err(), Field::SlotCount);
+
+        let mut i = input();
+        i.starts_at = now();
+        assert_eq!(NewMatch::validate(i, now()).unwrap_err(), Field::StartsAt);
     }
 
     #[test]

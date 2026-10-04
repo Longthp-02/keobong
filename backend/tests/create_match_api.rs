@@ -126,7 +126,10 @@ async fn invalid_fields_are_rejected_with_the_offending_field(pool: PgPool) {
         ("levelMin", json!(2.3)),
         ("levelMax", json!(2.0)),
         ("totalFeeVnd", json!(-1)),
+        ("totalFeeVnd", json!(i64::MAX)),
+        ("venueName", json!("SSA\u{0}Center")),
         ("slotCount", json!(31)),
+        ("slotCount", json!(40000)),
     ];
     for (field, value) in cases {
         let request = with(valid_request(), field, value.clone());
@@ -196,4 +199,23 @@ async fn repository_reports_a_taken_share_id_as_duplicate(pool: PgPool) {
     let second = repo.insert(&id, &new).await;
 
     assert!(matches!(second, Err(InsertError::DuplicateShareId)));
+}
+
+#[sqlx::test]
+async fn match_must_start_after_now(pool: PgPool) {
+    use std::sync::Arc;
+
+    struct FixedClock;
+    impl daghep_api::matches::domain::Clock for FixedClock {
+        fn now(&self) -> chrono::DateTime<chrono::Utc> {
+            "2099-10-10T11:30:00Z".parse().unwrap()
+        }
+    }
+
+    let response = daghep_api::app_with_clock(pool, Arc::new(FixedClock))
+        .oneshot(post_json(valid_request()))
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
 }

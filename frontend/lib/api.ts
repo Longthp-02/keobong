@@ -18,8 +18,21 @@ type Options = {
   fetchImpl?: typeof fetch;
 };
 
+/** Server-side API location. Falls back to localhost only outside production. */
 export function apiBaseUrl(): string {
-  return process.env.API_BASE_URL ?? "http://localhost:8080";
+  const configured = process.env.API_BASE_URL;
+  if (configured) {
+    return configured;
+  }
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("API_BASE_URL is not configured");
+  }
+  return "http://localhost:8080";
+}
+
+/** True when a backend is configured for this deployment (used to hide unfinished features). */
+export function isApiConfigured(): boolean {
+  return Boolean(process.env.API_BASE_URL) || process.env.NODE_ENV !== "production";
 }
 
 /** Returns the match, `null` when it does not exist, and throws on any other failure. */

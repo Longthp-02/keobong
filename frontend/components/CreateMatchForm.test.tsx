@@ -70,4 +70,81 @@ describe("CreateMatchForm", () => {
 
     expect(await screen.findByRole("alert")).toHaveProperty("textContent", t.errors.startsAt);
   });
+
+  it.each([
+    ["date", t.errors.startsAt],
+    ["startTime", t.errors.startsAt],
+    ["endTime", t.errors.endsAt],
+  ] as const)("asks for a missing %s instead of failing generically", async (missing, message) => {
+    const onSubmit = vi.fn();
+    render(<CreateMatchForm onSubmit={onSubmit} />);
+    fillRequired();
+    fireEvent.change(field(t[missing]), { target: { value: "" } });
+
+    fireEvent.click(screen.getByRole("button", { name: t.submit }));
+
+    expect(await screen.findByRole("alert")).toHaveProperty("textContent", message);
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it("does not treat an empty fee as a free match", async () => {
+    const onSubmit = vi.fn();
+    render(<CreateMatchForm onSubmit={onSubmit} />);
+    fillRequired();
+    fireEvent.change(field(t.totalFee), { target: { value: "" } });
+
+    fireEvent.click(screen.getByRole("button", { name: t.submit }));
+
+    expect(await screen.findByRole("alert")).toHaveProperty("textContent", t.errors.totalFeeVnd);
+    expect(field(t.totalFee).getAttribute("aria-invalid")).toBe("true");
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it("rejects a fractional slot count before submitting", async () => {
+    const onSubmit = vi.fn();
+    render(<CreateMatchForm onSubmit={onSubmit} />);
+    fillRequired();
+    fireEvent.change(field(t.slotCount), { target: { value: "18.5" } });
+
+    fireEvent.click(screen.getByRole("button", { name: t.submit }));
+
+    expect(await screen.findByRole("alert")).toHaveProperty("textContent", t.errors.slotCount);
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it("rolls an end time before the start time over to the next day", async () => {
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    render(<CreateMatchForm onSubmit={onSubmit} />);
+    fillRequired();
+    fireEvent.change(field(t.startTime), { target: { value: "22:30" } });
+    fireEvent.change(field(t.endTime), { target: { value: "00:30" } });
+
+    expect(screen.getByText(t.nextDay)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: t.submit }));
+
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+    expect(onSubmit.mock.calls[0][0]).toMatchObject({
+      startsAt: "2099-10-10T15:30:00.000Z",
+      endsAt: "2099-10-10T17:30:00.000Z",
+    });
+  });
+
+  it("stays disabled after a successful submit so a second tap cannot duplicate the match", async () => {
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    render(<CreateMatchForm onSubmit={onSubmit} />);
+    fillRequired();
+
+    fireEvent.click(screen.getByRole("button", { name: t.submit }));
+
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+    expect(screen.getByRole("button", { name: t.submitting }).hasAttribute("disabled")).toBe(true);
+  });
+
+  it("announces the price preview politely to screen readers", () => {
+    render(<CreateMatchForm onSubmit={vi.fn()} />);
+
+    expect(screen.getByTestId("price-per-player").closest("[aria-live]")?.getAttribute("aria-live")).toBe(
+      "polite",
+    );
+  });
 });
