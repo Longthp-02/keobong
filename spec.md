@@ -67,11 +67,12 @@ Confirmed:
 - Confirmed by Long (2026-10-04): no-show disputes go to lienhe@daghep.vn and the admin removes wrong marks (in-app "Dispute" button later); no phone number collected in MVP (revisit if users evade no-show marks with new accounts); scam or harassment accounts can be locked; browser location is used only for the nearby search, not saved to the profile (may appear in technical logs up to 30 days); on account deletion, guest names the user entered are deleted and shown as "Guest".
 - Operator named in legal pages: Pham Trinh Hoang Long (personal project); contact lienhe@daghep.vn.
 
-Proposed in design, not yet confirmed — TODO: verify:
-- Slot capacity per format: 10 / 14 / 22 players.
-- Price per player = total fee ÷ capacity, rounded up to the nearest 1,000 VND.
-- Who can host: any signed-in user (with a `host_type` of player or venue).
-- Cancellation rules for hosts and players.
+- Slot capacity (2026-10-04): default includes substitutes so players can rotate — 5-a-side 14 (10 + 4), 7-a-side 18 (14 + 4), 11-a-side 28 (22 + 6). The host can change it.
+- Price per player (2026-10-04): total fee ÷ slot count, rounded up to the nearest 1,000 VND; the host keeps the small remainder.
+- Who can host (2026-10-04): any signed-in user. Venues use the same flow; a "verified venue" badge comes later.
+- Cancellation (2026-10-04): the host can cancel a match and slot holders see "match cancelled" on the page; refunds are between players and host (the app holds no money). A player can leave before kickoff; leaving within 2 hours of kickoff lets the host mark a no-show.
+
+- Match limits (confirmed by Long 2026-10-04): total fee 0–100,000,000 VND (zero-fee matches are allowed); 2–30 slots; a match starts in the future and at most 30 days ahead; lasts at most 4 hours; starts and ends on the same day in Ho Chi Minh City time (no matches past midnight).
 
 ## Data / State Needed
 User (identity provider, display name, level, stats), Match (venue, location point, start/end, format, type, level range, fee, host, status, share id), Slot (match, team, position, player, joined at, payment status, attendance), Host payment profile (bank BIN, account number, account name).

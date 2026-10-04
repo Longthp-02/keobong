@@ -21,6 +21,9 @@ Walking skeleton done (plan Steps 1-2): `GET /api/matches/{shareId}` (Rust/Axum/
 - Level steps of 0.5 confirmed by Long (2026-10-04); enforced in `Level` and a DB CHECK.
 - Public match API sends `Cache-Control: public, max-age=30`; the web match page uses ISR (revalidate 30s) so a CDN can absorb share-link bursts.
 - Legal pages (2026-10-04): /privacy and /terms (content in vi.json), required for Zalo/Google app registration. Public visibility, deletion/anonymization, minimum age 16 and operator name confirmed by Long (see spec.md Domain Rules). Vercel functions pinned to sin1 via frontend/vercel.json.
+- Rules confirmed 2026-10-04 for Step 3: default slots with substitutes 14/18/28 (host can edit), price rounded up to 1,000 VND, any signed-in user can host, host can cancel, player can leave (within 2h of kickoff the host may mark a no-show).
+- Step 3 plan approved: 3a create match, 3b Google sign-in + sessions, 3c slots and race-safe claiming, 3d VietQR + payment confirmation + 30-min release + cancel, 3e Zalo login + backend deploy (Cloud Run + Neon).
+- Public IDs (not secrets): Zalo App ID 3441994593394325596; Google OAuth Client ID 669288809087-96o9da5roaa70da6m0grt0102ggih5oo.apps.googleusercontent.com. Secrets live only with Long / Secret Manager.
 - Skeleton decisions (2026-10-04): malformed and unknown share ids both return 404 `match_not_found`; public match view exposes no internal id and no payment details; match stores explicit `slot_count` and `total_fee_vnd` (no per-player price shown until rounding is confirmed); migrations run via `daghep-api migrate`, not on startup; tests use `#[sqlx::test]` against real PostGIS.
 
 ## Open Questions
@@ -33,4 +36,4 @@ Walking skeleton done (plan Steps 1-2): `GET /api/matches/{shareId}` (Rust/Axum/
 - Before deploy: GCP project with billing + budget alert, Neon project (Singapore), Vercel account.
 
 ## Next Safe Step
-Plan Step 3 with `prompts/plan-first.md`: create-match endpoint + form, then Google sign-in, then race-safe slot claiming.
+PR 3b: Google sign-in with sessions in Postgres; then require sign-in to create matches.

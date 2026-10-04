@@ -6,7 +6,8 @@
     "comingSoon": "Đang xây dựng. Sắp ra mắt ở Quận 2.",
     "privacyLink": "Chính sách bảo mật",
     "termsLink": "Điều khoản sử dụng",
-    "legalNav": "Pháp lý"
+    "legalNav": "Pháp lý",
+    "createLink": "Tạo kèo"
   },
   "match": {
     "format": {
@@ -24,7 +25,8 @@
     "slots": "Số người",
     "slotsUnit": "người",
     "notFoundTitle": "Không tìm thấy kèo",
-    "notFoundBody": "Kèo này không tồn tại hoặc đã bị xoá."
+    "notFoundBody": "Kèo này không tồn tại hoặc đã bị xoá.",
+    "pricePerPlayer": "Mỗi người"
   },
   "legal": {
     "contactEmail": "lienhe@daghep.vn",
@@ -181,5 +183,36 @@
     },
     "operatorName": "Phạm Trịnh Hoàng Long",
     "minimumAgePhrase": "từ 16 tuổi trở lên"
+  },
+  "create": {
+    "title": "Tạo kèo",
+    "venue": "Sân",
+    "venuePlaceholder": "VD: Sân SSA, Quận 2",
+    "date": "Ngày",
+    "startTime": "Giờ bắt đầu",
+    "endTime": "Giờ kết thúc",
+    "format": "Loại sân",
+    "matchType": "Kiểu trận",
+    "levelMin": "Level từ",
+    "levelMax": "Level đến",
+    "totalFee": "Tổng tiền sân (đ)",
+    "slotCount": "Số chỗ (gồm dự bị)",
+    "slotHint": "Mặc định đã gồm người dự bị để thay ra thay vào.",
+    "pricePerPlayer": "Mỗi người",
+    "submit": "Đăng kèo & lấy link chia sẻ",
+    "submitting": "Đang tạo…",
+    "unexpectedError": "Có lỗi xảy ra, vui lòng thử lại.",
+    "errors": {
+      "venueName": "Nhập tên sân (tối đa 120 ký tự).",
+      "startsAt": "Chọn ngày và giờ bắt đầu trong vòng 30 ngày tới.",
+      "endsAt": "Giờ kết thúc phải sau giờ bắt đầu, trong cùng ngày, tối đa 4 tiếng.",
+      "format": "Chọn loại sân.",
+      "matchType": "Chọn kiểu trận.",
+      "levelMin": "Level phải từ 1.0 đến 5.0, bước 0.5.",
+      "levelMax": "Level đến phải lớn hơn hoặc bằng level từ.",
+      "totalFeeVnd": "Nhập tiền sân là số nguyên từ 0 đến 100.000.000đ.",
+      "slotCount": "Số chỗ phải là số nguyên từ 2 đến 30.",
+      "unknown": "Thông tin chưa hợp lệ, vui lòng kiểm tra lại."
+    }
   }
 }

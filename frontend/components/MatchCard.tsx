@@ -15,6 +15,10 @@ export function MatchCard({ match }: { match: MatchView }) {
         <p className="match-card__date">{formatMatchDate(match.startsAt)}</p>
         <p className="match-card__time">{formatTimeRange(match.startsAt, match.endsAt)}</p>
         <h1 className="match-card__venue">{match.venueName}</h1>
+        <p className="match-card__price">
+          <span>{t.pricePerPlayer}</span>
+          <strong data-testid="match-price">{formatVnd(match.pricePerPlayerVnd)}</strong>
+        </p>
       </header>
       <dl className="match-card__stats">
         <div>
