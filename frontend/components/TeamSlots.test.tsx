@@ -146,6 +146,34 @@ describe("TeamSlots", () => {
     expect(api.leave).toHaveBeenCalledWith(SHARE_ID);
   });
 
+  it("offers sign-in again when the session expired while joining", async () => {
+    const api = client({ status: "out" }, { join: vi.fn().mockResolvedValue({ ok: false, error: "unauthenticated" }) });
+    render(<TeamSlots shareId={SHARE_ID} startsAt={FUTURE} initialRoster={roster()} client={api} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: fill(t.join, { team: t.team.a }) }));
+
+    expect(await screen.findByRole("link", { name: t.signInToJoin })).toBeTruthy();
+  });
+
+  it("closes the form when the server says the match has started", async () => {
+    const api = client({ status: "out" }, { join: vi.fn().mockResolvedValue({ ok: false, error: "match_started" }) });
+    render(<TeamSlots shareId={SHARE_ID} startsAt={FUTURE} initialRoster={roster()} client={api} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: fill(t.join, { team: t.team.a }) }));
+
+    expect(await screen.findByText(t.started)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: fill(t.join, { team: t.team.a }) })).toBeNull();
+  });
+
+  it("offers a retry when the player's own place cannot be loaded", async () => {
+    const mine = vi.fn().mockRejectedValueOnce(new Error("down")).mockResolvedValue({ status: "out" });
+    render(<TeamSlots shareId={SHARE_ID} startsAt={FUTURE} initialRoster={roster()} client={client({ status: "out" }, { mine })} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: t.retry }));
+
+    expect(await screen.findByRole("button", { name: fill(t.join, { team: t.team.a }) })).toBeTruthy();
+  });
+
   it("shows no actions once the match has started", async () => {
     const api = client({ status: "out" });
     render(

@@ -148,6 +148,7 @@ fn internal_error(context: &str, err: &dyn std::fmt::Display) -> Response {
 fn invalid(field: &str) -> Response {
     (
         StatusCode::UNPROCESSABLE_ENTITY,
+        [(CACHE_CONTROL, PRIVATE)],
         Json(json!({ "error": "invalid_slot_request", "field": field })),
     )
         .into_response()
@@ -185,8 +186,12 @@ async fn post_join(
     Path(share_id): Path<String>,
     body: Result<Json<JoinBody>, JsonRejection>,
 ) -> Response {
-    let Ok(Json(body)) = body else {
-        return error(StatusCode::BAD_REQUEST, "invalid_request");
+    let body = match body {
+        Ok(Json(body)) => body,
+        Err(rejection) if rejection.status() == StatusCode::PAYLOAD_TOO_LARGE => {
+            return error(StatusCode::PAYLOAD_TOO_LARGE, "payload_too_large");
+        }
+        Err(_) => return error(StatusCode::BAD_REQUEST, "invalid_request"),
     };
     let Some(team) = Team::parse(&body.team) else {
         return invalid("team");

@@ -1,8 +1,18 @@
 //! Text rules shared by all features for user-visible names.
 
-/// Control characters break storage and logs; bidi overrides can disguise text.
+/// Control characters break storage and logs; bidi overrides can disguise
+/// text; zero-width and other invisible format characters can make a name
+/// look blank or impersonate another.
 pub fn is_disallowed_in_names(c: char) -> bool {
-    c.is_control() || matches!(c, '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}')
+    c.is_control()
+        || matches!(
+            c,
+            '\u{200B}'..='\u{200F}'
+                | '\u{202A}'..='\u{202E}'
+                | '\u{2060}'..='\u{2064}'
+                | '\u{2066}'..='\u{2069}'
+                | '\u{FEFF}'
+        )
 }
 
 /// Trims a name, drops disallowed characters and caps its length.
@@ -31,6 +41,12 @@ mod tests {
         assert_eq!(clean_name("Lo\u{0}ng\u{202E}", 80).as_deref(), Some("Long"));
         assert_eq!(clean_name("abcdef", 3).as_deref(), Some("abc"));
         assert_eq!(clean_name(" \u{0} ", 80), None);
+    }
+
+    #[test]
+    fn invisible_characters_are_removed() {
+        assert_eq!(clean_name("\u{200B}\u{FEFF}\u{2060}\u{200E}", 80), None);
+        assert_eq!(clean_name("A\u{200B}n", 80).as_deref(), Some("An"));
     }
 
     #[test]

@@ -53,7 +53,8 @@ backend/
 - No microservices, brokers or Redis until measurements justify them. Feature modules are the seams for any later split.
 
 ## Key Design Decisions
-- **Slot claiming:** one row per slot, unique `(match_id, team, position)`; claim with `UPDATE ... SET player_id = $1 WHERE id = $2 AND player_id IS NULL`, checking rows affected; unique `(match_id, player_id)` if one slot per player is confirmed.
+- **Slot claiming (PR 3c):** players pick a team, not a position, so a place is a row inserted on join (own place or named guest) and released by setting `released_at`. The claim transaction runs at READ COMMITTED, locks the match row with `FOR NO KEY UPDATE`, counts active places in the team and inserts the whole group, so concurrent joins queue per match and never overbook. A partial unique index allows one own active place per user per match.
+- **Boundary exception (PR 3c, TODO: verify with Long):** `slots/repo.rs` reads and locks the `matches` row directly, because the capacity check and the insert must be in one transaction. It reads only `id`, `slot_count` and `starts_at`. Everything else goes through public feature APIs.
 - **Geo search:** `geography(Point, 4326)` with a GiST index and `ST_DWithin`.
 - **Money:** integer VND (`i64`); no floating point.
 - **Share ids:** short, random, unguessable; internal ids never appear in URLs.

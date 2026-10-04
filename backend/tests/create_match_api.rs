@@ -281,3 +281,13 @@ async fn cross_site_match_creation_is_refused(pool: PgPool) {
     assert_eq!(status, StatusCode::FORBIDDEN);
     assert_eq!(body, json!({ "error": "forbidden_origin" }));
 }
+
+#[sqlx::test]
+async fn oversized_request_bodies_are_refused(pool: PgPool) {
+    let request = with(valid_request(), "venueName", json!("x".repeat(20_000)));
+
+    let (status, body) = send(pool, post_json(request)).await;
+
+    assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE);
+    assert_eq!(body, json!({ "error": "payload_too_large" }));
+}

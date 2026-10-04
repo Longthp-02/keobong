@@ -328,6 +328,27 @@ async fn places_are_fixed_once_the_match_starts(pool: PgPool) {
         (status, body),
         (StatusCode::CONFLICT, json!({ "error": "match_started" }))
     );
+
+    // One second before kickoff, leaving was still possible.
+    clock.advance(-Duration::seconds(1));
+    let (status, _) = send(&app, leave(&share_id, &p1)).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+}
+
+#[sqlx::test]
+async fn oversized_request_bodies_are_refused(pool: PgPool) {
+    let app = app(pool);
+    let share_id = create_match(&app, 18).await;
+    let player = sign_in(&app, "p1").await;
+    let huge: Vec<String> = (0..10_000).map(|i| format!("guest-{i}")).collect();
+
+    let (status, _) = send(
+        &app,
+        join(&share_id, &player, json!({ "team": "a", "guests": huge })),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE);
 }
 
 #[sqlx::test]
@@ -336,9 +357,17 @@ async fn concurrent_joins_never_overbook_a_team(pool: PgPool) {
     // 4 places: 2 per team.
     let share_id = create_match(&app, 4).await;
     let mut sessions = Vec::new();
-    for i in 0..10 {
+    for i in 0..4 {
         sessions.push(sign_in(&app, &format!("racer-{i}")).await);
     }
+    // Make the race certain: while this lock is held, every join can read and
+    // count places but no join can insert. Without the claim's lock on the
+    // match, they would all count "0 taken" and then all insert.
+    let mut gate = pool.begin().await.unwrap();
+    sqlx::query("LOCK TABLE slots IN SHARE MODE")
+        .execute(&mut *gate)
+        .await
+        .unwrap();
 
     let tasks: Vec<_> = sessions
         .into_iter()
@@ -348,6 +377,8 @@ async fn concurrent_joins_never_overbook_a_team(pool: PgPool) {
             tokio::spawn(async move { call(&app, request).await.status() })
         })
         .collect();
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    gate.commit().await.unwrap();
     let mut statuses = Vec::new();
     for task in tasks {
         statuses.push(task.await.unwrap());
@@ -361,7 +392,7 @@ async fn concurrent_joins_never_overbook_a_team(pool: PgPool) {
         .iter()
         .filter(|s| **s == StatusCode::CONFLICT)
         .count();
-    assert_eq!((created, full), (2, 8), "{statuses:?}");
+    assert_eq!((created, full), (2, 2), "{statuses:?}");
     let active: i64 =
         sqlx::query_scalar("SELECT count(*) FROM slots WHERE team = 'a' AND released_at IS NULL")
             .fetch_one(&pool)
@@ -416,9 +447,9 @@ async fn joins_wait_for_the_match_lock(pool: PgPool) {
     let app = app(pool.clone());
     let share_id = create_match(&app, 18).await;
     let player = sign_in(&app, "p1").await;
-    // NO KEY UPDATE conflicts with the claim's FOR UPDATE but not with the
-    // KEY SHARE lock a slot insert's foreign key takes, so only the claim's
-    // own lock can make the join wait.
+    // NO KEY UPDATE conflicts with the claim's own NO KEY UPDATE but not with
+    // the KEY SHARE lock a slot insert's foreign key takes, so only the
+    // claim's lock can make the join wait.
     let mut other = pool.begin().await.unwrap();
     sqlx::query("SELECT id FROM matches WHERE share_id = $1 FOR NO KEY UPDATE")
         .bind(&share_id)

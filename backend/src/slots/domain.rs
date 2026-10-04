@@ -56,8 +56,8 @@ impl GuestNames {
         }
         raw.iter()
             .map(|name| {
-                // Reject rather than silently truncate: the holder should see what is shown.
-                let cleaned = clean_name(name, GUEST_NAME_MAX_CHARS + 1)?;
+                // Reject rather than truncate: the holder should see what is shown.
+                let cleaned = clean_name(name, usize::MAX)?;
                 (cleaned.chars().count() <= GUEST_NAME_MAX_CHARS).then_some(cleaned)
             })
             .collect::<Option<Vec<_>>>()
@@ -239,6 +239,8 @@ mod tests {
         assert!(GuestNames::parse(&names(&["\u{0}"])).is_none());
         assert!(GuestNames::parse(&["x".repeat(41)]).is_none());
         assert!(GuestNames::parse(&["x".repeat(40)]).is_some());
+        // Rejected, not truncated to the first 40 characters.
+        assert!(GuestNames::parse(&[format!("{} y", "x".repeat(40))]).is_none());
         assert_eq!(GuestNames::parse(&[]).unwrap().party_size(), 1);
     }
 

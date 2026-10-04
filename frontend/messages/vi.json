@@ -258,6 +258,7 @@
       "guests": "Tên bạn đi cùng phải có từ 1 đến 40 ký tự.",
       "unauthenticated": "Phiên đăng nhập đã hết hạn. Hãy đăng nhập lại.",
       "unexpected": "Có lỗi xảy ra. Hãy thử lại."
-    }
+    },
+    "retry": "Thử lại"
   }
 }

@@ -2,8 +2,12 @@
 //!
 //! Claiming must check capacity and write in one atomic step, so this adapter
 //! reads the `matches` row itself (id, slot count, kickoff) and locks it with
-//! `FOR UPDATE`: concurrent joins to the same match queue up instead of
-//! overbooking. This is the only place slots read the matches table.
+//! `FOR NO KEY UPDATE`: concurrent joins and leaves for the same match queue up
+//! instead of overbooking, while inserts elsewhere that reference the match
+//! (their foreign keys take `KEY SHARE`) are not blocked. The count after the
+//! lock must see the previous claim's rows, so these transactions run at READ
+//! COMMITTED explicitly, whatever the database default is. This is the only
+//! place slots read the matches table (see docs/architecture.md).
 
 use chrono::{DateTime, Utc};
 use sqlx::{PgPool, Postgres, Transaction};
@@ -41,11 +45,17 @@ async fn lock_match(
     tx: &mut Transaction<'_, Postgres>,
     share_id: &ShareId,
 ) -> Result<Option<LockedMatch>, RepoError> {
-    sqlx::query_as("SELECT id, slot_count, starts_at FROM matches WHERE share_id = $1 FOR UPDATE")
-        .bind(share_id.as_str())
-        .fetch_optional(&mut **tx)
+    sqlx::query("SET TRANSACTION ISOLATION LEVEL READ COMMITTED")
+        .execute(&mut **tx)
         .await
-        .map_err(unavailable)
+        .map_err(unavailable)?;
+    sqlx::query_as(
+        "SELECT id, slot_count, starts_at FROM matches WHERE share_id = $1 FOR NO KEY UPDATE",
+    )
+    .bind(share_id.as_str())
+    .fetch_optional(&mut **tx)
+    .await
+    .map_err(unavailable)
 }
 
 async fn match_id(pool: &PgPool, share_id: &ShareId) -> Result<Option<(i64, i16)>, RepoError> {
@@ -136,7 +146,8 @@ impl SlotRepository for PgSlotRepository {
             return Ok(ReleaseOutcome::Rejected(reason));
         }
         let released = sqlx::query(
-            "UPDATE slots SET released_at = $3
+            // GREATEST: app instances' clocks may differ slightly.
+            "UPDATE slots SET released_at = GREATEST(claimed_at, $3)
              WHERE match_id = $1 AND holder_user_id = $2 AND released_at IS NULL",
         )
         .bind(locked.id)

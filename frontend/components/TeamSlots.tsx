@@ -87,6 +87,7 @@ export function TeamSlots({ shareId, startsAt, initialRoster, client = defaultCl
   const [guests, setGuests] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [loadFailed, setLoadFailed] = useState(false);
 
   const refreshRoster = useCallback(async () => {
     try {
@@ -96,12 +97,17 @@ export function TeamSlots({ shareId, startsAt, initialRoster, client = defaultCl
     }
   }, [client, shareId]);
 
+  const loadMine = useCallback(() => {
+    setLoadFailed(false);
+    client.mine(shareId).then(setMine, () => setLoadFailed(true));
+  }, [client, shareId]);
+
   useEffect(() => {
     setStarted(Date.parse(startsAt) <= Date.now());
-    client.mine(shareId).then(setMine, () => setError(t.errors.unexpected));
+    loadMine();
     // The page itself is cached for up to 30 seconds; show who has joined since.
     void refreshRoster();
-  }, [client, shareId, startsAt, refreshRoster]);
+  }, [startsAt, loadMine, refreshRoster]);
 
   const partySize = 1 + guests.length;
   const fits = (candidate: TeamView) => openPlaces(candidate) >= partySize;
@@ -110,6 +116,13 @@ export function TeamSlots({ shareId, startsAt, initialRoster, client = defaultCl
 
   function showError(code: SlotError) {
     setError(t.errors[code]);
+    // Move the UI to the state the server reported.
+    if (code === "unauthenticated") {
+      setMine({ status: "signedOut" });
+    }
+    if (code === "match_started") {
+      setStarted(true);
+    }
   }
 
   async function join(event: FormEvent<HTMLFormElement>) {
@@ -164,6 +177,13 @@ export function TeamSlots({ shareId, startsAt, initialRoster, client = defaultCl
   function actions() {
     if (started) {
       return <p className="muted">{t.started}</p>;
+    }
+    if (loadFailed) {
+      return (
+        <button type="button" className="button-secondary" onClick={loadMine}>
+          {t.retry}
+        </button>
+      );
     }
     if (!mine) {
       return null;

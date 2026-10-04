@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { slotsClient } from "./slots";
+import { emptyRoster, slotsClient } from "./slots";
 
 function respond(status: number, body?: unknown) {
   return vi.fn().mockResolvedValue(
@@ -11,6 +11,17 @@ function respond(status: number, body?: unknown) {
 }
 
 const roster = { teams: [{ team: "a", capacity: 9, players: [] }, { team: "b", capacity: 9, players: [] }] };
+
+describe("emptyRoster", () => {
+  it("splits places like the API, with team A taking the odd one", () => {
+    expect(emptyRoster(15)).toEqual({
+      teams: [
+        { team: "a", capacity: 8, players: [] },
+        { team: "b", capacity: 7, players: [] },
+      ],
+    });
+  });
+});
 
 describe("slotsClient", () => {
   it("reads a fresh roster through the site's own /api proxy", async () => {

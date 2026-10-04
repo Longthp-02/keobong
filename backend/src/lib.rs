@@ -10,7 +10,7 @@ pub mod text;
 
 use std::sync::Arc;
 
-use axum::extract::{Request, State};
+use axum::extract::{DefaultBodyLimit, Request, State};
 use axum::http::header::ORIGIN;
 use axum::http::{Method, StatusCode};
 use axum::middleware::{self, Next};
@@ -23,6 +23,8 @@ use tower_http::trace::TraceLayer;
 
 use crate::auth::domain::IdentityProvider;
 use crate::clock::Clock;
+
+const MAX_BODY_BYTES: usize = 16 * 1024;
 
 /// Embedded migrations, run by `daghep-api migrate` (not on every cold start).
 pub static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
@@ -58,6 +60,8 @@ pub fn app(deps: Deps) -> Router {
             deps.clock,
             auth_state,
         ))
+        // Every request body is small JSON; refuse anything bigger before parsing.
+        .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
         .layer(middleware::from_fn_with_state(
             Arc::<str>::from(deps.frontend_origin),
             same_origin_guard,

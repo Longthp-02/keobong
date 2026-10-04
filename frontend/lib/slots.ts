@@ -41,6 +41,16 @@ export type SlotsClient = {
   leave(shareId: string): Promise<LeaveResult>;
 };
 
+/** A roster with nobody in it, split like the API: team A takes the odd place. */
+export function emptyRoster(slotCount: number): RosterView {
+  return {
+    teams: [
+      { team: "a", capacity: Math.ceil(slotCount / 2), players: [] },
+      { team: "b", capacity: Math.floor(slotCount / 2), players: [] },
+    ],
+  };
+}
+
 type PlaceBody = { joined: boolean; team?: Team; guests?: string[] };
 
 function toPlace(body: PlaceBody): MyPlace {
