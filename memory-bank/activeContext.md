@@ -3,7 +3,7 @@
 > Update after every meaningful AI session.
 
 ## Current Focus
-Walking skeleton done (plan Steps 1-2): `GET /api/matches/{shareId}` (Rust/Axum/sqlx/PostGIS) rendered by Next.js at `/m/{shareId}`, with CI. Next: Step 3 (create match, Google sign-in, take a slot).
+Step 3 in progress: 3a create match (merged, PR #4) and 3b Google sign-in + sessions (PR open). Next: 3c take a slot.
 
 ## Latest Decisions
 - Name: Daghep (UI: "Da Ghep" with Vietnamese diacritics in vi.json); domain daghep.vn owned by Long (active). Renamed from "Keo" because "keo bong" reads as football betting slang.
@@ -36,4 +36,4 @@ Walking skeleton done (plan Steps 1-2): `GET /api/matches/{shareId}` (Rust/Axum/
 - Before deploy: GCP project with billing + budget alert, Neon project (Singapore), Vercel account.
 
 ## Next Safe Step
-PR 3b: Google sign-in with sessions in Postgres; then require sign-in to create matches.
+PR 3c: slots with race-safe claiming.

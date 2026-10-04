@@ -6,10 +6,11 @@
 - UI design prototype (external Claude Design canvas).
 - Backend (`backend/`): Axum app with `GET /health` and `GET /api/matches/{shareId}`; `matches` feature split into domain / service / repo / http; first migration (`matches` table, PostGIS, GiST index); `daghep-api migrate` subcommand; lazy DB pool for fast cold starts; multi-stage Dockerfile.
 - Frontend (`frontend/`): Next.js 16 PWA with home page, `/m/[shareId]` match page (server-rendered, Open Graph tags without payment details), not-found page, web manifest, `messages/vi.json`.
-- Tests: backend 18 unit + 18 acceptance/integration; frontend 40.
+- Tests: backend 37 unit + 35 acceptance/integration; frontend 54.
 - Production web: https://daghep.vn on Vercel (www redirects to apex); DNS at iNET.
 - Legal pages: `/privacy`, `/terms`, footer links, `LegalPage` tests.
 - Create match (PR 3a): `POST /api/matches` (validation, share id generation with retry, Clock port), `pricePerPlayerVnd` in the public view, `/create` form with live price preview. Limits: fee 0–100M VND, 2–30 slots, start within 30 days, max 4 hours, same HCMC day. `/create` hidden in production until `API_BASE_URL` is set.
+- Google sign-in (PR 3b): OAuth code flow with PKCE/state/nonce in `backend/src/auth/`, sessions in Postgres (hashed tokens, 30 days), `/api/me`, sign-out, same-origin guard for non-GET requests; `POST /api/matches` requires sign-in and stores `host_user_id`; frontend proxies `/api/*`, sign-in prompt and account bar on `/create`, `/login-failed`. Real Google login not yet exercised (needs the client secret; verify at deploy).
 - CI: `.github/workflows/ci.yml` (backend fmt/clippy/test with PostGIS service; frontend typecheck/test/build).
 - Local dev: `docker-compose.yml` with PostGIS.
 

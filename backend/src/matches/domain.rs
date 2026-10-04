@@ -4,6 +4,9 @@ use std::future::Future;
 
 use chrono::{DateTime, Duration, FixedOffset, Utc};
 
+use crate::auth::UserId;
+use crate::text::is_disallowed_in_names;
+
 /// Public, unguessable identifier used in share links. Internal ids never leave the database.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ShareId(String);
@@ -96,15 +99,12 @@ const SHARE_ID_ALPHABET: &[u8; 64] =
     b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-";
 const SHARE_ID_LEN: usize = 10;
 
-#[derive(Debug, thiserror::Error)]
-#[error("random source unavailable: {0}")]
-pub struct RandomnessError(String);
+pub use crate::random::RandomnessError;
 
 impl ShareId {
     /// Random 10-character id (60 bits of entropy) from the OS random source.
     pub fn generate() -> Result<Self, RandomnessError> {
-        let mut bytes = [0u8; SHARE_ID_LEN];
-        getrandom::fill(&mut bytes).map_err(|e| RandomnessError(e.to_string()))?;
+        let bytes = crate::random::random_bytes::<SHARE_ID_LEN>()?;
         let id = bytes
             .iter()
             .map(|b| char::from(SHARE_ID_ALPHABET[usize::from(b & 63)]))
@@ -179,11 +179,6 @@ pub struct NewMatch {
     pub level_max: Level,
     pub total_fee_vnd: i64,
     pub slot_count: i16,
-}
-
-/// Control characters break storage and logs; bidi overrides can disguise text.
-fn is_disallowed_in_names(c: char) -> bool {
-    c.is_control() || matches!(c, '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}')
 }
 
 impl NewMatch {
@@ -324,21 +319,11 @@ pub trait MatchRepository: Send + Sync {
         &self,
         share_id: &ShareId,
         new: &NewMatch,
+        host: UserId,
     ) -> impl Future<Output = Result<(), InsertError>> + Send;
 }
 
-/// Time source, injected so rules like "must start in the future" are testable.
-pub trait Clock: Send + Sync {
-    fn now(&self) -> DateTime<Utc>;
-}
-
-pub struct SystemClock;
-
-impl Clock for SystemClock {
-    fn now(&self) -> DateTime<Utc> {
-        Utc::now()
-    }
-}
+pub use crate::clock::{Clock, SystemClock};
 
 #[cfg(test)]
 mod tests {

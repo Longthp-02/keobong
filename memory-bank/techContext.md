@@ -4,7 +4,7 @@
 - **Data access:** sqlx; migrations in `backend/migrations/`, embedded in the binary and applied with `daghep-api migrate` (never on every cold start).
 - **Database:** PostgreSQL + PostGIS (`geography(Point)`, GiST index).
 - **Frontend:** Next.js + TypeScript, PWA manifest; package manager pnpm 10; Next.js 16, React 19, TypeScript strict. UI copy in `frontend/messages/vi.json`.
-- **Auth:** Google OIDC + Zalo OAuth (Zalo for Developers app registration needed). Sessions in Postgres, signed HTTP-only cookie.
+- **Auth:** Google OIDC + Zalo OAuth (Zalo for Developers app registration needed). Sessions in Postgres; the HttpOnly cookie holds an opaque random token and only its SHA-256 hash is stored.
 - **Observability:** `tracing` with JSON logs; no secrets or bank numbers in logs.
 - **Local setup assumptions:** Docker for PostGIS; rustup stable; Node LTS.
 - **Test tools:** `cargo test` with `#[sqlx::test]` (fresh database per test against the PostGIS at `DATABASE_URL`: docker compose locally, a `postgis/postgis` service container in CI); Vitest + Testing Library on the frontend; Playwright end-to-end planned for Step 3.

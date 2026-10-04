@@ -2,36 +2,28 @@
 //! The clock is fixed a few days before the 2099 matches used here, so the
 //! "starts in the future, at most 30 days ahead" rules hold.
 
+mod common;
+
 use axum::body::Body;
 use axum::http::{Request, StatusCode, header};
-use http_body_util::BodyExt;
 use serde_json::{Value, json};
 use sqlx::PgPool;
-use tower::ServiceExt;
-
-struct FixedClock(&'static str);
-
-impl daghep_api::matches::domain::Clock for FixedClock {
-    fn now(&self) -> chrono::DateTime<chrono::Utc> {
-        self.0.parse().unwrap()
-    }
-}
 
 async fn send(pool: PgPool, request: Request<Body>) -> (StatusCode, Value) {
-    send_at("2099-10-01T00:00:00Z", pool, request).await
+    send_at(common::NOW, pool, request).await
 }
 
-async fn send_at(now: &'static str, pool: PgPool, request: Request<Body>) -> (StatusCode, Value) {
-    let app = daghep_api::app_with_clock(pool, std::sync::Arc::new(FixedClock(now)));
-    let response = app.oneshot(request).await.unwrap();
+/// Sends the request as a signed-in host, with "now" fixed at `now`.
+async fn send_at(now: &str, pool: PgPool, mut request: Request<Body>) -> (StatusCode, Value) {
+    let app = common::app_with(pool, common::TestClock::at(now), common::FRONTEND);
+    let session = common::sign_in(&app, "host-1").await;
+    request.headers_mut().insert(
+        header::COOKIE,
+        format!("daghep_session={session}").parse().unwrap(),
+    );
+    let response = common::call(&app, request).await;
     let status = response.status();
-    let bytes = response.into_body().collect().await.unwrap().to_bytes();
-    let body = if bytes.is_empty() {
-        Value::Null
-    } else {
-        serde_json::from_slice(&bytes).unwrap()
-    };
-    (status, body)
+    (status, common::json_body(response).await)
 }
 
 fn post_json(body: Value) -> Request<Body> {
@@ -194,6 +186,7 @@ async fn repository_reports_a_taken_share_id_as_duplicate(pool: PgPool) {
         Format, InsertError, MatchRepository, MatchType, NewMatch, NewMatchInput, ShareId,
     };
 
+    let host = daghep_api::auth::UserId(common::insert_user(&pool).await);
     let repo = PgMatchRepository::new(pool);
     let new = NewMatch::validate(
         NewMatchInput {
@@ -211,9 +204,9 @@ async fn repository_reports_a_taken_share_id_as_duplicate(pool: PgPool) {
     )
     .unwrap();
     let id = ShareId::parse("k7Qm2xPa").unwrap();
-    repo.insert(&id, &new).await.unwrap();
+    repo.insert(&id, &new, host).await.unwrap();
 
-    let second = repo.insert(&id, &new).await;
+    let second = repo.insert(&id, &new, host).await;
 
     assert!(matches!(second, Err(InsertError::DuplicateShareId)));
 }
@@ -239,4 +232,52 @@ async fn match_cannot_run_past_midnight_in_ho_chi_minh_city(pool: PgPool) {
 
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert_eq!(body, json!({ "error": "invalid_match", "field": "endsAt" }));
+}
+
+#[sqlx::test]
+async fn creating_a_match_requires_sign_in(pool: PgPool) {
+    let app = common::app(pool.clone());
+
+    let response = common::call(&app, post_json(valid_request())).await;
+
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    assert_eq!(
+        common::json_body(response).await,
+        json!({ "error": "unauthenticated" })
+    );
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM matches")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(count, 0);
+}
+
+#[sqlx::test]
+async fn the_signed_in_user_becomes_the_host(pool: PgPool) {
+    let (status, created) = send(pool.clone(), post_json(valid_request())).await;
+    assert_eq!(status, StatusCode::CREATED);
+
+    let host: Option<String> = sqlx::query_scalar(
+        "SELECT i.subject FROM matches m
+         JOIN user_identities i ON i.user_id = m.host_user_id
+         WHERE m.share_id = $1",
+    )
+    .bind(created["shareId"].as_str().unwrap())
+    .fetch_optional(&pool)
+    .await
+    .unwrap();
+    assert_eq!(host.as_deref(), Some("host-1"));
+}
+
+#[sqlx::test]
+async fn cross_site_match_creation_is_refused(pool: PgPool) {
+    let mut request = post_json(valid_request());
+    request
+        .headers_mut()
+        .insert(header::ORIGIN, "https://evil.example".parse().unwrap());
+
+    let (status, body) = send(pool.clone(), request).await;
+
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert_eq!(body, json!({ "error": "forbidden_origin" }));
 }

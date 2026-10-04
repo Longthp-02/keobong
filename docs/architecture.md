@@ -59,7 +59,9 @@ backend/
 - **Share ids:** short, random, unguessable; internal ids never appear in URLs.
 - **Payment:** display-only; the backend builds the VietQR payload; payment status is a host-asserted flag.
 - **Time:** inject a `Clock` trait; store timestamps as `timestamptz`; display in Asia/Ho_Chi_Minh.
+- **Sign-in and sessions:** the API runs the whole OAuth flow (authorization code + PKCE S256, `state` bound to the browser by a short-lived cookie, OIDC `nonce`), storing each attempt in `oauth_login_attempts` (single use, 10 minutes). After sign-in the `daghep_session` cookie (HttpOnly, SameSite=Lax, Secure on HTTPS, 30 days) holds a random 256-bit token; `sessions` stores only its SHA-256. Vercel proxies `/api/*` to the API so the cookie is first-party on daghep.vn. State-changing requests with a foreign `Origin` get 403. Other features require a user with the `auth::AuthenticatedUser` extractor.
+- **Shared kernel:** `clock`, `random` and `text` hold cross-feature helpers; features otherwise talk only through each other's public API.
 - **Errors:** one error enum per feature mapped to HTTP status in `http.rs`; never `unwrap()` on runtime paths.
 
 ## TODO: verify
-Session cookie details, DB and frontend hosting, maps provider, whether venues get a separate module.
+DB and frontend hosting, maps provider, whether venues get a separate module.

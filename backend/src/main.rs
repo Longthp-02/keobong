@@ -2,9 +2,14 @@
 //! Usage: `daghep-api` serves HTTP; `daghep-api migrate` applies migrations and exits.
 
 use std::process::ExitCode;
+use std::sync::Arc;
 use std::time::Duration;
 
 use axum::http::{HeaderValue, Method};
+use daghep_api::Deps;
+use daghep_api::auth::domain::IdentityProvider;
+use daghep_api::auth::google::GoogleProvider;
+use daghep_api::clock::{Clock, SystemClock};
 use daghep_api::config::Config;
 use sqlx::postgres::PgPoolOptions;
 use tower_http::cors::CorsLayer;
@@ -52,13 +57,32 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    tracing::info!(cors_allowed_origin = %config.cors_allowed_origin, "configuration loaded");
+    tracing::info!(
+        frontend_origin = %config.frontend_origin,
+        google_sign_in = config.google.is_some(),
+        "configuration loaded"
+    );
 
     let cors = CorsLayer::new()
-        .allow_origin(config.cors_allowed_origin.parse::<HeaderValue>()?)
+        .allow_origin(config.frontend_origin.parse::<HeaderValue>()?)
         .allow_methods([Method::GET]);
 
-    let app = daghep_api::app(pool).layer(cors);
+    let clock: Arc<dyn Clock> = Arc::new(SystemClock);
+    let google = match config.google {
+        Some(google) => {
+            let provider: Arc<dyn IdentityProvider> =
+                Arc::new(GoogleProvider::new(google, clock.clone())?);
+            Some(provider)
+        }
+        None => None,
+    };
+    let app = daghep_api::app(Deps {
+        pool,
+        clock,
+        google,
+        frontend_origin: config.frontend_origin,
+    })
+    .layer(cors);
     let listener = tokio::net::TcpListener::bind(("0.0.0.0", config.port)).await?;
     tracing::info!(port = config.port, "listening");
     axum::serve(listener, app)
