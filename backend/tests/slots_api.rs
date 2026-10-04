@@ -360,6 +360,8 @@ async fn concurrent_joins_never_overbook_a_team(pool: PgPool) {
     for i in 0..4 {
         sessions.push(sign_in(&app, &format!("racer-{i}")).await);
     }
+    // Four racers plus this gate use all 5 connections of the sqlx test pool;
+    // more racers would wait for a connection until the pool times out.
     // Make the race certain: while this lock is held, every join can read and
     // count places but no join can insert. Without the claim's lock on the
     // match, they would all count "0 taken" and then all insert.
