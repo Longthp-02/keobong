@@ -2,7 +2,7 @@
 
 use std::future::Future;
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Duration, FixedOffset, Utc};
 
 /// Public, unguessable identifier used in share links. Internal ids never leave the database.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -126,6 +126,18 @@ pub const SLOT_COUNT_RANGE: std::ops::RangeInclusive<i16> = 2..=30;
 pub const VENUE_NAME_MAX_CHARS: usize = 120;
 /// Sanity guard, not a product rule (TODO: verify with Long): 100 million VND.
 pub const MAX_TOTAL_FEE_VND: i64 = 100_000_000;
+/// How far ahead a match can be created.
+pub const MAX_DAYS_AHEAD: i64 = 30;
+/// Longest allowed match.
+pub const MAX_DURATION_HOURS: i64 = 4;
+/// Matches are local to Ho Chi Minh City (UTC+7, no daylight saving time).
+const LOCAL_OFFSET_SECS: i32 = 7 * 3600;
+
+/// A match starts and ends on the same local calendar day.
+fn same_local_day(start: DateTime<Utc>, end: DateTime<Utc>) -> bool {
+    let offset = FixedOffset::east_opt(LOCAL_OFFSET_SECS).expect("valid offset");
+    start.with_timezone(&offset).date_naive() == end.with_timezone(&offset).date_naive()
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Field {
@@ -182,10 +194,13 @@ impl NewMatch {
         {
             return Err(Field::VenueName);
         }
-        if input.starts_at <= now {
+        if input.starts_at <= now || input.starts_at > now + Duration::days(MAX_DAYS_AHEAD) {
             return Err(Field::StartsAt);
         }
-        if input.ends_at <= input.starts_at {
+        if input.ends_at <= input.starts_at
+            || input.ends_at - input.starts_at > Duration::hours(MAX_DURATION_HOURS)
+            || !same_local_day(input.starts_at, input.ends_at)
+        {
             return Err(Field::EndsAt);
         }
         let level_min = Level::from_value(input.level_min).ok_or(Field::LevelMin)?;
@@ -427,7 +442,7 @@ mod tests {
     #[test]
     fn invalid_input_reports_the_first_bad_field() {
         type Case = (fn(&mut NewMatchInput), Field);
-        let cases: [Case; 8] = [
+        let cases: [Case; 12] = [
             (|i| i.venue_name = " ".into(), Field::VenueName),
             (|i| i.venue_name = "x".repeat(121), Field::VenueName),
             (
@@ -435,6 +450,35 @@ mod tests {
                 Field::StartsAt,
             ),
             (|i| i.ends_at = i.starts_at, Field::EndsAt),
+            // More than 30 days ahead of `now` (2026-10-04T00:00Z).
+            (
+                |i| {
+                    i.starts_at = "2026-11-03T00:00:01Z".parse().unwrap();
+                    i.ends_at = "2026-11-03T01:00:00Z".parse().unwrap();
+                },
+                Field::StartsAt,
+            ),
+            // Longer than 4 hours.
+            (
+                |i| i.ends_at = "2026-10-10T15:31:00Z".parse().unwrap(),
+                Field::EndsAt,
+            ),
+            // 22:30-00:30 in Ho Chi Minh City crosses midnight.
+            (
+                |i| {
+                    i.starts_at = "2026-10-10T15:30:00Z".parse().unwrap();
+                    i.ends_at = "2026-10-10T17:30:00Z".parse().unwrap();
+                },
+                Field::EndsAt,
+            ),
+            // Ending at exactly midnight still belongs to the next day.
+            (
+                |i| {
+                    i.starts_at = "2026-10-10T15:00:00Z".parse().unwrap();
+                    i.ends_at = "2026-10-10T17:00:00Z".parse().unwrap();
+                },
+                Field::EndsAt,
+            ),
             (|i| i.level_min = 1.2, Field::LevelMin),
             (|i| i.level_max = 2.0, Field::LevelMax),
             (|i| i.total_fee_vnd = -1, Field::TotalFeeVnd),
@@ -446,6 +490,17 @@ mod tests {
 
             assert_eq!(NewMatch::validate(bad, now()).unwrap_err(), field);
         }
+    }
+
+    #[test]
+    fn limits_are_inclusive() {
+        let mut edge = input();
+        // Exactly 30 days ahead, exactly 4 hours, ending 23:59 local time.
+        edge.starts_at = "2026-11-03T12:59:00Z".parse().unwrap();
+        edge.ends_at = "2026-11-03T16:59:00Z".parse().unwrap();
+        let now: DateTime<Utc> = "2026-10-04T12:59:00Z".parse().unwrap();
+
+        assert!(NewMatch::validate(edge, now).is_ok());
     }
 
     #[test]

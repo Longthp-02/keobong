@@ -4,6 +4,7 @@ import { type FormEvent, useState } from "react";
 import type { CreateMatchInput, MatchView } from "../lib/api";
 import { formatVnd } from "../lib/format";
 import {
+  MAX_DURATION_HOURS,
   MAX_SLOT_COUNT,
   MAX_TOTAL_FEE_VND,
   MIN_SLOT_COUNT,
@@ -23,15 +24,13 @@ type Props = {
 };
 
 /** Converts a date and time picked in Ho Chi Minh City (UTC+7, no DST) to a UTC ISO string. */
-function toUtcIso(date: string, time: string, addDays = 0): string {
-  const instant = new Date(`${date}T${time}:00+07:00`);
-  instant.setUTCDate(instant.getUTCDate() + addDays);
-  return instant.toISOString();
+function toUtcIso(date: string, time: string): string {
+  return new Date(`${date}T${time}:00+07:00`).toISOString();
 }
 
-/** An end time before the start time means the match ends after midnight. */
-function endsNextDay(startTime: string, endTime: string): boolean {
-  return Boolean(startTime && endTime) && endTime < startTime;
+function minutesOfDay(time: string): number {
+  const [hours, minutes] = time.split(":").map(Number);
+  return hours * 60 + minutes;
 }
 
 function parseWholeNumber(value: string): number | null {
@@ -51,7 +50,9 @@ function checkInputs(values: {
   slotCount: string;
 }): string | null {
   if (!values.date || !values.startTime) return "startsAt";
-  if (!values.endTime || values.endTime === values.startTime) return "endsAt";
+  // Same-day matches only: the end must be after the start, within the limit.
+  const duration = values.endTime ? minutesOfDay(values.endTime) - minutesOfDay(values.startTime) : 0;
+  if (duration <= 0 || duration > MAX_DURATION_HOURS * 60) return "endsAt";
   const fee = parseWholeNumber(values.totalFee);
   if (fee === null || fee < 0 || fee > MAX_TOTAL_FEE_VND) return "totalFeeVnd";
   const slots = parseWholeNumber(values.slotCount);
@@ -83,7 +84,6 @@ export function CreateMatchForm({ onSubmit }: Props) {
   const fee = parseWholeNumber(totalFee);
   const slots = parseWholeNumber(slotCount);
   const price = fee === null || slots === null ? null : pricePerPlayerVnd(fee, slots);
-  const nextDay = endsNextDay(startTime, endTime);
 
   function chooseFormat(next: MatchView["format"]) {
     setFormat(next);
@@ -111,7 +111,7 @@ export function CreateMatchForm({ onSubmit }: Props) {
       const rejected = await onSubmit({
         venueName,
         startsAt: toUtcIso(date, startTime),
-        endsAt: toUtcIso(date, endTime, nextDay ? 1 : 0),
+        endsAt: toUtcIso(date, endTime),
         format,
         matchType,
         levelMin,
@@ -183,7 +183,6 @@ export function CreateMatchForm({ onSubmit }: Props) {
           />
         </label>
       </div>
-      {nextDay ? <p className="muted field-hint">{t.nextDay}</p> : null}
 
       <fieldset className="field">
         <legend>{t.format}</legend>

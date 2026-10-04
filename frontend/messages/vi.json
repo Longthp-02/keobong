@@ -204,8 +204,8 @@
     "unexpectedError": "Có lỗi xảy ra, vui lòng thử lại.",
     "errors": {
       "venueName": "Nhập tên sân (tối đa 120 ký tự).",
-      "startsAt": "Chọn ngày và giờ bắt đầu ở tương lai.",
-      "endsAt": "Chọn giờ kết thúc.",
+      "startsAt": "Chọn ngày và giờ bắt đầu trong vòng 30 ngày tới.",
+      "endsAt": "Giờ kết thúc phải sau giờ bắt đầu, trong cùng ngày, tối đa 4 tiếng.",
       "format": "Chọn loại sân.",
       "matchType": "Chọn kiểu trận.",
       "levelMin": "Level phải từ 1.0 đến 5.0, bước 0.5.",
@@ -213,7 +213,6 @@
       "totalFeeVnd": "Nhập tiền sân là số nguyên từ 0 đến 100.000.000đ.",
       "slotCount": "Số chỗ phải là số nguyên từ 2 đến 30.",
       "unknown": "Thông tin chưa hợp lệ, vui lòng kiểm tra lại."
-    },
-    "nextDay": "Kết thúc vào hôm sau."
+    }
   }
 }

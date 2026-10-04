@@ -112,34 +112,32 @@ describe("CreateMatchForm", () => {
     expect(onSubmit).not.toHaveBeenCalled();
   });
 
-  it("rolls an end time before the start time over to the next day", async () => {
-    const onSubmit = vi.fn().mockResolvedValue(undefined);
-    render(<CreateMatchForm onSubmit={onSubmit} />);
-    fillRequired();
-    fireEvent.change(field(t.startTime), { target: { value: "22:30" } });
-    fireEvent.change(field(t.endTime), { target: { value: "00:30" } });
-
-    expect(screen.getByText(t.nextDay)).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: t.submit }));
-
-    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
-    expect(onSubmit.mock.calls[0][0]).toMatchObject({
-      startsAt: "2099-10-10T15:30:00.000Z",
-      endsAt: "2099-10-10T17:30:00.000Z",
-    });
-  });
-
-  it("rejects an end time equal to the start time instead of making a 24-hour match", async () => {
+  it.each([
+    ["before the start (no matches past midnight)", "22:30", "00:30"],
+    ["equal to the start", "18:30", "18:30"],
+    ["more than 4 hours after the start", "18:30", "22:31"],
+  ])("rejects an end time %s", async (_case, start, end) => {
     const onSubmit = vi.fn();
     render(<CreateMatchForm onSubmit={onSubmit} />);
     fillRequired();
-    fireEvent.change(field(t.endTime), { target: { value: "18:30" } });
+    fireEvent.change(field(t.startTime), { target: { value: start } });
+    fireEvent.change(field(t.endTime), { target: { value: end } });
 
-    expect(screen.queryByText(t.nextDay)).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: t.submit }));
 
     expect(await screen.findByRole("alert")).toHaveProperty("textContent", t.errors.endsAt);
     expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it("accepts a match of exactly 4 hours", async () => {
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    render(<CreateMatchForm onSubmit={onSubmit} />);
+    fillRequired();
+    fireEvent.change(field(t.endTime), { target: { value: "22:30" } });
+
+    fireEvent.click(screen.getByRole("button", { name: t.submit }));
+
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
   });
 
   it("stays disabled after a successful submit so a second tap cannot duplicate the match", async () => {

@@ -1,5 +1,6 @@
 //! Acceptance tests for creating a match through the HTTP API.
-//! Matches are created far in the future so the "must start in the future" rule holds.
+//! The clock is fixed a few days before the 2099 matches used here, so the
+//! "starts in the future, at most 30 days ahead" rules hold.
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode, header};
@@ -8,8 +9,21 @@ use serde_json::{Value, json};
 use sqlx::PgPool;
 use tower::ServiceExt;
 
+struct FixedClock(&'static str);
+
+impl daghep_api::matches::domain::Clock for FixedClock {
+    fn now(&self) -> chrono::DateTime<chrono::Utc> {
+        self.0.parse().unwrap()
+    }
+}
+
 async fn send(pool: PgPool, request: Request<Body>) -> (StatusCode, Value) {
-    let response = daghep_api::app(pool).oneshot(request).await.unwrap();
+    send_at("2099-10-01T00:00:00Z", pool, request).await
+}
+
+async fn send_at(now: &'static str, pool: PgPool, request: Request<Body>) -> (StatusCode, Value) {
+    let app = daghep_api::app_with_clock(pool, std::sync::Arc::new(FixedClock(now)));
+    let response = app.oneshot(request).await.unwrap();
     let status = response.status();
     let bytes = response.into_body().collect().await.unwrap().to_bytes();
     let body = if bytes.is_empty() {
@@ -120,6 +134,9 @@ async fn invalid_fields_are_rejected_with_the_offending_field(pool: PgPool) {
     let cases = [
         ("venueName", json!("   ")),
         ("startsAt", json!("2001-01-01T10:00:00Z")),
+        ("startsAt", json!("2099-11-15T11:30:00Z")),
+        ("endsAt", json!("2099-10-10T16:00:00Z")),
+        ("endsAt", json!("2099-10-10T17:30:00Z")),
         ("endsAt", json!("2099-10-10T11:00:00Z")),
         ("format", json!("futsal")),
         ("matchType", json!("tournament")),
@@ -190,7 +207,7 @@ async fn repository_reports_a_taken_share_id_as_duplicate(pool: PgPool) {
             total_fee_vnd: 900_000,
             slot_count: None,
         },
-        "2026-10-04T00:00:00Z".parse().unwrap(),
+        "2099-10-01T00:00:00Z".parse().unwrap(),
     )
     .unwrap();
     let id = ShareId::parse("k7Qm2xPa").unwrap();
@@ -203,23 +220,9 @@ async fn repository_reports_a_taken_share_id_as_duplicate(pool: PgPool) {
 
 #[sqlx::test]
 async fn match_must_start_after_now(pool: PgPool) {
-    use std::sync::Arc;
+    let (status, body) = send_at("2099-10-10T11:30:00Z", pool, post_json(valid_request())).await;
 
-    struct FixedClock;
-    impl daghep_api::matches::domain::Clock for FixedClock {
-        fn now(&self) -> chrono::DateTime<chrono::Utc> {
-            "2099-10-10T11:30:00Z".parse().unwrap()
-        }
-    }
-
-    let response = daghep_api::app_with_clock(pool, Arc::new(FixedClock))
-        .oneshot(post_json(valid_request()))
-        .await
-        .unwrap();
-
-    assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
-    let bytes = response.into_body().collect().await.unwrap().to_bytes();
-    let body: Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert_eq!(
         body,
         json!({ "error": "invalid_match", "field": "startsAt" })

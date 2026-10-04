@@ -19,7 +19,7 @@
 | `format` | `five_a_side` \| `seven_a_side` \| `eleven_a_side` | |
 | `matchType` | `casual` \| `competitive` \| `beginner_friendly` | |
 | `levelMin`, `levelMax` | number | 1.0–5.0, steps of 0.5, `levelMax >= levelMin` |
-| `totalFeeVnd` | integer | 0–100,000,000 (cap and zero-fee: TODO: verify) |
+| `totalFeeVnd` | integer | 0–100,000,000 (zero allowed) |
 | `slotCount` | integer, optional | any integer is accepted by the parser; outside 2–30 is a `422`; default 14 / 18 / 28 by format |
 
 No authentication yet; sign-in is required from PR 3b. The backend is not deployed yet, so this is not publicly reachable.
@@ -46,7 +46,7 @@ Done in this PR: `/create` page (hidden, and `404`, in production until `API_BAS
 {"shareId":"9ut86CBoV6","venueName":"SSA Sports Center","startsAt":"2099-10-10T11:30:00Z","endsAt":"2099-10-10T13:00:00Z","format":"seven_a_side","matchType":"casual","levelMin":2.5,"levelMax":3.5,"totalFeeVnd":900000,"slotCount":18,"pricePerPlayerVnd":50000}
 ```
 
-## TODO verify
-- Whether zero-fee matches are allowed.
-- Whether 100,000,000 VND is the right fee cap (DB constraint `matches_total_fee_vnd_max`).
-- Whether to limit how far ahead, or how long, a match may be.
+## Confirmed rules (Long, 2026-10-04)
+- Fee cap 100,000,000 VND (DB constraint `matches_total_fee_vnd_max`, migration approved); zero-fee matches allowed.
+- `startsAt` must be in the future and at most 30 days ahead, else `422 startsAt`.
+- `endsAt` must be after `startsAt`, at most 4 hours later, and on the same Ho Chi Minh City calendar day (no matches past midnight), else `422 endsAt`.
