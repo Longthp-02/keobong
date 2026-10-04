@@ -12,6 +12,7 @@ const sample: MatchView = {
   levelMax: 3.5,
   totalFeeVnd: 900000,
   slotCount: 14,
+  pricePerPlayerVnd: 65000,
 };
 
 function respond(status: number, body: unknown) {

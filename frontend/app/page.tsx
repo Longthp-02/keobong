@@ -6,6 +6,9 @@ export default function HomePage() {
       <h1 className="intro__title">{messages.app.name}</h1>
       <p>{messages.app.tagline}</p>
       <p className="muted">{messages.app.comingSoon}</p>
+      <a href="/create" className="button-primary">
+        {messages.app.createLink}
+      </a>
     </section>
   );
 }

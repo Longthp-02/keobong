@@ -15,6 +15,7 @@ const match: MatchView = {
   levelMax: 3.5,
   totalFeeVnd: 900000,
   slotCount: 14,
+  pricePerPlayerVnd: 65000,
 };
 
 describe("MatchCard", () => {
@@ -40,5 +41,11 @@ describe("MatchCard", () => {
     expect(screen.getByText("2.5 – 3.5")).toBeTruthy();
     expect(screen.getByText(/900\.000/)).toBeTruthy();
     expect(screen.getByText(`14 ${messages.match.slotsUnit}`)).toBeTruthy();
+  });
+
+  it("highlights the price each player pays", () => {
+    render(<MatchCard match={match} />);
+
+    expect(screen.getByTestId("match-price").textContent).toMatch(/65\.000/);
   });
 });

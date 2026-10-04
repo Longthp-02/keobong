@@ -3,7 +3,9 @@
 use chrono::{DateTime, Utc};
 use sqlx::PgPool;
 
-use super::domain::{Format, Level, Match, MatchRepository, MatchType, RepoError, ShareId};
+use super::domain::{
+    Format, InsertError, Level, Match, MatchRepository, MatchType, NewMatch, RepoError, ShareId,
+};
 
 #[derive(Clone)]
 pub struct PgMatchRepository {
@@ -37,8 +39,8 @@ impl TryFrom<MatchRow> for Match {
         let corrupt = |what: &str| RepoError::Corrupt(format!("{what} for {}", row.share_id));
         Ok(Match {
             share_id: ShareId::parse(&row.share_id).ok_or_else(|| corrupt("share_id"))?,
-            format: parse_format(&row.format).ok_or_else(|| corrupt("format"))?,
-            match_type: parse_match_type(&row.match_type).ok_or_else(|| corrupt("match_type"))?,
+            format: Format::parse(&row.format).ok_or_else(|| corrupt("format"))?,
+            match_type: MatchType::parse(&row.match_type).ok_or_else(|| corrupt("match_type"))?,
             level_min: Level::from_tenths(row.level_min_tenths)
                 .ok_or_else(|| corrupt("level_min"))?,
             level_max: Level::from_tenths(row.level_max_tenths)
@@ -49,24 +51,6 @@ impl TryFrom<MatchRow> for Match {
             total_fee_vnd: row.total_fee_vnd,
             slot_count: row.slot_count,
         })
-    }
-}
-
-fn parse_format(value: &str) -> Option<Format> {
-    match value {
-        "five_a_side" => Some(Format::FiveASide),
-        "seven_a_side" => Some(Format::SevenASide),
-        "eleven_a_side" => Some(Format::ElevenASide),
-        _ => None,
-    }
-}
-
-fn parse_match_type(value: &str) -> Option<MatchType> {
-    match value {
-        "casual" => Some(MatchType::Casual),
-        "competitive" => Some(MatchType::Competitive),
-        "beginner_friendly" => Some(MatchType::BeginnerFriendly),
-        _ => None,
     }
 }
 
@@ -84,5 +68,34 @@ impl MatchRepository for PgMatchRepository {
         .map_err(|e| RepoError::Unavailable(e.to_string()))?;
 
         row.map(Match::try_from).transpose()
+    }
+
+    async fn insert(&self, share_id: &ShareId, new: &NewMatch) -> Result<(), InsertError> {
+        let result = sqlx::query(
+            "INSERT INTO matches
+                (share_id, venue_name, starts_at, ends_at, format, match_type,
+                 level_min_tenths, level_max_tenths, total_fee_vnd, slot_count)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
+        )
+        .bind(share_id.as_str())
+        .bind(&new.venue_name)
+        .bind(new.starts_at)
+        .bind(new.ends_at)
+        .bind(new.format.as_str())
+        .bind(new.match_type.as_str())
+        .bind(new.level_min.tenths())
+        .bind(new.level_max.tenths())
+        .bind(new.total_fee_vnd)
+        .bind(new.slot_count)
+        .execute(&self.pool)
+        .await;
+
+        match result {
+            Ok(_) => Ok(()),
+            Err(sqlx::Error::Database(db)) if db.constraint() == Some("matches_share_id_key") => {
+                Err(InsertError::DuplicateShareId)
+            }
+            Err(err) => Err(RepoError::Unavailable(err.to_string()).into()),
+        }
     }
 }
