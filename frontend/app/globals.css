@@ -200,3 +200,9 @@ main {
   margin-top: 24px;
   font-weight: 600;
 }
+
+.legal__contact a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+}

@@ -61,12 +61,17 @@ Confirmed:
 - Only the host marks no-shows. A marked player can dispute it; disputes are reviewed by the admin (Long).
 - The host's VietQR / bank details are shown only to players who currently hold a slot in that match — never on the public match page or in link previews.
 - Player level is self-assessed at sign-up. Peer rating after matches is post-MVP.
+- Public visibility (2026-10-04): anyone, signed in or not, can see match details (venue and location, time, type, level, fee, slot count), participants' display names and avatars, guest names, and player profiles (display name, avatar, level, matches played, no-shows).
+- Account deletion (2026-10-04): delete name, avatar, email, payout details and Google/Zalo link; keep match and slot history anonymized; technical logs auto-delete after 30 days.
+- Minimum age 16 (2026-10-04).
+- Operator named in legal pages: Pham Trinh Hoang Long (personal project); contact lienhe@daghep.vn.
 
 Proposed in design, not yet confirmed — TODO: verify:
 - Slot capacity per format: 10 / 14 / 22 players.
 - Price per player = total fee ÷ capacity, rounded up to the nearest 1,000 VND.
 - Who can host: any signed-in user (with a `host_type` of player or venue).
 - Cancellation rules for hosts and players.
+- Written into the terms/privacy pages pending Long's confirmation: browser location is used only for the nearby search and not stored; no-show disputes go by email; accounts that scam or harass can be locked.
 
 ## Data / State Needed
 User (identity provider, display name, level, stats), Match (venue, location point, start/end, format, type, level range, fee, host, status, share id), Slot (match, team, position, player, joined at, payment status, attendance), Host payment profile (bank BIN, account number, account name).

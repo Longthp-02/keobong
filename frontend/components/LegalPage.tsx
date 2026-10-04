@@ -18,8 +18,9 @@ export function LegalPage({ document }: { document: LegalDocument }) {
       {document.sections.map((section) => (
         <section key={section.heading}>
           <h2 className="legal__heading">{section.heading}</h2>
-          {section.paragraphs.map((paragraph) => (
-            <p key={paragraph}>{paragraph}</p>
+          {section.paragraphs.map((paragraph, index) => (
+            // Paragraphs are static content and never reorder, so the index is a stable key.
+            <p key={index}>{paragraph}</p>
           ))}
         </section>
       ))}

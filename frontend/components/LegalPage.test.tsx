@@ -1,24 +1,37 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import messages from "../messages/vi.json";
-import { LegalPage } from "./LegalPage";
+import { type LegalDocument, LegalPage } from "./LegalPage";
 
-describe("LegalPage", () => {
-  it("renders the privacy policy title, every section heading and the contact email", () => {
-    render(<LegalPage document={messages.legal.privacy} />);
+const documents: [string, LegalDocument][] = [
+  ["privacy policy", messages.legal.privacy],
+  ["terms of use", messages.legal.terms],
+];
 
-    expect(screen.getByRole("heading", { level: 1, name: messages.legal.privacy.title })).toBeTruthy();
-    for (const section of messages.legal.privacy.sections) {
-      expect(screen.getByRole("heading", { level: 2, name: section.heading })).toBeTruthy();
-    }
-    const contact = screen.getAllByRole("link", { name: messages.legal.contactEmail });
-    expect(contact[0].getAttribute("href")).toBe(`mailto:${messages.legal.contactEmail}`);
+describe.each(documents)("LegalPage (%s)", (_name, document) => {
+  it("renders the title, the last-updated date and every section heading", () => {
+    render(<LegalPage document={document} />);
+
+    screen.getByRole("heading", { level: 1, name: document.title });
+    screen.getByText(new RegExp(document.updated));
+    const headings = screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent);
+    expect(headings).toEqual(document.sections.map((s) => s.heading));
   });
 
-  it("renders the terms of use with its last-updated date", () => {
-    render(<LegalPage document={messages.legal.terms} />);
+  it("links to the contact email so users can exercise their rights", () => {
+    render(<LegalPage document={document} />);
 
-    expect(screen.getByRole("heading", { level: 1, name: messages.legal.terms.title })).toBeTruthy();
-    expect(screen.getByText(new RegExp(messages.legal.terms.updated))).toBeTruthy();
+    const contact = screen.getByRole("link", { name: messages.legal.contactEmail });
+    expect(contact.getAttribute("href")).toBe(`mailto:${messages.legal.contactEmail}`);
+  });
+});
+
+describe("legal content", () => {
+  it("names the operator and states the confirmed minimum age in both documents", () => {
+    for (const [, document] of documents) {
+      const text = JSON.stringify(document);
+      expect(text).toContain(messages.legal.operatorName);
+      expect(text).toContain("16");
+    }
   });
 });
