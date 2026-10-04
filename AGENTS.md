@@ -10,7 +10,7 @@ Daghep is a free, open-source (MIT) web app (PWA) that lets individual players i
 - Database: PostgreSQL + PostGIS; migrations with `sqlx migrate`
 - Frontend: Next.js (TypeScript), installable PWA; UI strings in `frontend/messages/vi.json`
 - Auth: Google OIDC + Zalo OAuth; sessions stored in Postgres, referenced by a signed HTTP-only cookie
-- Tests: `cargo test` with real PostGIS (testcontainers); Vitest + Playwright on frontend
+- Tests: `cargo test` with `#[sqlx::test]` against real PostGIS (`DATABASE_URL`); Vitest + Testing Library on frontend; Playwright E2E from Step 3
 - Quality: rustfmt, clippy (`-D warnings`), cargo-deny/cargo-audit
 - CI: GitHub Actions running all tests on every push and PR
 - Deploy: container on GCP Cloud Run (scale to zero); managed Postgres with PostGIS (TODO: verify provider)
@@ -45,11 +45,14 @@ Daghep is a free, open-source (MIT) web app (PWA) that lets individual players i
 - No new dependency without a stated reason. No renames of objects, files or endpoints unless required.
 - The app must never take custody of money.
 
-## Commands (TODO: verify once scaffolded)
-- Backend tests: `cd backend && cargo test`
-- Backend lint: `cargo fmt --check && cargo clippy -- -D warnings`
-- Frontend tests: `cd frontend && pnpm test`
-- Local DB: `docker compose up db`
+## Commands
+- Local DB: `docker compose up -d db` (PostGIS on localhost:5432)
+- Backend env: `export DATABASE_URL=postgres://postgres:postgres@localhost:5432/daghep_dev`
+- Backend tests: `cd backend && cargo test` (needs `DATABASE_URL`; each test gets its own database)
+- Backend lint: `cargo fmt --check && cargo clippy --all-targets -- -D warnings`
+- Run migrations: `cargo run -- migrate`; run API: `cargo run` (port 8080)
+- Frontend: `cd frontend && pnpm install && pnpm test && pnpm typecheck && pnpm build`
+- Run web: `API_BASE_URL=http://localhost:8080 pnpm dev` (port 3000)
 
 ## Task Workflow
 1. Non-trivial work: plan first (`prompts/plan-first.md`).

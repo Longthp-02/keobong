@@ -33,7 +33,7 @@ Make it effortless to fill an open slot in a real football match, for free. Succ
 - Monetization.
 
 ## Current State
-Empty repository. A clickable design exists (Claude Design canvas for this project: match list, match detail with team slots, create match, dark mode list).
+Walking skeleton implemented (see `memory-bank/progress.md`). A clickable design exists (Claude Design canvas for this project: match list, match detail with team slots, create match, dark mode list).
 
 ## Desired Behavior
 See `docs/user-flows.md`.

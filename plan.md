@@ -37,7 +37,7 @@ Acceptance tests for each flow in `docs/user-flows.md`; concurrency test for slo
 Second-pass AI review, threat-model walkthrough, link preview, Zalo login, rate limits, deploy.
 
 ## Tests Needed
-- Integration: sqlx repository adapters against real PostGIS (testcontainers).
+- Integration: sqlx repository adapters against real PostGIS (`#[sqlx::test]`).
 - Acceptance: API flows through the Axum router (`tower::ServiceExt::oneshot`) against a real DB.
 - Concurrency: N parallel claims on the last slot → exactly one wins.
 - Unit: fee split, level-range checks, VietQR payload builder.
