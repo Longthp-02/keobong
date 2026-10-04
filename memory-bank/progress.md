@@ -6,7 +6,7 @@
 - UI design prototype (external Claude Design canvas).
 - Backend (`backend/`): Axum app with `GET /health` and `GET /api/matches/{shareId}`; `matches` feature split into domain / service / repo / http; first migration (`matches` table, PostGIS, GiST index); `daghep-api migrate` subcommand; lazy DB pool for fast cold starts; multi-stage Dockerfile.
 - Frontend (`frontend/`): Next.js 16 PWA with home page, `/m/[shareId]` match page (server-rendered, Open Graph tags without payment details), not-found page, web manifest, `messages/vi.json`.
-- Tests: backend 37 unit + 35 acceptance/integration; frontend 54.
+- Tests: backend 39 unit + 38 acceptance/integration; frontend 55.
 - Production web: https://daghep.vn on Vercel (www redirects to apex); DNS at iNET.
 - Legal pages: `/privacy`, `/terms`, footer links, `LegalPage` tests.
 - Create match (PR 3a): `POST /api/matches` (validation, share id generation with retry, Clock port), `pricePerPlayerVnd` in the public view, `/create` form with live price preview. Limits: fee 0–100M VND, 2–30 slots, start within 30 days, max 4 hours, same HCMC day. `/create` hidden in production until `API_BASE_URL` is set.
@@ -15,9 +15,10 @@
 - Local dev: `docker-compose.yml` with PostGIS.
 
 ## Not Built Yet
-- Sign-in (Google/Zalo), slots and slot claiming, VietQR, payment confirmation, attendance, nearby list, link preview image, deployment.
+- Zalo sign-in, slots and slot claiming, VietQR, payment confirmation, attendance, nearby list, link preview image, deployment.
 - Playwright end-to-end test (planned with Step 3).
 - ESLint and dependency audit in CI.
+- Rate limiting for sign-in start and match creation (e.g. Cloud Armor); `__Host-` cookie prefix in production.
 
 ## Known Risks
 Cold-start user acquisition, Zalo login approval time, slot race conditions, no-show disputes, extra hand-wiring for OAuth/sessions in Rust, database free-tier limits. Backend Dockerfile not yet built in CI (verify before first deploy).

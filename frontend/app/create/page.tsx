@@ -3,7 +3,7 @@ import { cookies } from "next/headers";
 import { notFound } from "next/navigation";
 import { AccountBar } from "../../components/AccountBar";
 import { SignInPrompt } from "../../components/SignInPrompt";
-import { getMe, isApiConfigured } from "../../lib/api";
+import { SESSION_COOKIE, getMe, isApiConfigured, sessionCookieHeader } from "../../lib/api";
 import messages from "../../messages/vi.json";
 import { CreateMatchClient } from "./CreateMatchClient";
 
@@ -14,7 +14,8 @@ export default async function CreateMatchPage() {
   if (!isApiConfigured()) {
     notFound();
   }
-  const me = await getMe((await cookies()).toString());
+  const session = (await cookies()).get(SESSION_COOKIE)?.value;
+  const me = await getMe(sessionCookieHeader(session));
   if (!me) {
     return <SignInPrompt next="/create" />;
   }

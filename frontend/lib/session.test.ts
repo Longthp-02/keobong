@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { getMe, signInUrl } from "./api";
+import { getMe, sessionCookieHeader, signInUrl } from "./api";
 
 function respond(status: number, body: unknown) {
   return vi.fn().mockResolvedValue(
@@ -42,6 +42,13 @@ describe("getMe", () => {
     await expect(getMe("daghep_session=abc", { baseUrl: "http://api", fetchImpl })).rejects.toThrow(
       /500/,
     );
+  });
+});
+
+describe("sessionCookieHeader", () => {
+  it("forwards only the session cookie to the API", () => {
+    expect(sessionCookieHeader("abc")).toBe("daghep_session=abc");
+    expect(sessionCookieHeader(undefined)).toBe("");
   });
 });
 

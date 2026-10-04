@@ -73,7 +73,8 @@ pub enum FinishLoginError {
 }
 
 /// Completes a sign-in: checks state and nonce, exchanges the code, finds or
-/// creates the user and opens a session.
+/// creates the user and opens a session. A session the browser already had is
+/// ended, and expired sessions are cleaned up.
 pub async fn finish_login<R, P, C>(
     repo: &R,
     provider: &P,
@@ -81,6 +82,7 @@ pub async fn finish_login<R, P, C>(
     code: &str,
     state: &str,
     state_cookie: Option<&str>,
+    previous_session: Option<&str>,
 ) -> Result<LoginComplete, FinishLoginError>
 where
     R: AuthRepository,
@@ -117,6 +119,8 @@ where
         now + Duration::days(SESSION_TTL_DAYS),
     )
     .await?;
+    sign_out(repo, previous_session).await?;
+    repo.delete_expired_sessions(now).await?;
     Ok(LoginComplete {
         session,
         return_to: attempt.return_to,
@@ -194,6 +198,9 @@ mod tests {
         ) -> Result<Option<User>, RepoError> {
             panic!("storage must not be touched");
         }
+        async fn delete_expired_sessions(&self, _: DateTime<Utc>) -> Result<(), RepoError> {
+            panic!("storage must not be touched");
+        }
         async fn delete_session(&self, _: &SessionHash) -> Result<(), RepoError> {
             panic!("storage must not be touched");
         }
@@ -231,6 +238,7 @@ mod tests {
                 "code",
                 "state",
                 cookie,
+                None,
             )
             .await;
 

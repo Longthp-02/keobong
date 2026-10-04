@@ -187,6 +187,15 @@ impl AuthRepository for PgAuthRepository {
         }))
     }
 
+    async fn delete_expired_sessions(&self, now: DateTime<Utc>) -> Result<(), RepoError> {
+        sqlx::query("DELETE FROM sessions WHERE expires_at <= $1")
+            .bind(now)
+            .execute(&self.pool)
+            .await
+            .map_err(unavailable)?;
+        Ok(())
+    }
+
     async fn delete_session(&self, hash: &SessionHash) -> Result<(), RepoError> {
         sqlx::query("DELETE FROM sessions WHERE token_hash = $1")
             .bind(hash.0.as_slice())

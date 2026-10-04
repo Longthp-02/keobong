@@ -76,11 +76,17 @@ pub fn router(state: AuthState) -> Router {
 fn redirect(location: &str) -> Response {
     match HeaderValue::from_str(location) {
         Ok(value) => (StatusCode::SEE_OTHER, [(LOCATION, value)]).into_response(),
-        Err(_) => internal_error("redirect target is not a valid header", &location),
+        // The target is not logged: it may carry OAuth state and nonce.
+        Err(_) => internal_error("redirect target is not a valid header", &"<redirect>"),
     }
 }
 
+/// Adds cookies to a redirect. An error response never gets cookies, so a
+/// failed redirect cannot still hand out a session.
 fn with_cookies(mut response: Response, cookies: &[String]) -> Response {
+    if !response.status().is_redirection() {
+        return response;
+    }
     for cookie in cookies {
         match HeaderValue::from_str(cookie) {
             Ok(value) => {
@@ -184,6 +190,7 @@ async fn google_callback(
         code,
         oauth_state,
         read_cookie(&headers, STATE_COOKIE),
+        read_cookie(&headers, SESSION_COOKIE),
     )
     .await;
     match result {

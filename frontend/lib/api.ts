@@ -26,7 +26,12 @@ export type MeView = {
   avatarUrl: string | null;
 };
 
-const SESSION_COOKIE = "daghep_session";
+export const SESSION_COOKIE = "daghep_session";
+
+/** `Cookie` header carrying only the session, so other browser cookies stay out of API calls. */
+export function sessionCookieHeader(session: string | undefined): string {
+  return session ? `${SESSION_COOKIE}=${session}` : "";
+}
 
 /** Where to send the browser to sign in with Google and come back to `next`. */
 export function signInUrl(next: string): string {

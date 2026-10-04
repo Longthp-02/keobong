@@ -96,9 +96,8 @@ impl ReturnTo {
             path.starts_with('/')
                 && !path.starts_with("//")
                 && path.chars().count() <= RETURN_TO_MAX_CHARS
-                && !path
-                    .chars()
-                    .any(|c| c == '\\' || c.is_control() || c.is_whitespace())
+                // Visible ASCII only: the path goes into a `Location` header as is.
+                && path.chars().all(|c| c.is_ascii_graphic() && c != '\\')
         });
         Self(safe.unwrap_or("/").to_owned())
     }
@@ -232,6 +231,11 @@ pub trait AuthRepository: Send + Sync {
         now: DateTime<Utc>,
     ) -> impl Future<Output = Result<Option<User>, RepoError>> + Send;
 
+    fn delete_expired_sessions(
+        &self,
+        now: DateTime<Utc>,
+    ) -> impl Future<Output = Result<(), RepoError>> + Send;
+
     fn delete_session(
         &self,
         hash: &SessionHash,
@@ -291,6 +295,7 @@ mod tests {
             "",
             "/a b",
             "/a\r\nSet-Cookie: x=1",
+            "/sân",
         ] {
             assert_eq!(ReturnTo::parse(Some(raw)).as_str(), "/", "{raw:?}");
         }

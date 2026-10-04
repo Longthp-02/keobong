@@ -84,11 +84,23 @@ impl Config {
             });
         }
         let google = match GOOGLE_VARS.map(&get) {
-            [Some(client_id), Some(client_secret), Some(redirect_uri)] => Some(GoogleConfig {
-                client_id,
-                client_secret: Secret::new(client_secret),
-                redirect_uri,
-            }),
+            [Some(client_id), Some(client_secret), Some(redirect_uri)] => {
+                // A forgotten FRONTEND_ORIGIN would silently send users to localhost.
+                if get("FRONTEND_ORIGIN").is_none() {
+                    return Err(ConfigError::Missing("FRONTEND_ORIGIN"));
+                }
+                if !redirect_uri_fits(&redirect_uri, &frontend_origin) {
+                    return Err(ConfigError::Invalid {
+                        name: "GOOGLE_REDIRECT_URI",
+                        value: redirect_uri,
+                    });
+                }
+                Some(GoogleConfig {
+                    client_id,
+                    client_secret: Secret::new(client_secret),
+                    redirect_uri,
+                })
+            }
             [None, None, None] => None,
             _ => return Err(ConfigError::PartialGoogle),
         };
@@ -98,6 +110,20 @@ impl Config {
             frontend_origin,
             google,
         })
+    }
+}
+
+/// In production the callback goes through the web app's `/api` proxy, so the
+/// redirect URI must be on the frontend origin, over HTTPS; that keeps the
+/// session cookie first-party and `Secure`. Plain HTTP is allowed only for
+/// local development, where the API runs on its own port.
+fn redirect_uri_fits(redirect_uri: &str, frontend_origin: &str) -> bool {
+    let local =
+        |url: &str| url.starts_with("http://localhost:") || url.starts_with("http://127.0.0.1:");
+    if redirect_uri.starts_with("https://") {
+        redirect_uri.starts_with(&format!("{frontend_origin}/"))
+    } else {
+        local(redirect_uri) && local(frontend_origin)
     }
 }
 
@@ -130,6 +156,7 @@ mod tests {
     fn google_needs_all_three_variables() {
         let full = config(&[
             DB,
+            ("FRONTEND_ORIGIN", "https://daghep.vn"),
             ("GOOGLE_CLIENT_ID", "id"),
             ("GOOGLE_CLIENT_SECRET", "shh"),
             (
@@ -148,6 +175,7 @@ mod tests {
     fn secrets_are_redacted_in_debug_output() {
         let config = config(&[
             DB,
+            ("FRONTEND_ORIGIN", "https://daghep.vn"),
             ("GOOGLE_CLIENT_ID", "id"),
             ("GOOGLE_CLIENT_SECRET", "very-secret-value"),
             (
@@ -158,6 +186,89 @@ mod tests {
         .unwrap();
 
         assert!(!format!("{config:?}").contains("very-secret-value"));
+    }
+
+    fn google_vars(redirect_uri: &'static str) -> [(&'static str, &'static str); 3] {
+        [
+            ("GOOGLE_CLIENT_ID", "id"),
+            ("GOOGLE_CLIENT_SECRET", "shh"),
+            ("GOOGLE_REDIRECT_URI", redirect_uri),
+        ]
+    }
+
+    #[test]
+    fn google_sign_in_needs_an_explicit_frontend_origin() {
+        let result = config(
+            &[
+                &[DB][..],
+                &google_vars("https://daghep.vn/api/auth/google/callback"),
+            ]
+            .concat(),
+        );
+
+        assert!(matches!(
+            result,
+            Err(ConfigError::Missing("FRONTEND_ORIGIN"))
+        ));
+    }
+
+    #[test]
+    fn production_redirect_uri_must_live_on_the_frontend_origin() {
+        let ok = [
+            (
+                "https://daghep.vn",
+                "https://daghep.vn/api/auth/google/callback",
+            ),
+            (
+                "http://localhost:3000",
+                "http://localhost:8080/api/auth/google/callback",
+            ),
+        ];
+        for (origin, redirect) in ok {
+            let vars = [
+                &[DB, ("FRONTEND_ORIGIN", origin)][..],
+                &google_vars(redirect),
+            ]
+            .concat();
+            assert!(config(&vars).is_ok(), "{origin} {redirect}");
+        }
+        let bad = [
+            // Forgot to switch the origin to production: cookies would not be Secure.
+            (
+                "http://localhost:3000",
+                "https://daghep.vn/api/auth/google/callback",
+            ),
+            (
+                "https://daghep.vn",
+                "https://api.example.run.app/api/auth/google/callback",
+            ),
+            (
+                "https://daghep.vn",
+                "https://daghep.vn.evil.example/api/auth/google/callback",
+            ),
+            // Plain HTTP only for local development.
+            (
+                "http://daghep.vn",
+                "http://daghep.vn/api/auth/google/callback",
+            ),
+        ];
+        for (origin, redirect) in bad {
+            let vars = [
+                &[DB, ("FRONTEND_ORIGIN", origin)][..],
+                &google_vars(redirect),
+            ]
+            .concat();
+            assert!(
+                matches!(
+                    config(&vars),
+                    Err(ConfigError::Invalid {
+                        name: "GOOGLE_REDIRECT_URI",
+                        ..
+                    })
+                ),
+                "{origin} {redirect}"
+            );
+        }
     }
 
     #[test]

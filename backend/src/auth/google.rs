@@ -137,8 +137,10 @@ struct Claims {
     nonce: Option<String>,
 }
 
-/// Decodes and validates the claims of an ID token received from the token endpoint.
-pub fn decode_id_token(
+/// Decodes and validates the claims of an ID token received directly from
+/// Google's token endpoint. Never use it on a token that came from a browser
+/// (for example Google One Tap): those must have their signature verified.
+pub(crate) fn decode_id_token(
     id_token: &str,
     client_id: &str,
     now: DateTime<Utc>,

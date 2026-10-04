@@ -281,3 +281,68 @@ async fn cookies_are_secure_when_the_site_uses_https(pool: PgPool) {
         assert!(cookie.ends_with("; Secure"), "{cookie}");
     }
 }
+
+#[sqlx::test]
+async fn concurrent_first_sign_ins_create_one_account(pool: PgPool) {
+    use daghep_api::auth::PgAuthRepository;
+    use daghep_api::auth::domain::{AuthRepository, NewProfile, Provider, ProviderIdentity};
+
+    let repo = PgAuthRepository::new(pool.clone());
+    let identity = ProviderIdentity {
+        subject: "google-123".to_owned(),
+        email: None,
+        name: Some("Long".to_owned()),
+        picture: None,
+        nonce: None,
+    };
+    let profile = NewProfile::from_identity(&identity);
+
+    let (a, b) = tokio::join!(
+        repo.find_or_create_user(Provider::Google, &identity, &profile),
+        repo.find_or_create_user(Provider::Google, &identity, &profile),
+    );
+
+    assert_eq!(a.unwrap(), b.unwrap());
+    let (users, identities): (i64, i64) = sqlx::query_as(
+        "SELECT (SELECT count(*) FROM users), (SELECT count(*) FROM user_identities)",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!((users, identities), (1, 1));
+}
+
+#[sqlx::test]
+async fn signing_in_removes_expired_sessions(pool: PgPool) {
+    let clock = TestClock::at(NOW);
+    let app = app_with(pool.clone(), clock.clone(), FRONTEND);
+    sign_in(&app, "google-123").await;
+
+    clock.advance(Duration::days(31));
+    sign_in(&app, "google-456").await;
+
+    let sessions: i64 = sqlx::query_scalar("SELECT count(*) FROM sessions")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(sessions, 1);
+}
+
+#[sqlx::test]
+async fn signing_in_again_in_the_same_browser_ends_the_previous_session(pool: PgPool) {
+    let app = app(pool);
+    let old = sign_in(&app, "google-123").await;
+    let state = start_sign_in(&app, "/").await;
+
+    let response = call(
+        &app,
+        get_with_cookie(
+            &format!("/api/auth/google/callback?code=ok:google-456&state={state}"),
+            &format!("daghep_oauth_state={state}; daghep_session={old}"),
+        ),
+    )
+    .await;
+
+    assert!(set_cookie(&response, "daghep_session").is_some());
+    assert_eq!(me_status(&app, &old).await, StatusCode::UNAUTHORIZED);
+}
