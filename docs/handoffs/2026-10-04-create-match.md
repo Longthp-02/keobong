@@ -14,8 +14,8 @@
 | Field | Type | Rule |
 |---|---|---|
 | `venueName` | string | trimmed, 1–120 chars |
-| `startsAt` | RFC 3339 UTC | must be in the future |
-| `endsAt` | RFC 3339 UTC | after `startsAt` |
+| `startsAt` | RFC 3339 UTC | in the future, at most 30 days ahead |
+| `endsAt` | RFC 3339 UTC | after `startsAt`, at most 4 hours, same HCMC day |
 | `format` | `five_a_side` \| `seven_a_side` \| `eleven_a_side` | |
 | `matchType` | `casual` \| `competitive` \| `beginner_friendly` | |
 | `levelMin`, `levelMax` | number | 1.0–5.0, steps of 0.5, `levelMax >= levelMin` |

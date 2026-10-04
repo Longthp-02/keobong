@@ -9,7 +9,7 @@
 - Tests: backend 14 unit + 16 acceptance/integration; frontend 23.
 - Production web: https://daghep.vn on Vercel (www redirects to apex); DNS at iNET.
 - Legal pages: `/privacy`, `/terms`, footer links, `LegalPage` tests.
-- Create match (PR 3a): `POST /api/matches` (validation, share id generation with retry, Clock port), `pricePerPlayerVnd` in the public view, `/create` form with live price preview.
+- Create match (PR 3a): `POST /api/matches` (validation, share id generation with retry, Clock port), `pricePerPlayerVnd` in the public view, `/create` form with live price preview. Limits: fee 0–100M VND, 2–30 slots, start within 30 days, max 4 hours, same HCMC day. `/create` hidden in production until `API_BASE_URL` is set.
 - CI: `.github/workflows/ci.yml` (backend fmt/clippy/test with PostGIS service; frontend typecheck/test/build).
 - Local dev: `docker-compose.yml` with PostGIS.
 
