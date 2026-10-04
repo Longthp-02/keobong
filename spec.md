@@ -64,6 +64,7 @@ Confirmed:
 - Public visibility (2026-10-04): anyone, signed in or not, can see match details (venue and location, time, type, level, fee, slot count), participants' display names and avatars, guest names, and player profiles (display name, avatar, level, matches played, no-shows).
 - Account deletion (2026-10-04): delete name, avatar, email, payout details and Google/Zalo link; keep match and slot history anonymized; technical logs auto-delete after 30 days.
 - Minimum age 16 (2026-10-04).
+- Confirmed by Long (2026-10-04): no-show disputes go to lienhe@daghep.vn and the admin removes wrong marks (in-app "Dispute" button later); no phone number collected in MVP (revisit if users evade no-show marks with new accounts); scam or harassment accounts can be locked; browser location is used only for the nearby search, not saved to the profile (may appear in technical logs up to 30 days); on account deletion, guest names the user entered are deleted and shown as "Guest".
 - Operator named in legal pages: Pham Trinh Hoang Long (personal project); contact lienhe@daghep.vn.
 
 Proposed in design, not yet confirmed — TODO: verify:
@@ -71,7 +72,6 @@ Proposed in design, not yet confirmed — TODO: verify:
 - Price per player = total fee ÷ capacity, rounded up to the nearest 1,000 VND.
 - Who can host: any signed-in user (with a `host_type` of player or venue).
 - Cancellation rules for hosts and players.
-- Written into the terms/privacy pages pending Long's confirmation: browser location is used only for the nearby search, not saved to the profile (may appear in technical logs up to 30 days); no-show disputes go by email; accounts that scam or harass can be locked; what happens to guest names a deleted user entered: TODO: verify.
 
 ## Data / State Needed
 User (identity provider, display name, level, stats), Match (venue, location point, start/end, format, type, level range, fee, host, status, share id), Slot (match, team, position, player, joined at, payment status, attendance), Host payment profile (bank BIN, account number, account name).

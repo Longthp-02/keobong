@@ -86,7 +86,7 @@
           "heading": "7. Thời gian lưu trữ và xoá dữ liệu",
           "paragraphs": [
             "Dữ liệu tài khoản được giữ trong thời gian bạn còn sử dụng Đá Ghép. Nhật ký kỹ thuật tự động được xoá sau 30 ngày.",
-            "Khi bạn yêu cầu xoá tài khoản, chúng tôi xoá tên, ảnh đại diện, email, thông tin nhận tiền và liên kết đăng nhập Google/Zalo. Lịch sử các kèo bạn đã tham gia được giữ lại ở dạng ẩn danh để kèo của người khác không bị sai lệch.",
+            "Khi bạn yêu cầu xoá tài khoản, chúng tôi xoá tên, ảnh đại diện, email, thông tin nhận tiền và liên kết đăng nhập Google/Zalo. Lịch sử các kèo bạn đã tham gia được giữ lại ở dạng ẩn danh để kèo của người khác không bị sai lệch; tên khách đi cùng do bạn nhập cũng bị xoá và chỉ hiển thị là \"Khách\".",
             "Bạn cũng có thể gỡ quyền truy cập của Đá Ghép trong phần cài đặt tài khoản Google hoặc Zalo của mình."
           ]
         },

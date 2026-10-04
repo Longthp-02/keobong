@@ -27,7 +27,7 @@ Walking skeleton done (plan Steps 1-2): `GET /api/matches/{shareId}` (Rust/Axum/
 1. Remaining proposed rules in `spec.md` (slot capacity, price rounding, who can host, cancellations).
 
 ## Pending on Long
-- Confirm the three pending legal statements in spec.md (location not stored, disputes by email, account locking); check whether the iNET mailbox is a time-limited trial.
+- Check whether the iNET mailbox lienhe@daghep.vn is a time-limited trial (it is the contact in the legal pages).
 - Register the Zalo for Developers login app and the Google OAuth client using https://daghep.vn/privacy and /terms.
 - Google OAuth client (localhost redirect first).
 - Before deploy: GCP project with billing + budget alert, Neon project (Singapore), Vercel account.
