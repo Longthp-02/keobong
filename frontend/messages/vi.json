@@ -1,0 +1,26 @@
+{
+  "app": {
+    "name": "Đá Ghép",
+    "tagline": "Tìm kèo đá bóng, ghép đội với người lạ, chia tiền sân.",
+    "footer": "Miễn phí · Làm bởi Long",
+    "comingSoon": "Đang xây dựng. Sắp ra mắt ở Quận 2."
+  },
+  "match": {
+    "format": {
+      "five_a_side": "Sân 5",
+      "seven_a_side": "Sân 7",
+      "eleven_a_side": "Sân 11"
+    },
+    "matchType": {
+      "casual": "Đá vui",
+      "competitive": "Đá căng",
+      "beginner_friendly": "Người mới OK"
+    },
+    "level": "Level",
+    "totalFee": "Tổng tiền sân",
+    "slots": "Số người",
+    "slotsUnit": "người",
+    "notFoundTitle": "Không tìm thấy kèo",
+    "notFoundBody": "Kèo này không tồn tại hoặc đã bị xoá."
+  }
+}

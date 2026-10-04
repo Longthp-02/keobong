@@ -17,7 +17,7 @@ See `spec.md`. In particular: no money handling, no chat, no native app, no cour
 Each slice delivers one user-visible behavior end-to-end (DB → API → UI → test) inside one feature package. Order: match viewing → match creation → joining → payments display → host confirmation → nearby list → auth hardening → link previews → attendance.
 
 ## Walking Skeleton
-The thinnest real path: a match row seeded in Postgres is served by `GET /api/matches/{shareId}` and rendered by the Next.js page `/m/{shareId}`, with CI running a backend acceptance test against real PostGIS and a frontend Playwright smoke test.
+The thinnest real path: a match row seeded in Postgres is served by `GET /api/matches/{shareId}` and rendered by the Next.js page `/m/{shareId}`, with CI running backend acceptance tests against real PostGIS and frontend component tests. Playwright end-to-end starts in Step 3 (see `docs/testing-strategy.md`).
 
 ## Steps
 
@@ -37,7 +37,7 @@ Acceptance tests for each flow in `docs/user-flows.md`; concurrency test for slo
 Second-pass AI review, threat-model walkthrough, link preview, Zalo login, rate limits, deploy.
 
 ## Tests Needed
-- Integration: sqlx repository adapters against real PostGIS (testcontainers).
+- Integration: sqlx repository adapters against real PostGIS (`#[sqlx::test]`).
 - Acceptance: API flows through the Axum router (`tower::ServiceExt::oneshot`) against a real DB.
 - Concurrency: N parallel claims on the last slot → exactly one wins.
 - Unit: fee split, level-range checks, VietQR payload builder.

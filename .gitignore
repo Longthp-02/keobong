@@ -1,0 +1,27 @@
+# Rust
+backend/target/
+
+# Node / Next.js
+node_modules/
+frontend/.next/
+frontend/out/
+frontend/next-env.d.ts
+*.tsbuildinfo
+coverage/
+playwright-report/
+test-results/
+
+# Env and secrets (never commit real values)
+.env
+.env.*
+!.env.example
+secrets/
+*.pem
+*.key
+
+# OS / editors
+.DS_Store
+.idea/
+*.iml
+.vscode/
+*.log

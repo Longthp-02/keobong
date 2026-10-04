@@ -6,13 +6,13 @@
 - CI runs every test on every push and PR.
 
 ## Walking Skeleton
-First slice proves DB → API → UI end-to-end with one backend acceptance test (real PostGIS via testcontainers) and one Playwright smoke test.
+First slice proves DB → API → UI end-to-end with backend acceptance tests through the Axum router against real PostGIS and frontend component tests. A Playwright end-to-end test is added in Step 3, once there is a user flow to drive.
 
 ## Test Levels
 | Change type | Test level |
 |---|---|
 | User-visible behavior, API contract, persisted state | Acceptance/behavior test through the HTTP API against a real database |
-| Repository, SQL, PostGIS, migrations, router wiring | Integration test with real PostGIS (testcontainers) |
+| Repository, SQL, PostGIS, migrations, router wiring | Integration test with real PostGIS (`#[sqlx::test]`) |
 | Pure deterministic logic (fee split, level checks, VietQR payload) | Unit test |
 | Frontend components | Vitest + Testing Library |
 | Critical user flows | Playwright end-to-end |
@@ -20,7 +20,7 @@ First slice proves DB → API → UI end-to-end with one backend acceptance test
 | Sensitive endpoints | Wrong-user test (403) for every host action |
 
 ## Real Dependencies vs Mocks
-- Use a real PostGIS via testcontainers for anything touching persistence. No in-memory substitutes.
+- Use a real PostGIS for anything touching persistence (`#[sqlx::test]` creates a fresh database per test and applies migrations). No in-memory substitutes.
 - Acceptance tests drive the Axum router in-process (`tower::ServiceExt::oneshot`).
 - Fake external identity providers (Google/Zalo) behind the `IdentityProvider` port.
 - Never mock the class under test's own collaborators inside the same feature unless they cross a port.
