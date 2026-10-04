@@ -38,6 +38,10 @@ export default function RootLayout({ children }: { children: ReactNode }) {
             <a href={LINKEDIN_URL} target="_blank" rel="noopener noreferrer">
               {messages.app.footer}
             </a>
+            <nav className="footer__links">
+              <a href="/privacy">{messages.app.privacyLink}</a>
+              <a href="/terms">{messages.app.termsLink}</a>
+            </nav>
           </footer>
         </div>
       </body>
