@@ -6,7 +6,9 @@
 - UI design prototype (external Claude Design canvas).
 - Backend (`backend/`): Axum app with `GET /health` and `GET /api/matches/{shareId}`; `matches` feature split into domain / service / repo / http; first migration (`matches` table, PostGIS, GiST index); `daghep-api migrate` subcommand; lazy DB pool for fast cold starts; multi-stage Dockerfile.
 - Frontend (`frontend/`): Next.js 16 PWA with home page, `/m/[shareId]` match page (server-rendered, Open Graph tags without payment details), not-found page, web manifest, `messages/vi.json`.
-- Tests: 5 backend acceptance tests + 3 domain unit tests; 7 frontend tests (API client, MatchCard).
+- Tests: backend 5 unit + 8 acceptance; frontend 12 (API client, MatchCard, LegalPage).
+- Production web: https://daghep.vn on Vercel (www redirects to apex); DNS at iNET.
+- Legal pages: `/privacy`, `/terms`, footer links, `LegalPage` tests.
 - CI: `.github/workflows/ci.yml` (backend fmt/clippy/test with PostGIS service; frontend typecheck/test/build).
 - Local dev: `docker-compose.yml` with PostGIS.
 

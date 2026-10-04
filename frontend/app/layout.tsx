@@ -6,7 +6,7 @@ import "./globals.css";
 const LINKEDIN_URL = "https://www.linkedin.com/in/long-pham-55466920b/";
 
 export const metadata: Metadata = {
-  title: messages.app.name,
+  title: { default: messages.app.name, template: `%s · ${messages.app.name}` },
   description: messages.app.tagline,
 };
 
@@ -38,6 +38,10 @@ export default function RootLayout({ children }: { children: ReactNode }) {
             <a href={LINKEDIN_URL} target="_blank" rel="noopener noreferrer">
               {messages.app.footer}
             </a>
+            <nav className="footer__links" aria-label={messages.app.legalNav}>
+              <a href="/privacy">{messages.app.privacyLink}</a>
+              <a href="/terms">{messages.app.termsLink}</a>
+            </nav>
           </footer>
         </div>
       </body>

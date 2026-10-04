@@ -61,6 +61,11 @@ Confirmed:
 - Only the host marks no-shows. A marked player can dispute it; disputes are reviewed by the admin (Long).
 - The host's VietQR / bank details are shown only to players who currently hold a slot in that match — never on the public match page or in link previews.
 - Player level is self-assessed at sign-up. Peer rating after matches is post-MVP.
+- Public visibility (2026-10-04): anyone, signed in or not, can see match details (venue and location, time, type, level, fee, slot count), participants' display names and avatars, guest names, and player profiles (display name, avatar, level, matches played, no-shows).
+- Account deletion (2026-10-04): delete name, avatar, email, payout details and Google/Zalo link; keep match and slot history anonymized; technical logs auto-delete after 30 days.
+- Minimum age 16 (2026-10-04).
+- Confirmed by Long (2026-10-04): no-show disputes go to lienhe@daghep.vn and the admin removes wrong marks (in-app "Dispute" button later); no phone number collected in MVP (revisit if users evade no-show marks with new accounts); scam or harassment accounts can be locked; browser location is used only for the nearby search, not saved to the profile (may appear in technical logs up to 30 days); on account deletion, guest names the user entered are deleted and shown as "Guest".
+- Operator named in legal pages: Pham Trinh Hoang Long (personal project); contact lienhe@daghep.vn.
 
 Proposed in design, not yet confirmed — TODO: verify:
 - Slot capacity per format: 10 / 14 / 22 players.

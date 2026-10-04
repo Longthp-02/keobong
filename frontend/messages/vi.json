@@ -3,7 +3,10 @@
     "name": "Đá Ghép",
     "tagline": "Tìm kèo đá bóng, ghép đội với người lạ, chia tiền sân.",
     "footer": "Miễn phí · Làm bởi Long",
-    "comingSoon": "Đang xây dựng. Sắp ra mắt ở Quận 2."
+    "comingSoon": "Đang xây dựng. Sắp ra mắt ở Quận 2.",
+    "privacyLink": "Chính sách bảo mật",
+    "termsLink": "Điều khoản sử dụng",
+    "legalNav": "Pháp lý"
   },
   "match": {
     "format": {
@@ -22,5 +25,161 @@
     "slotsUnit": "người",
     "notFoundTitle": "Không tìm thấy kèo",
     "notFoundBody": "Kèo này không tồn tại hoặc đã bị xoá."
+  },
+  "legal": {
+    "contactEmail": "lienhe@daghep.vn",
+    "contactLabel": "Liên hệ:",
+    "updatedLabel": "Cập nhật lần cuối:",
+    "privacy": {
+      "title": "Chính sách bảo mật",
+      "updated": "04/10/2026",
+      "intro": "Đá Ghép (daghep.vn) là ứng dụng miễn phí, mã nguồn mở, giúp người chơi tìm và tham gia các trận bóng đá ghép. Dịch vụ do cá nhân Phạm Trịnh Hoàng Long phát triển và vận hành. Ông Long là bên kiểm soát dữ liệu cá nhân của bạn. Trang này giải thích dữ liệu nào được thu thập, dùng để làm gì và bạn có những quyền gì.",
+      "sections": [
+        {
+          "heading": "1. Dữ liệu chúng tôi thu thập",
+          "paragraphs": [
+            "Khi bạn đăng nhập bằng Google hoặc Zalo: tên hiển thị, ảnh đại diện, mã định danh tài khoản, và địa chỉ email nếu nhà cung cấp chia sẻ.",
+            "Thông tin bạn tự nhập: trình độ (level), các kèo bạn tạo hoặc tham gia (sân, thời gian, tiền sân, số chỗ), tên khách đi cùng.",
+            "Vị trí: nếu bạn cho phép trình duyệt chia sẻ vị trí, vị trí đó chỉ dùng để tìm kèo gần bạn và không được lưu vào hồ sơ của bạn; nó có thể xuất hiện trong nhật ký kỹ thuật tối đa 30 ngày. Vị trí của sân trong mỗi kèo được lưu để hiển thị trên bản đồ và danh sách.",
+            "Với chủ kèo: thông tin nhận tiền (ngân hàng, số tài khoản, tên chủ tài khoản) để tạo mã VietQR.",
+            "Lịch sử tham gia: chỗ đã giữ, trạng thái thanh toán do chủ kèo xác nhận, điểm danh và các lần bùng kèo.",
+            "Dữ liệu kỹ thuật: nhật ký truy cập và địa chỉ IP, dùng để vận hành, sửa lỗi và chống lạm dụng."
+          ]
+        },
+        {
+          "heading": "2. Những gì chúng tôi không thu thập",
+          "paragraphs": [
+            "Đá Ghép không giữ, không chuyển và không xử lý tiền. Người chơi chuyển khoản trực tiếp cho chủ kèo qua ứng dụng ngân hàng của mình.",
+            "Chúng tôi không lưu mật khẩu, thông tin thẻ hay mã OTP ngân hàng của bạn."
+          ]
+        },
+        {
+          "heading": "3. Mục đích sử dụng",
+          "paragraphs": [
+            "Để bạn đăng nhập, tạo kèo, giữ chỗ và thanh toán cho chủ kèo; hiển thị uy tín (số trận, số lần bùng kèo); xử lý khiếu nại; và bảo vệ cộng đồng khỏi kèo giả, lừa đảo."
+          ]
+        },
+        {
+          "heading": "4. Ai nhìn thấy dữ liệu của bạn",
+          "paragraphs": [
+            "Công khai với bất kỳ ai, kể cả người chưa đăng nhập, khi mở link kèo hoặc xem danh sách kèo: thông tin kèo (sân và vị trí sân, thời gian, loại trận, level, tiền sân, số chỗ), tên hiển thị và ảnh đại diện của người tham gia, và tên khách đi cùng.",
+            "Hồ sơ người chơi cũng công khai: tên hiển thị, ảnh đại diện, level, số trận đã tham gia và số lần bùng kèo.",
+            "Thông tin nhận tiền của chủ kèo chỉ hiện cho người đang giữ chỗ trong kèo đó, không hiện công khai và không xuất hiện khi chia sẻ link.",
+            "Chúng tôi không bán và không cho thuê dữ liệu cá nhân."
+          ]
+        },
+        {
+          "heading": "5. Nơi lưu trữ",
+          "paragraphs": [
+            "Máy chủ ứng dụng và cơ sở dữ liệu đặt tại Singapore (Google Cloud, Neon). Giao diện web chạy trên Vercel (vùng Singapore) và được phân phối qua mạng lưới máy chủ toàn cầu của Vercel, nên dữ liệu có thể đi qua máy chủ ở nước ngoài.",
+            "Phông chữ được tải từ Google Fonts, vì vậy Google nhận được địa chỉ IP của trình duyệt khi bạn mở trang.",
+            "Các nhà cung cấp này chỉ xử lý dữ liệu để vận hành dịch vụ."
+          ]
+        },
+        {
+          "heading": "6. Cookie",
+          "paragraphs": [
+            "Chúng tôi chỉ dùng cookie và bộ nhớ trình duyệt cần thiết cho việc đăng nhập và vận hành ứng dụng. Không dùng cookie quảng cáo hay theo dõi của bên thứ ba."
+          ]
+        },
+        {
+          "heading": "7. Thời gian lưu trữ và xoá dữ liệu",
+          "paragraphs": [
+            "Dữ liệu tài khoản được giữ trong thời gian bạn còn sử dụng Đá Ghép. Nhật ký kỹ thuật tự động được xoá sau 30 ngày.",
+            "Khi bạn yêu cầu xoá tài khoản, chúng tôi xoá tên, ảnh đại diện, email, thông tin nhận tiền và liên kết đăng nhập Google/Zalo. Lịch sử các kèo bạn đã tham gia được giữ lại ở dạng ẩn danh để kèo của người khác không bị sai lệch; tên khách đi cùng do bạn nhập cũng bị xoá và chỉ hiển thị là \"Khách\".",
+            "Bạn cũng có thể gỡ quyền truy cập của Đá Ghép trong phần cài đặt tài khoản Google hoặc Zalo của mình."
+          ]
+        },
+        {
+          "heading": "8. Độ tuổi",
+          "paragraphs": [
+            "Đá Ghép dành cho người từ 16 tuổi trở lên."
+          ]
+        },
+        {
+          "heading": "9. Quyền của bạn",
+          "paragraphs": [
+            "Theo quy định pháp luật Việt Nam về bảo vệ dữ liệu cá nhân, bạn có quyền xem, sửa, yêu cầu xoá dữ liệu và rút lại sự đồng ý. Gửi yêu cầu tới email bên dưới."
+          ]
+        },
+        {
+          "heading": "10. Thay đổi chính sách",
+          "paragraphs": [
+            "Khi chính sách thay đổi, ngày cập nhật ở đầu trang sẽ được đổi theo. Thay đổi quan trọng sẽ được thông báo trên trang chủ."
+          ]
+        }
+      ]
+    },
+    "terms": {
+      "title": "Điều khoản sử dụng",
+      "updated": "04/10/2026",
+      "intro": "Khi dùng Đá Ghép (daghep.vn), bạn đồng ý với các điều khoản dưới đây. Dịch vụ hoàn toàn miễn phí, do cá nhân Phạm Trịnh Hoàng Long phát triển và vận hành.",
+      "sections": [
+        {
+          "heading": "1. Đá Ghép làm gì",
+          "paragraphs": [
+            "Đá Ghép giúp chủ kèo đăng trận còn thiếu người và giúp người chơi tìm, giữ chỗ trong các trận đó. Đá Ghép không phải chủ sân và không tổ chức trận đấu."
+          ]
+        },
+        {
+          "heading": "2. Độ tuổi",
+          "paragraphs": [
+            "Bạn cần từ 16 tuổi trở lên để sử dụng Đá Ghép."
+          ]
+        },
+        {
+          "heading": "3. Thanh toán",
+          "paragraphs": [
+            "Đá Ghép không giữ tiền. Người chơi chuyển khoản trực tiếp cho chủ kèo qua mã VietQR. Mọi giao dịch, hoàn tiền và tranh chấp về tiền là thoả thuận giữa người chơi và chủ kèo."
+          ]
+        },
+        {
+          "heading": "4. Giữ chỗ",
+          "paragraphs": [
+            "Khi bấm tham gia, chỗ được giữ trong 30 phút. Nếu chủ kèo chưa xác nhận thanh toán trong thời gian này, chỗ sẽ tự mở lại cho người khác.",
+            "Mỗi tài khoản giữ được chỗ của mình và tối đa 2 khách đi cùng có ghi tên trong cùng một kèo."
+          ]
+        },
+        {
+          "heading": "5. Trách nhiệm của chủ kèo",
+          "paragraphs": [
+            "Đăng thông tin đúng sự thật (sân đã đặt, giờ, tiền sân, số chỗ), xác nhận thanh toán trung thực và chỉ đánh dấu bùng kèo khi người chơi thật sự không đến."
+          ]
+        },
+        {
+          "heading": "6. Trách nhiệm của người chơi",
+          "paragraphs": [
+            "Chỉ giữ chỗ khi chắc chắn tham gia, chuyển tiền đúng hạn và đến đúng giờ. Các lần bùng kèo do chủ kèo ghi nhận sẽ hiện trên hồ sơ của bạn.",
+            "Nếu cho rằng mình bị đánh dấu bùng kèo sai, bạn có thể khiếu nại qua email; quản trị viên sẽ xem xét."
+          ]
+        },
+        {
+          "heading": "7. Hành vi bị cấm",
+          "paragraphs": [
+            "Tạo kèo giả hoặc lừa đảo chuyển khoản; mạo danh người khác; quấy rối, xúc phạm người chơi; dùng Đá Ghép cho cá cược. Tài khoản vi phạm có thể bị khoá."
+          ]
+        },
+        {
+          "heading": "8. An toàn",
+          "paragraphs": [
+            "Bóng đá là môn thể thao có va chạm. Bạn tự chịu trách nhiệm về sức khoẻ và an toàn của mình khi tham gia trận đấu."
+          ]
+        },
+        {
+          "heading": "9. Giới hạn trách nhiệm",
+          "paragraphs": [
+            "Dịch vụ được cung cấp miễn phí theo hiện trạng. Đá Ghép không chịu trách nhiệm về việc trận đấu bị huỷ, chất lượng sân, hay thiệt hại phát sinh giữa người chơi và chủ kèo."
+          ]
+        },
+        {
+          "heading": "10. Thay đổi điều khoản",
+          "paragraphs": [
+            "Điều khoản có thể được cập nhật; ngày cập nhật ở đầu trang sẽ đổi theo. Tiếp tục sử dụng nghĩa là bạn đồng ý với phiên bản mới."
+          ]
+        }
+      ]
+    },
+    "operatorName": "Phạm Trịnh Hoàng Long",
+    "minimumAgePhrase": "từ 16 tuổi trở lên"
   }
 }
