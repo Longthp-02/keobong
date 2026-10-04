@@ -1,7 +1,7 @@
 # Project Spec
 
 ## Project Name
-Keo (working domain: keobong — TODO: verify availability)
+Daghep — domain daghep.vn (purchase in progress)
 
 ## Problem
 In Ho Chi Minh City, teams that book a mini pitch often end up short of players, and individuals who want to play have no team. Today this is matched by hand in Facebook and Zalo groups ("pitch 7 needs 2 more players"): posts get buried, nobody tracks who paid, and no-shows are common. No widely used Vietnamese app lets a single player book one slot in a pickup match the way LaBOLA (Japan), Footy Addicts (UK) or Playtomic (padel) do.
@@ -56,16 +56,16 @@ Confirmed:
 - Launch area: District 2 (Thu Duc City), Ho Chi Minh City. First venues to try: SSA Sports Center, Football Field An Phu, An Phu Sports Complex.
 - Open source under MIT; repository is public.
 - MVP sized for ~100 users; architecture must scale without rewrites.
+- Slot hold: joining holds a slot for 30 minutes. If the host has not confirmed payment within 30 minutes, the slot is released automatically.
+- One account may hold its own slot plus up to 2 named guests in the same match.
+- Only the host marks no-shows. A marked player can dispute it; disputes are reviewed by the admin (Long).
+- The host's VietQR / bank details are shown only to players who currently hold a slot in that match — never on the public match page or in link previews.
+- Player level is self-assessed at sign-up. Peer rating after matches is post-MVP.
 
 Proposed in design, not yet confirmed — TODO: verify:
 - Slot capacity per format: 10 / 14 / 22 players.
 - Price per player = total fee ÷ capacity, rounded up to the nearest 1,000 VND.
-- A slot is held on join; whether an unpaid slot expires, and after how long.
-- "First to pay keeps the slot" when two players contest the last slot.
-- Only the host can confirm payment and mark no-shows; whether players can dispute a no-show.
-- How a player's level is set (self-assessed at sign-up?) and whether it changes after matches.
 - Who can host: any signed-in user (with a `host_type` of player or venue).
-- Whether the host's bank account number is visible to everyone or only to joined players.
 - Cancellation rules for hosts and players.
 
 ## Data / State Needed
@@ -85,7 +85,10 @@ See `docs/threat-model.md`. Key points: authorization on every host action, race
 - [ ] Opening the share link without signing in shows the match, teams and open slots.
 - [ ] A signed-in player can take an open slot; the slot count updates for everyone.
 - [ ] Two players claiming the same slot at the same moment never both succeed.
-- [ ] A player cannot take more than one slot in the same match (TODO: verify — friends joining together?).
+- [ ] A player can hold at most their own slot plus 2 named guests in the same match.
+- [ ] A held slot whose payment the host has not confirmed within 30 minutes is released and becomes claimable again.
+- [ ] The VietQR code is returned only to players holding a slot; the public match page and link preview never include bank details.
+- [ ] A player marked as no-show can file a dispute that the admin can resolve.
 - [ ] The match page shows a VietQR code with the correct amount and memo.
 - [ ] Only the host can mark payment and attendance; other users get 403.
 - [ ] The match list shows upcoming matches within a radius, sorted by start time.
@@ -105,6 +108,5 @@ See `docs/testing-strategy.md`.
 Every deploy is a container image tag; roll back by redeploying the previous tag. sqlx migrations are forward-only and additive during MVP; destructive migrations need explicit approval and a backup first.
 
 ## TODO: verify
-- Domain name.
-- Hosting provider and database hosting.
-- All "proposed" domain rules above.
+- Domain daghep.vn purchase (in progress).
+- Remaining "proposed" domain rules above.

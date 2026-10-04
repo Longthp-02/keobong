@@ -10,7 +10,8 @@
 - **Test tools:** `cargo test`, testcontainers (PostGIS image), `tokio::test`; Vitest, Testing Library, Playwright.
 - **Lint/audit:** rustfmt, clippy `-D warnings`, cargo-deny or cargo-audit; ESLint + TypeScript strict.
 - **CI/build:** GitHub Actions — backend fmt/clippy/test, frontend lint/test/build on every push and PR. Multi-stage Docker build to a minimal runtime image.
-- **Deployment:** GCP Cloud Run, min instances 0. Frontend on Vercel free tier or Cloud Run (TODO: verify). Images in GCS.
+- **Deployment (decided):** backend on GCP Cloud Run in `asia-southeast1`, min instances 0; Postgres + PostGIS on Neon (Singapore region); frontend on Vercel Hobby (root directory `frontend/`); venue images in GCS; domain daghep.vn, DNS optionally on Cloudflare. Secrets live in GCP Secret Manager / Vercel env vars, never in the repo.
+- **Product form:** installable web app (PWA) first. If adoption is good, wrap the same web code as native iOS/Android apps with Capacitor (mainly for push notifications); no rewrite.
 
 ## Scaling Path
 | Stage | Infra | Change needed |
@@ -20,4 +21,4 @@
 | 100k+ users | Cloud SQL/AlloyDB + read replicas; Redis cache if measured; WebSocket for live slots | add components, no core rewrite |
 
 ## TODO: verify
-Crate versions, Rust edition, package manager, DB provider and its PostGIS support, frontend hosting, maps/geocoding provider.
+Crate versions, Rust edition, package manager, maps/geocoding provider. Re-check free-tier limits and regions of Cloud Run, Neon and Vercel before the first deploy.

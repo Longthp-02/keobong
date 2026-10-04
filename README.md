@@ -1,6 +1,6 @@
-# Keo
+# Daghep
 
-Free, open-source app for joining pickup football matches with strangers in Ho Chi Minh City.
+Free, open-source app (daghep.vn) for joining pickup football matches with strangers in Ho Chi Minh City.
 
 A host posts a match with open slots and shares the link in Zalo or Messenger. Players take a slot on team A or B and pay the host directly via VietQR. The app never holds money.
 
