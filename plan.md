@@ -17,7 +17,7 @@ See `spec.md`. In particular: no money handling, no chat, no native app, no cour
 Each slice delivers one user-visible behavior end-to-end (DB → API → UI → test) inside one feature package. Order: match viewing → match creation → joining → payments display → host confirmation → nearby list → auth hardening → link previews → attendance.
 
 ## Walking Skeleton
-The thinnest real path: a match row seeded in Postgres is served by `GET /api/matches/{shareId}` and rendered by the Next.js page `/m/{shareId}`, with CI running a backend acceptance test against real PostGIS and a frontend Playwright smoke test.
+The thinnest real path: a match row seeded in Postgres is served by `GET /api/matches/{shareId}` and rendered by the Next.js page `/m/{shareId}`, with CI running backend acceptance tests against real PostGIS and frontend component tests. Playwright end-to-end starts in Step 3 (see `docs/testing-strategy.md`).
 
 ## Steps
 

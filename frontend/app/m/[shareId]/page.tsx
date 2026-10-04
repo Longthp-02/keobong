@@ -7,6 +7,14 @@ import messages from "../../../messages/vi.json";
 
 type Props = { params: Promise<{ shareId: string }> };
 
+// Incremental static regeneration: each match page is rendered on first request,
+// then served from the CDN cache and refreshed at most every 30 seconds.
+export const revalidate = 30;
+
+export async function generateStaticParams() {
+  return [];
+}
+
 // Link previews (Zalo, Messenger) read these tags. They must never include payment details.
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { shareId } = await params;

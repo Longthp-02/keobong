@@ -6,7 +6,7 @@
 Walking skeleton done (plan Steps 1-2): `GET /api/matches/{shareId}` (Rust/Axum/sqlx/PostGIS) rendered by Next.js at `/m/{shareId}`, with CI. Next: Step 3 (create match, Google sign-in, take a slot).
 
 ## Latest Decisions
-- Name: Daghep (UI: "Da Ghep" with Vietnamese diacritics in vi.json); domain daghep.vn bought by Long at iNET on 2026-10-04 (activation pending). Renamed from "Keo" because "keo bong" reads as football betting slang.
+- Name: Daghep (UI: "Da Ghep" with Vietnamese diacritics in vi.json); domain daghep.vn owned by Long (active). Renamed from "Keo" because "keo bong" reads as football betting slang.
 - Stack: Rust (Axum, sqlx) + PostgreSQL/PostGIS backend, Next.js PWA frontend. Rust chosen for near-zero cost at MVP scale and scale-to-zero without slow cold starts.
 - Target: ~100 users first, built so scaling is configuration, not rewrite (see `AGENTS.md` Scale-Ready Rules).
 - Sign-in: Google and Zalo.
@@ -18,14 +18,15 @@ Walking skeleton done (plan Steps 1-2): `GET /api/matches/{shareId}` (Rust/Axum/
 - Deployment: Cloud Run (asia-southeast1) + Neon (Singapore) + Vercel; PWA first, Capacitor native wrap later if adoption is good.
 - Attribution footer links to https://www.linkedin.com/in/long-pham-55466920b/.
 - Design reference: Claude Design canvas with match list, match detail (teams A/B, slot buttons), create match, dark mode.
+- Level steps of 0.5 confirmed by Long (2026-10-04); enforced in `Level` and a DB CHECK.
+- Public match API sends `Cache-Control: public, max-age=30`; the web match page uses ISR (revalidate 30s) so a CDN can absorb share-link bursts.
 - Skeleton decisions (2026-10-04): malformed and unknown share ids both return 404 `match_not_found`; public match view exposes no internal id and no payment details; match stores explicit `slot_count` and `total_fee_vnd` (no per-player price shown until rounding is confirmed); migrations run via `daghep-api migrate`, not on startup; tests use `#[sqlx::test]` against real PostGIS.
 
 ## Open Questions
 1. Remaining proposed rules in `spec.md` (slot capacity, price rounding, who can host, cancellations).
 
 ## Pending on Long
-- Finish daghep.vn activation at iNET (registration declaration), enable 2FA and auto-renew.
-- Then register the Zalo for Developers login app.
+- Deploy frontend to Vercel and point daghep.vn to it; then register the Zalo for Developers login app.
 - Google OAuth client (localhost redirect first).
 - Before deploy: GCP project with billing + budget alert, Neon project (Singapore), Vercel account.
 

@@ -37,13 +37,13 @@ pub enum MatchType {
     BeginnerFriendly,
 }
 
-/// Player level stored in tenths: 1.0 (beginner) .. 5.0 (semi-pro).
+/// Player level stored in tenths: 1.0 (beginner) .. 5.0 (semi-pro), in steps of 0.5.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Level(i16);
 
 impl Level {
     pub fn from_tenths(tenths: i16) -> Option<Self> {
-        (10..=50).contains(&tenths).then_some(Self(tenths))
+        ((10..=50).contains(&tenths) && tenths % 5 == 0).then_some(Self(tenths))
     }
 
     pub fn as_f64(self) -> f64 {
@@ -98,6 +98,14 @@ mod tests {
         assert!(ShareId::parse("bad!id12").is_none());
         assert!(ShareId::parse("has space").is_none());
         assert!(ShareId::parse("").is_none());
+    }
+
+    #[test]
+    fn level_only_accepts_half_steps() {
+        assert_eq!(Level::from_tenths(25).map(Level::as_f64), Some(2.5));
+        assert_eq!(Level::from_tenths(30).map(Level::as_f64), Some(3.0));
+        assert!(Level::from_tenths(23).is_none());
+        assert!(Level::from_tenths(41).is_none());
     }
 
     #[test]

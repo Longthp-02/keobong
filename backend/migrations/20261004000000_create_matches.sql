@@ -15,10 +15,12 @@ CREATE TABLE matches (
                                  CHECK (format IN ('five_a_side', 'seven_a_side', 'eleven_a_side')),
     match_type       TEXT        NOT NULL
                                  CHECK (match_type IN ('casual', 'competitive', 'beginner_friendly')),
-    -- Levels are stored in tenths (1.0 -> 10, 5.0 -> 50) to avoid floats.
-    level_min_tenths SMALLINT    NOT NULL CHECK (level_min_tenths BETWEEN 10 AND 50),
-    level_max_tenths SMALLINT    NOT NULL CHECK (level_max_tenths BETWEEN 10 AND 50),
-    -- Money is integer VND.
+    -- Levels are stored in tenths (1.0 -> 10, 5.0 -> 50) to avoid floats; steps of 0.5.
+    level_min_tenths SMALLINT    NOT NULL
+                                 CHECK (level_min_tenths BETWEEN 10 AND 50 AND level_min_tenths % 5 = 0),
+    level_max_tenths SMALLINT    NOT NULL
+                                 CHECK (level_max_tenths BETWEEN 10 AND 50 AND level_max_tenths % 5 = 0),
+    -- Money is integer VND. Whether a free (zero-fee) match is allowed: TODO: verify.
     total_fee_vnd    BIGINT      NOT NULL CHECK (total_fee_vnd >= 0),
     -- Upper bound is a sanity guard, not a product rule (capacity per format is TODO: verify).
     slot_count       SMALLINT    NOT NULL CHECK (slot_count BETWEEN 2 AND 30),

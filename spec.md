@@ -50,7 +50,7 @@ Confirmed:
 - The service is free and never handles money; payment goes player → host directly.
 - Football only in MVP. Formats: 5-a-side, 7-a-side, 11-a-side.
 - Match shows two teams (A and B); a player takes one specific open slot.
-- Player level is a number from 1.0 (beginner) to 5.0 (semi-pro); a match declares a level range.
+- Player level is a number from 1.0 (beginner) to 5.0 (semi-pro) in steps of 0.5; a match declares a level range.
 - Match types: casual, competitive, beginner-friendly.
 - Sign-in methods: Google and Zalo.
 - Launch area: District 2 (Thu Duc City), Ho Chi Minh City. First venues to try: SSA Sports Center, Football Field An Phu, An Phu Sports Complex.

@@ -23,3 +23,24 @@ pub async fn get_public_match<R: MatchRepository>(
         .await?
         .ok_or(GetMatchError::NotFound)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Repository double that fails the test if storage is touched.
+    struct UnreachableRepo;
+
+    impl MatchRepository for UnreachableRepo {
+        async fn find_by_share_id(&self, _id: &ShareId) -> Result<Option<Match>, RepoError> {
+            panic!("storage must not be queried for a malformed share id");
+        }
+    }
+
+    #[tokio::test]
+    async fn malformed_share_id_is_not_found_without_querying_storage() {
+        let result = get_public_match(&UnreachableRepo, "bad!id").await;
+
+        assert!(matches!(result, Err(GetMatchError::NotFound)));
+    }
+}

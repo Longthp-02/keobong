@@ -1,7 +1,7 @@
 //! HTTP adapter: routes, response DTOs and error mapping for matches.
 
 use axum::extract::{Path, State};
-use axum::http::StatusCode;
+use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::{Json, Router};
@@ -61,12 +61,19 @@ impl From<Match> for MatchView {
     }
 }
 
+/// Public match views may be cached briefly by browsers and CDNs: share links
+/// arrive in bursts, and slot counts tolerate a few seconds of staleness.
+const PUBLIC_MATCH_CACHE: &str = "public, max-age=30";
+
 async fn get_match(
     State(repo): State<PgMatchRepository>,
     Path(share_id): Path<String>,
-) -> Result<Json<MatchView>, GetMatchError> {
+) -> Result<impl IntoResponse, GetMatchError> {
     let found = get_public_match(&repo, &share_id).await?;
-    Ok(Json(MatchView::from(found)))
+    Ok((
+        [(header::CACHE_CONTROL, PUBLIC_MATCH_CACHE)],
+        Json(MatchView::from(found)),
+    ))
 }
 
 impl IntoResponse for GetMatchError {

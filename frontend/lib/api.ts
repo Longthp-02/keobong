@@ -28,7 +28,7 @@ export async function getMatch(shareId: string, options: Options = {}): Promise<
 
   const response = await fetchImpl(`${baseUrl}/api/matches/${encodeURIComponent(shareId)}`, {
     headers: { accept: "application/json" },
-    // Public match pages can be served from cache briefly; slot counts refresh quickly.
+    // Matches the page's ISR window (see app/m/[shareId]/page.tsx).
     next: { revalidate: 30 },
   } as RequestInit);
 

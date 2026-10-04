@@ -2,6 +2,7 @@
 //! Usage: `daghep-api` serves HTTP; `daghep-api migrate` applies migrations and exits.
 
 use std::process::ExitCode;
+use std::time::Duration;
 
 use axum::http::{HeaderValue, Method};
 use daghep_api::config::Config;
@@ -32,15 +33,26 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     // Lazy pool: no connection is opened until the first request, which keeps
     // scale-to-zero cold starts fast.
+    // Short acquire timeout: fail fast with a 500 instead of hanging while the
+    // database is unreachable or still waking up.
     let pool = PgPoolOptions::new()
         .max_connections(5)
+        .acquire_timeout(Duration::from_secs(5))
         .connect_lazy(&config.database_url)?;
 
-    if std::env::args().nth(1).as_deref() == Some("migrate") {
-        daghep_api::MIGRATOR.run(&pool).await?;
-        tracing::info!("migrations applied");
-        return Ok(());
+    match std::env::args().nth(1).as_deref() {
+        None => {}
+        Some("migrate") => {
+            daghep_api::MIGRATOR.run(&pool).await?;
+            tracing::info!("migrations applied");
+            return Ok(());
+        }
+        Some(other) => {
+            return Err(format!("unknown command `{other}`; expected `migrate` or none").into());
+        }
     }
+
+    tracing::info!(cors_allowed_origin = %config.cors_allowed_origin, "configuration loaded");
 
     let cors = CorsLayer::new()
         .allow_origin(config.cors_allowed_origin.parse::<HeaderValue>()?)
