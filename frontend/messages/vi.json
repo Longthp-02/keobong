@@ -212,7 +212,20 @@
       "levelMax": "Level đến phải lớn hơn hoặc bằng level từ.",
       "totalFeeVnd": "Nhập tiền sân là số nguyên từ 0 đến 100.000.000đ.",
       "slotCount": "Số chỗ phải là số nguyên từ 2 đến 30.",
-      "unknown": "Thông tin chưa hợp lệ, vui lòng kiểm tra lại."
+      "unknown": "Thông tin chưa hợp lệ, vui lòng kiểm tra lại.",
+      "unauthenticated": "Phiên đăng nhập đã hết hạn. Hãy tải lại trang và đăng nhập lại."
     }
+  },
+  "auth": {
+    "signInTitle": "Đăng nhập để tạo kèo",
+    "signInBody": "Đăng nhập để mọi người biết ai là chủ kèo. Mất chưa tới 10 giây.",
+    "signInWithGoogle": "Đăng nhập bằng Google",
+    "signedInAs": "Đang đăng nhập:",
+    "anonymousName": "Người chơi",
+    "signOut": "Đăng xuất",
+    "failedTitle": "Đăng nhập chưa thành công",
+    "failedBody": "Có thể bạn đã huỷ, hoặc liên kết đăng nhập đã hết hạn. Hãy thử lại.",
+    "tryAgain": "Thử đăng nhập lại",
+    "backHome": "Về trang chủ"
   }
 }

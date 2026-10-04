@@ -3,6 +3,8 @@
 use chrono::{DateTime, Utc};
 use sqlx::PgPool;
 
+use crate::auth::UserId;
+
 use super::domain::{
     Format, InsertError, Level, Match, MatchRepository, MatchType, NewMatch, RepoError, ShareId,
 };
@@ -70,12 +72,17 @@ impl MatchRepository for PgMatchRepository {
         row.map(Match::try_from).transpose()
     }
 
-    async fn insert(&self, share_id: &ShareId, new: &NewMatch) -> Result<(), InsertError> {
+    async fn insert(
+        &self,
+        share_id: &ShareId,
+        new: &NewMatch,
+        host: UserId,
+    ) -> Result<(), InsertError> {
         let result = sqlx::query(
             "INSERT INTO matches
                 (share_id, venue_name, starts_at, ends_at, format, match_type,
-                 level_min_tenths, level_max_tenths, total_fee_vnd, slot_count)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
+                 level_min_tenths, level_max_tenths, total_fee_vnd, slot_count, host_user_id)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
         )
         .bind(share_id.as_str())
         .bind(&new.venue_name)
@@ -87,6 +94,7 @@ impl MatchRepository for PgMatchRepository {
         .bind(new.level_max.tenths())
         .bind(new.total_fee_vnd)
         .bind(new.slot_count)
+        .bind(host.0)
         .execute(&self.pool)
         .await;
 

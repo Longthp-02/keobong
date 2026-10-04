@@ -9,7 +9,7 @@ Daghep is a free, open-source (MIT) web app (PWA) that lets individual players i
 - Backend: Rust (stable), Axum, Tokio, sqlx, serde, tower-http, tracing
 - Database: PostgreSQL + PostGIS; migrations with `sqlx migrate`
 - Frontend: Next.js (TypeScript), installable PWA; UI strings in `frontend/messages/vi.json`
-- Auth: Google OIDC + Zalo OAuth; sessions stored in Postgres, referenced by a signed HTTP-only cookie
+- Auth: Google OIDC + Zalo OAuth; sessions stored in Postgres, referenced by an opaque random token in an HttpOnly cookie (only its SHA-256 hash is stored)
 - Tests: `cargo test` with `#[sqlx::test]` against real PostGIS (`DATABASE_URL`); Vitest + Testing Library on frontend; Playwright E2E from Step 3
 - Quality: rustfmt, clippy (`-D warnings`), cargo-deny/cargo-audit
 - CI: GitHub Actions running all tests on every push and PR

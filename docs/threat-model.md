@@ -11,7 +11,9 @@ Daghep MVP: accounts, matches, slots, VietQR display, host payment confirmation,
 - Bank account numbers scraped from public match pages.
 - Spam match creation; slot squatting by bots holding all slots.
 - Link preview leaking private data or injecting markup.
-- OAuth misconfiguration (open redirect, missing state/nonce).
+- OAuth misconfiguration (open redirect, missing state/nonce). Mitigated (PR 3b): PKCE + single-use `state` bound to the browser + `nonce`; ID token issuer/audience/expiry checked; return paths limited to same-site paths; tested in `backend/tests/auth_api.rs`.
+- Account takeover through account linking: the Google `email_verified` claim is ignored today because accounts are identified only by provider `sub`. It must be required before any future linking of Google and Zalo accounts by email.
+- Session theft or forgery. Mitigated: 256-bit random tokens, only hashes stored, HttpOnly + SameSite=Lax + Secure cookies, 30-day expiry, sign-out deletes the session; cross-site POSTs refused by an `Origin` check.
 
 ## Who could attack or misuse this?
 Scam hosts, griefers holding slots, scrapers, bots, curious users enumerating ids.

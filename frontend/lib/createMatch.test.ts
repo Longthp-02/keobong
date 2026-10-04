@@ -50,4 +50,20 @@ describe("createMatch", () => {
 
     await expect(createMatch(input, { baseUrl: "http://api", fetchImpl })).rejects.toThrow(/500/);
   });
+
+  it("forwards the browser's cookies so the API knows the host", async () => {
+    const fetchImpl = respond(201, { ...input, shareId: "k7Qm2xPa", pricePerPlayerVnd: 50000 });
+
+    await createMatch(input, { baseUrl: "http://api", fetchImpl, cookie: "daghep_session=abc" });
+
+    expect(fetchImpl.mock.calls[0][1].headers.cookie).toBe("daghep_session=abc");
+  });
+
+  it("reports an expired or missing session as its own error", async () => {
+    const fetchImpl = respond(401, { error: "unauthenticated" });
+
+    const result = await createMatch(input, { baseUrl: "http://api", fetchImpl });
+
+    expect(result).toEqual({ ok: false, field: "unauthenticated" });
+  });
 });

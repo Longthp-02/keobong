@@ -4,7 +4,7 @@ Free, open-source app (daghep.vn) for joining pickup football matches with stran
 
 A host posts a match with open slots and shares the link in Zalo or Messenger. Players take a slot on team A or B and pay the host directly via VietQR. The app never holds money.
 
-**Status:** pre-MVP — walking skeleton: a match stored in Postgres is served by the Rust API and rendered at `/m/{shareId}`. See `spec.md` and `plan.md`.
+**Status:** pre-MVP — signed-in users can create a match at `/create` and share its page at `/m/{shareId}`. See `spec.md` and `plan.md`.
 
 ## Run locally
 Requirements: Docker, Rust (stable), Node 22 with pnpm.
@@ -24,14 +24,20 @@ pnpm test
 API_BASE_URL=http://localhost:8080 pnpm dev   # web on http://localhost:3000
 ```
 
-Create a sample match to view at http://localhost:3000/m/demo2026:
+The web app proxies `/api/*` to the API (see `frontend/lib/rewrites.ts`).
 
-```sql
-INSERT INTO matches (share_id, venue_name, starts_at, ends_at, format, match_type,
-                     level_min_tenths, level_max_tenths, total_fee_vnd, slot_count)
-VALUES ('demo2026', 'SSA Sports Center', '2026-10-10T11:30:00Z', '2026-10-10T13:00:00Z',
-        'seven_a_side', 'casual', 25, 35, 900000, 14);
+To sign in locally, start the API with Google settings (see `backend/.env.example`;
+the client secret comes from Google Cloud console and is never committed):
+
+```bash
+export GOOGLE_CLIENT_ID=... GOOGLE_CLIENT_SECRET=... \
+       GOOGLE_REDIRECT_URI=http://localhost:8080/api/auth/google/callback
+cargo run
 ```
+
+Then open http://localhost:3000/create. Without these variables sign-in answers 503.
+Since PR 3b every match has a host; reset an older local database with
+`DROP DATABASE daghep_dev; CREATE DATABASE daghep_dev;` and `cargo run -- migrate`.
 
 ## Stack
 - Backend: Rust (Axum, sqlx)

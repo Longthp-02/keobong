@@ -378,3 +378,33 @@ main {
   color: #8a2c12;
   font-size: 14px;
 }
+
+.sign-in {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.account-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 12px;
+  font-size: 14px;
+}
+
+.account-bar form {
+  margin-left: auto;
+}
+
+.link-button {
+  min-height: 44px;
+  padding: 0 4px;
+  border: none;
+  background: none;
+  color: var(--ink-muted);
+  font: 500 14px var(--font-body);
+  text-decoration: underline;
+  cursor: pointer;
+}

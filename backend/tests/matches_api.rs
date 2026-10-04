@@ -9,8 +9,10 @@ use serde_json::{Value, json};
 use sqlx::PgPool;
 use tower::ServiceExt;
 
+mod common;
+
 async fn get(pool: PgPool, uri: &str) -> (StatusCode, Value) {
-    let response = daghep_api::app(pool)
+    let response = common::app(pool)
         .oneshot(Request::get(uri).body(Body::empty()).unwrap())
         .await
         .unwrap();
@@ -25,17 +27,19 @@ async fn get(pool: PgPool, uri: &str) -> (StatusCode, Value) {
 }
 
 async fn insert_match(pool: &PgPool, share_id: &str) {
+    let host = common::insert_user(pool).await;
     sqlx::query(
         "INSERT INTO matches
             (share_id, venue_name, location, starts_at, ends_at, format, match_type,
-             level_min_tenths, level_max_tenths, total_fee_vnd, slot_count)
+             level_min_tenths, level_max_tenths, total_fee_vnd, slot_count, host_user_id)
          VALUES
             ($1, 'SSA Sports Center',
              ST_SetSRID(ST_MakePoint(106.7388602, 10.8069529), 4326)::geography,
              '2026-10-10T11:30:00Z', '2026-10-10T13:00:00Z',
-             'seven_a_side', 'casual', 25, 35, 900000, 14)",
+             'seven_a_side', 'casual', 25, 35, 900000, 14, $2)",
     )
     .bind(share_id)
+    .bind(host)
     .execute(pool)
     .await
     .unwrap();
@@ -107,7 +111,7 @@ async fn malformed_share_id_returns_not_found(pool: PgPool) {
 async fn public_match_view_is_cacheable_briefly(pool: PgPool) {
     insert_match(&pool, "k7Qm2xPa").await;
 
-    let response = daghep_api::app(pool)
+    let response = common::app(pool)
         .oneshot(
             Request::get("/api/matches/k7Qm2xPa")
                 .body(Body::empty())
@@ -128,7 +132,7 @@ async fn public_match_view_is_cacheable_briefly(pool: PgPool) {
 
 #[sqlx::test]
 async fn not_found_response_is_not_cached(pool: PgPool) {
-    let response = daghep_api::app(pool)
+    let response = common::app(pool)
         .oneshot(
             Request::get("/api/matches/doesNotExist")
                 .body(Body::empty())
@@ -143,13 +147,15 @@ async fn not_found_response_is_not_cached(pool: PgPool) {
 
 #[sqlx::test]
 async fn database_rejects_levels_outside_half_steps(pool: PgPool) {
+    let host = common::insert_user(&pool).await;
     let result = sqlx::query(
         "INSERT INTO matches
             (share_id, venue_name, starts_at, ends_at, format, match_type,
-             level_min_tenths, level_max_tenths, total_fee_vnd, slot_count)
+             level_min_tenths, level_max_tenths, total_fee_vnd, slot_count, host_user_id)
          VALUES ('k7Qm2xPb', 'SSA Sports Center', '2026-10-10T11:30:00Z',
-                 '2026-10-10T13:00:00Z', 'seven_a_side', 'casual', 23, 35, 900000, 14)",
+                 '2026-10-10T13:00:00Z', 'seven_a_side', 'casual', 23, 35, 900000, 14, $1)",
     )
+    .bind(host)
     .execute(&pool)
     .await;
 

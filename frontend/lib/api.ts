@@ -16,7 +16,49 @@ export type MatchView = {
 type Options = {
   baseUrl?: string;
   fetchImpl?: typeof fetch;
+  /** The browser's `Cookie` header, forwarded so the API can see the session. */
+  cookie?: string;
 };
+
+/** The signed-in user's own view, from `GET /api/me`. */
+export type MeView = {
+  displayName: string | null;
+  avatarUrl: string | null;
+};
+
+export const SESSION_COOKIE = "daghep_session";
+
+/** `Cookie` header carrying only the session, so other browser cookies stay out of API calls. */
+export function sessionCookieHeader(session: string | undefined): string {
+  return session ? `${SESSION_COOKIE}=${session}` : "";
+}
+
+/** Where to send the browser to sign in with Google and come back to `next`. */
+export function signInUrl(next: string): string {
+  return `/api/auth/google/start?next=${encodeURIComponent(next)}`;
+}
+
+/** Returns the signed-in user for these browser cookies, or `null` when signed out. */
+export async function getMe(cookie: string, options: Options = {}): Promise<MeView | null> {
+  if (!cookie.split(";").some((pair) => pair.trim().startsWith(`${SESSION_COOKIE}=`))) {
+    return null;
+  }
+  const baseUrl = options.baseUrl ?? apiBaseUrl();
+  const fetchImpl = options.fetchImpl ?? fetch;
+
+  const response = await fetchImpl(`${baseUrl}/api/me`, {
+    headers: { accept: "application/json", cookie },
+    cache: "no-store",
+  });
+
+  if (response.status === 401) {
+    return null;
+  }
+  if (!response.ok) {
+    throw new Error(`Me API failed with status ${response.status}`);
+  }
+  return (await response.json()) as MeView;
+}
 
 /** Server-side API location. Falls back to localhost only outside production. */
 export function apiBaseUrl(): string {
@@ -59,7 +101,10 @@ export type CreateMatchInput = Omit<MatchView, "shareId" | "pricePerPlayerVnd">;
 
 export type CreateMatchResult = { ok: true; match: MatchView } | { ok: false; field: string };
 
-/** Creates a match; returns the offending field on a 422 and throws on any other failure. */
+/**
+ * Creates a match as the signed-in user. Returns the offending field on a 422,
+ * `unauthenticated` on a 401, and throws on any other failure.
+ */
 export async function createMatch(
   input: CreateMatchInput,
   options: Options = {},
@@ -69,11 +114,18 @@ export async function createMatch(
 
   const response = await fetchImpl(`${baseUrl}/api/matches`, {
     method: "POST",
-    headers: { "content-type": "application/json", accept: "application/json" },
+    headers: {
+      "content-type": "application/json",
+      accept: "application/json",
+      ...(options.cookie ? { cookie: options.cookie } : {}),
+    },
     body: JSON.stringify(input),
     cache: "no-store",
   });
 
+  if (response.status === 401) {
+    return { ok: false, field: "unauthenticated" };
+  }
   if (response.status === 422) {
     const body = (await response.json()) as { field?: string };
     return { ok: false, field: body.field ?? "unknown" };

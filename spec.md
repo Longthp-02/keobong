@@ -72,6 +72,7 @@ Confirmed:
 - Who can host (2026-10-04): any signed-in user. Venues use the same flow; a "verified venue" badge comes later.
 - Cancellation (2026-10-04): the host can cancel a match and slot holders see "match cancelled" on the page; refunds are between players and host (the app holds no money). A player can leave before kickoff; leaving within 2 hours of kickoff lets the host mark a no-show.
 
+- Sign-in (PR 3b): Google sign-in is required to create a match; anyone can view matches without signing in. A sign-in lasts 30 days (confirmed by Long 2026-10-05).
 - Match limits (confirmed by Long 2026-10-04): total fee 0–100,000,000 VND (zero-fee matches are allowed); 2–30 slots; a match starts in the future and at most 30 days ahead; lasts at most 4 hours; starts and ends on the same day in Ho Chi Minh City time (no matches past midnight).
 
 ## Data / State Needed

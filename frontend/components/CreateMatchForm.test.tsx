@@ -71,6 +71,16 @@ describe("CreateMatchForm", () => {
     expect(await screen.findByRole("alert")).toHaveProperty("textContent", t.errors.startsAt);
   });
 
+  it("asks to sign in again when the session has expired", async () => {
+    const onSubmit = vi.fn().mockResolvedValue({ field: "unauthenticated" });
+    render(<CreateMatchForm onSubmit={onSubmit} />);
+    fillRequired();
+
+    fireEvent.click(screen.getByRole("button", { name: t.submit }));
+
+    expect(await screen.findByRole("alert")).toHaveProperty("textContent", t.errors.unauthenticated);
+  });
+
   it.each([
     ["date", t.errors.startsAt],
     ["startTime", t.errors.startsAt],

@@ -1,5 +1,7 @@
 //! Use cases for matches. Depends only on the domain port.
 
+use crate::auth::UserId;
+
 use super::domain::{
     Clock, Field, InsertError, Match, MatchRepository, NewMatch, NewMatchInput, RepoError, ShareId,
 };
@@ -43,17 +45,18 @@ pub enum CreateMatchError {
 /// Collisions are astronomically unlikely with 60-bit ids; a few retries make them harmless.
 const SHARE_ID_ATTEMPTS: usize = 3;
 
-/// Validates the input and stores the match under a fresh share id.
+/// Validates the input and stores the match, hosted by `host`, under a fresh share id.
 pub async fn create_match<R: MatchRepository, C: Clock + ?Sized>(
     repo: &R,
     clock: &C,
+    host: UserId,
     input: NewMatchInput,
 ) -> Result<Match, CreateMatchError> {
     let new = NewMatch::validate(input, clock.now()).map_err(CreateMatchError::Invalid)?;
     for _ in 0..SHARE_ID_ATTEMPTS {
         let share_id =
             ShareId::generate().map_err(|e| CreateMatchError::Randomness(e.to_string()))?;
-        match repo.insert(&share_id, &new).await {
+        match repo.insert(&share_id, &new, host).await {
             Ok(()) => return Ok(Match::from_new(share_id, new)),
             Err(InsertError::DuplicateShareId) => continue,
             Err(InsertError::Repo(err)) => return Err(err.into()),
@@ -74,7 +77,12 @@ mod tests {
             panic!("storage must not be queried for a malformed share id");
         }
 
-        async fn insert(&self, _id: &ShareId, _new: &NewMatch) -> Result<(), InsertError> {
+        async fn insert(
+            &self,
+            _id: &ShareId,
+            _new: &NewMatch,
+            _host: UserId,
+        ) -> Result<(), InsertError> {
             panic!("storage must not be written for invalid input");
         }
     }
@@ -90,7 +98,12 @@ mod tests {
             Ok(None)
         }
 
-        async fn insert(&self, id: &ShareId, _new: &NewMatch) -> Result<(), InsertError> {
+        async fn insert(
+            &self,
+            id: &ShareId,
+            _new: &NewMatch,
+            _host: UserId,
+        ) -> Result<(), InsertError> {
             let mut attempts = self.attempts.lock().unwrap();
             attempts.push(id.as_str().to_owned());
             if attempts.len() <= self.collisions {
@@ -128,7 +141,7 @@ mod tests {
         let mut bad = input();
         bad.level_min = 0.5;
 
-        let result = create_match(&UnreachableRepo, &FixedClock, bad).await;
+        let result = create_match(&UnreachableRepo, &FixedClock, UserId(1), bad).await;
 
         assert!(matches!(
             result,
@@ -143,7 +156,9 @@ mod tests {
             attempts: Default::default(),
         };
 
-        let created = create_match(&repo, &FixedClock, input()).await.unwrap();
+        let created = create_match(&repo, &FixedClock, UserId(1), input())
+            .await
+            .unwrap();
 
         let attempts = repo.attempts.lock().unwrap();
         assert_eq!(attempts.len(), 2);
@@ -159,7 +174,7 @@ mod tests {
             attempts: Default::default(),
         };
 
-        let result = create_match(&repo, &FixedClock, input()).await;
+        let result = create_match(&repo, &FixedClock, UserId(1), input()).await;
 
         assert!(matches!(result, Err(CreateMatchError::ShareIdUnavailable)));
         assert_eq!(repo.attempts.lock().unwrap().len(), 3);

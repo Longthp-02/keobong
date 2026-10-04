@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use axum::extract::rejection::JsonRejection;
-use axum::extract::{Path, State};
+use axum::extract::{FromRef, Path, State};
 use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
@@ -11,6 +11,8 @@ use axum::{Json, Router};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+
+use crate::auth::{AuthState, AuthenticatedUser};
 
 use super::domain::{Clock, Field, Format, Match, MatchType, NewMatchInput};
 use super::repo::PgMatchRepository;
@@ -20,13 +22,20 @@ use super::service::{CreateMatchError, GetMatchError, create_match, get_public_m
 struct MatchState {
     repo: PgMatchRepository,
     clock: Arc<dyn Clock>,
+    auth: AuthState,
 }
 
-pub fn router(repo: PgMatchRepository, clock: Arc<dyn Clock>) -> Router {
+impl FromRef<MatchState> for AuthState {
+    fn from_ref(state: &MatchState) -> Self {
+        state.auth.clone()
+    }
+}
+
+pub fn router(repo: PgMatchRepository, clock: Arc<dyn Clock>, auth: AuthState) -> Router {
     Router::new()
         .route("/api/matches", post(post_match))
         .route("/api/matches/{share_id}", get(get_match))
-        .with_state(MatchState { repo, clock })
+        .with_state(MatchState { repo, clock, auth })
 }
 
 /// Public view of a match. Deliberately excludes internal ids and any host
@@ -115,13 +124,14 @@ async fn get_match(
 
 async fn post_match(
     State(state): State<MatchState>,
+    AuthenticatedUser(host): AuthenticatedUser,
     body: Result<Json<CreateMatchRequest>, JsonRejection>,
 ) -> Result<impl IntoResponse, CreateMatchError> {
     // Malformed JSON, wrong types or missing fields are a bad request; well-formed
     // values that break a rule are reported per field (422).
     let Json(request) = body.map_err(|_| CreateMatchError::MalformedRequest)?;
     let input = request.into_input().map_err(CreateMatchError::Invalid)?;
-    let created = create_match(&state.repo, state.clock.as_ref(), input).await?;
+    let created = create_match(&state.repo, state.clock.as_ref(), host.id, input).await?;
     Ok((StatusCode::CREATED, Json(MatchView::from(created))))
 }
 
