@@ -119,8 +119,13 @@ where
         now + Duration::days(SESSION_TTL_DAYS),
     )
     .await?;
-    sign_out(repo, previous_session).await?;
-    repo.delete_expired_sessions(now).await?;
+    // Housekeeping is best effort: the user is already signed in at this point.
+    if let Err(err) = sign_out(repo, previous_session).await {
+        tracing::warn!(error = %err, "failed to end the previous session");
+    }
+    if let Err(err) = repo.delete_expired_sessions(now).await {
+        tracing::warn!(error = %err, "failed to delete expired sessions");
+    }
     Ok(LoginComplete {
         session,
         return_to: attempt.return_to,

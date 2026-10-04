@@ -118,12 +118,19 @@ impl Config {
 /// session cookie first-party and `Secure`. Plain HTTP is allowed only for
 /// local development, where the API runs on its own port.
 fn redirect_uri_fits(redirect_uri: &str, frontend_origin: &str) -> bool {
-    let local =
-        |url: &str| url.starts_with("http://localhost:") || url.starts_with("http://127.0.0.1:");
-    if redirect_uri.starts_with("https://") {
-        redirect_uri.starts_with(&format!("{frontend_origin}/"))
-    } else {
-        local(redirect_uri) && local(frontend_origin)
+    let (Ok(redirect), Ok(frontend)) = (
+        reqwest::Url::parse(redirect_uri),
+        reqwest::Url::parse(frontend_origin),
+    ) else {
+        return false;
+    };
+    let local = |url: &reqwest::Url| {
+        url.scheme() == "http" && matches!(url.host_str(), Some("localhost" | "127.0.0.1"))
+    };
+    let plain = redirect.username().is_empty() && redirect.password().is_none();
+    match redirect.scheme() {
+        "https" => plain && redirect.origin() == frontend.origin(),
+        _ => plain && local(&redirect) && local(&frontend),
     }
 }
 
@@ -251,6 +258,12 @@ mod tests {
                 "http://daghep.vn",
                 "http://daghep.vn/api/auth/google/callback",
             ),
+            // Userinfo trick: the host is evil.example, not localhost.
+            (
+                "http://localhost:3000",
+                "http://localhost:8080@evil.example/callback",
+            ),
+            ("http://localhost:3000", "not a url"),
         ];
         for (origin, redirect) in bad {
             let vars = [
