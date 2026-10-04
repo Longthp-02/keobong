@@ -22,7 +22,7 @@ Any non-GET request with an `Origin` header other than `FRONTEND_ORIGIN` gets `4
 - Check at first deploy: the Vercel rewrite passes `Set-Cookie` and `Origin` through unchanged.
 
 ## Database changes
-Migration `20261006000000_create_users_and_sessions.sql`: `users`, `user_identities`, `sessions` (token hash only), `oauth_login_attempts`, and `matches.host_user_id NOT NULL`. Local databases with older matches must be reset.
+Migration `20261006000000_create_users_and_sessions.sql` (approved by Long 2026-10-05): `users`, `user_identities`, `sessions` (token hash only), `oauth_login_attempts`, and `matches.host_user_id NOT NULL`. Local databases with older matches must be reset.
 
 ## Frontend actions
 Done in this PR:

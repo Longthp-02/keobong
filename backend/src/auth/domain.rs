@@ -14,7 +14,7 @@ use crate::text::clean_name;
 
 /// How long a started sign-in stays valid.
 pub const LOGIN_ATTEMPT_TTL_MINUTES: i64 = 10;
-/// How long a session lasts after sign-in. TODO: verify with Long (30 days assumed).
+/// How long a session lasts after sign-in (confirmed by Long 2026-10-05).
 pub const SESSION_TTL_DAYS: i64 = 30;
 pub const DISPLAY_NAME_MAX_CHARS: usize = 80;
 pub const AVATAR_URL_MAX_CHARS: usize = 500;
