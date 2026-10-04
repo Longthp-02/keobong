@@ -31,7 +31,7 @@ describe("legal content", () => {
     for (const [, document] of documents) {
       const text = JSON.stringify(document);
       expect(text).toContain(messages.legal.operatorName);
-      expect(text).toContain("16");
+      expect(text).toContain(messages.legal.minimumAgePhrase);
     }
   });
 });

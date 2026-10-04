@@ -33,14 +33,14 @@
     "privacy": {
       "title": "Chính sách bảo mật",
       "updated": "04/10/2026",
-      "intro": "Đá Ghép (daghep.vn) là ứng dụng miễn phí, mã nguồn mở, giúp người chơi tìm và tham gia các trận bóng đá ghép. Dịch vụ do cá nhân Phạm Trịnh Hoàng Long phát triển và vận hành, là bên chịu trách nhiệm về dữ liệu của bạn. Trang này giải thích dữ liệu nào được thu thập, dùng để làm gì và bạn có những quyền gì.",
+      "intro": "Đá Ghép (daghep.vn) là ứng dụng miễn phí, mã nguồn mở, giúp người chơi tìm và tham gia các trận bóng đá ghép. Dịch vụ do cá nhân Phạm Trịnh Hoàng Long phát triển và vận hành. Ông Long là bên kiểm soát dữ liệu cá nhân của bạn. Trang này giải thích dữ liệu nào được thu thập, dùng để làm gì và bạn có những quyền gì.",
       "sections": [
         {
           "heading": "1. Dữ liệu chúng tôi thu thập",
           "paragraphs": [
             "Khi bạn đăng nhập bằng Google hoặc Zalo: tên hiển thị, ảnh đại diện, mã định danh tài khoản, và địa chỉ email nếu nhà cung cấp chia sẻ.",
             "Thông tin bạn tự nhập: trình độ (level), các kèo bạn tạo hoặc tham gia (sân, thời gian, tiền sân, số chỗ), tên khách đi cùng.",
-            "Vị trí: nếu bạn cho phép trình duyệt chia sẻ vị trí, vị trí đó chỉ dùng để tìm kèo gần bạn và không được lưu lại. Vị trí của sân trong mỗi kèo được lưu để hiển thị trên bản đồ và danh sách.",
+            "Vị trí: nếu bạn cho phép trình duyệt chia sẻ vị trí, vị trí đó chỉ dùng để tìm kèo gần bạn và không được lưu vào hồ sơ của bạn; nó có thể xuất hiện trong nhật ký kỹ thuật tối đa 30 ngày. Vị trí của sân trong mỗi kèo được lưu để hiển thị trên bản đồ và danh sách.",
             "Với chủ kèo: thông tin nhận tiền (ngân hàng, số tài khoản, tên chủ tài khoản) để tạo mã VietQR.",
             "Lịch sử tham gia: chỗ đã giữ, trạng thái thanh toán do chủ kèo xác nhận, điểm danh và các lần bùng kèo.",
             "Dữ liệu kỹ thuật: nhật ký truy cập và địa chỉ IP, dùng để vận hành, sửa lỗi và chống lạm dụng."
@@ -93,7 +93,7 @@
         {
           "heading": "8. Độ tuổi",
           "paragraphs": [
-            "Đá Ghép dành cho người từ 16 tuổi trở lên. Nếu phát hiện tài khoản của người dưới 16 tuổi, chúng tôi sẽ xoá tài khoản đó."
+            "Đá Ghép dành cho người từ 16 tuổi trở lên."
           ]
         },
         {
@@ -179,6 +179,7 @@
         }
       ]
     },
-    "operatorName": "Phạm Trịnh Hoàng Long"
+    "operatorName": "Phạm Trịnh Hoàng Long",
+    "minimumAgePhrase": "từ 16 tuổi trở lên"
   }
 }

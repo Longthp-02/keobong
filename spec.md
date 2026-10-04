@@ -71,7 +71,7 @@ Proposed in design, not yet confirmed — TODO: verify:
 - Price per player = total fee ÷ capacity, rounded up to the nearest 1,000 VND.
 - Who can host: any signed-in user (with a `host_type` of player or venue).
 - Cancellation rules for hosts and players.
-- Written into the terms/privacy pages pending Long's confirmation: browser location is used only for the nearby search and not stored; no-show disputes go by email; accounts that scam or harass can be locked.
+- Written into the terms/privacy pages pending Long's confirmation: browser location is used only for the nearby search, not saved to the profile (may appear in technical logs up to 30 days); no-show disputes go by email; accounts that scam or harass can be locked; what happens to guest names a deleted user entered: TODO: verify.
 
 ## Data / State Needed
 User (identity provider, display name, level, stats), Match (venue, location point, start/end, format, type, level range, fee, host, status, share id), Slot (match, team, position, player, joined at, payment status, attendance), Host payment profile (bank BIN, account number, account name).
