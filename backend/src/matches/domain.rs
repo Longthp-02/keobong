@@ -121,22 +121,25 @@ pub fn price_per_player_vnd(total_fee_vnd: i64, slot_count: i16) -> i64 {
     i64::try_from(rounded).unwrap_or(i64::MAX)
 }
 
-// Mirrored for the form preview in frontend/lib/pricing.ts; change both together.
+// SLOT_COUNT_RANGE, MAX_TOTAL_FEE_VND and MAX_DURATION_HOURS are mirrored in
+// frontend/lib/pricing.ts for the form; change both sides together.
 pub const SLOT_COUNT_RANGE: std::ops::RangeInclusive<i16> = 2..=30;
 pub const VENUE_NAME_MAX_CHARS: usize = 120;
-/// Sanity guard, not a product rule (TODO: verify with Long): 100 million VND.
+/// Largest total fee (confirmed by Long 2026-10-04); also enforced by a DB constraint.
 pub const MAX_TOTAL_FEE_VND: i64 = 100_000_000;
 /// How far ahead a match can be created.
 pub const MAX_DAYS_AHEAD: i64 = 30;
 /// Longest allowed match.
 pub const MAX_DURATION_HOURS: i64 = 4;
 /// Matches are local to Ho Chi Minh City (UTC+7, no daylight saving time).
-const LOCAL_OFFSET_SECS: i32 = 7 * 3600;
+const LOCAL_OFFSET: FixedOffset = match FixedOffset::east_opt(7 * 3600) {
+    Some(offset) => offset,
+    None => panic!("UTC+7 is a valid offset"),
+};
 
 /// A match starts and ends on the same local calendar day.
 fn same_local_day(start: DateTime<Utc>, end: DateTime<Utc>) -> bool {
-    let offset = FixedOffset::east_opt(LOCAL_OFFSET_SECS).expect("valid offset");
-    start.with_timezone(&offset).date_naive() == end.with_timezone(&offset).date_naive()
+    start.with_timezone(&LOCAL_OFFSET).date_naive() == end.with_timezone(&LOCAL_OFFSET).date_naive()
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

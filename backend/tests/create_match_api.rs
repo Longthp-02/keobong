@@ -228,3 +228,15 @@ async fn match_must_start_after_now(pool: PgPool) {
         json!({ "error": "invalid_match", "field": "startsAt" })
     );
 }
+
+#[sqlx::test]
+async fn match_cannot_run_past_midnight_in_ho_chi_minh_city(pool: PgPool) {
+    // 22:00-00:00 local time: only 2 hours, but it ends on the next day.
+    let request = with(valid_request(), "startsAt", json!("2099-10-10T15:00:00Z"));
+    let request = with(request, "endsAt", json!("2099-10-10T17:00:00Z"));
+
+    let (status, body) = send(pool, post_json(request)).await;
+
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(body, json!({ "error": "invalid_match", "field": "endsAt" }));
+}
