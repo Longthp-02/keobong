@@ -32,3 +32,5 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 [dev-dependencies]
 http-body-util = "0.1"
 tower = { version = "0.5", features = ["util"] }
+# `time` for tests that wait on database locks.
+tokio = { version = "1", features = ["time"] }

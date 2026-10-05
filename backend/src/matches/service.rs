@@ -32,6 +32,8 @@ pub async fn get_public_match<R: MatchRepository>(
 pub enum CreateMatchError {
     #[error("malformed request")]
     MalformedRequest,
+    #[error("request body too large")]
+    PayloadTooLarge,
     #[error("invalid field {0:?}")]
     Invalid(Field),
     #[error("could not allocate a unique share id")]

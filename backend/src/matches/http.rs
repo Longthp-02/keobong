@@ -129,7 +129,13 @@ async fn post_match(
 ) -> Result<impl IntoResponse, CreateMatchError> {
     // Malformed JSON, wrong types or missing fields are a bad request; well-formed
     // values that break a rule are reported per field (422).
-    let Json(request) = body.map_err(|_| CreateMatchError::MalformedRequest)?;
+    let Json(request) = body.map_err(|rejection| {
+        if rejection.status() == StatusCode::PAYLOAD_TOO_LARGE {
+            CreateMatchError::PayloadTooLarge
+        } else {
+            CreateMatchError::MalformedRequest
+        }
+    })?;
     let input = request.into_input().map_err(CreateMatchError::Invalid)?;
     let created = create_match(&state.repo, state.clock.as_ref(), host.id, input).await?;
     Ok((StatusCode::CREATED, Json(MatchView::from(created))))
@@ -177,6 +183,11 @@ impl IntoResponse for CreateMatchError {
             CreateMatchError::MalformedRequest => (
                 StatusCode::BAD_REQUEST,
                 Json(json!({ "error": "invalid_request" })),
+            )
+                .into_response(),
+            CreateMatchError::PayloadTooLarge => (
+                StatusCode::PAYLOAD_TOO_LARGE,
+                Json(json!({ "error": "payload_too_large" })),
             )
                 .into_response(),
             CreateMatchError::Invalid(field) => (

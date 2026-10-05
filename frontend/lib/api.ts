@@ -1,3 +1,5 @@
+import type { RosterView } from "./slots";
+
 /** Public match view returned by `GET /api/matches/{shareId}`. */
 export type MatchView = {
   shareId: string;
@@ -95,6 +97,26 @@ export async function getMatch(shareId: string, options: Options = {}): Promise<
     throw new Error(`Match API failed with status ${response.status}`);
   }
   return (await response.json()) as MatchView;
+}
+
+/** Public roster for the match page; `null` when the match does not exist. */
+export async function getRoster(shareId: string, options: Options = {}): Promise<RosterView | null> {
+  const baseUrl = options.baseUrl ?? apiBaseUrl();
+  const fetchImpl = options.fetchImpl ?? fetch;
+
+  const response = await fetchImpl(`${baseUrl}/api/matches/${encodeURIComponent(shareId)}/slots`, {
+    headers: { accept: "application/json" },
+    // Same ISR window as the match itself.
+    next: { revalidate: 30 },
+  } as RequestInit);
+
+  if (response.status === 404) {
+    return null;
+  }
+  if (!response.ok) {
+    throw new Error(`Roster API failed with status ${response.status}`);
+  }
+  return (await response.json()) as RosterView;
 }
 
 export type CreateMatchInput = Omit<MatchView, "shareId" | "pricePerPlayerVnd">;
