@@ -149,11 +149,116 @@ pub struct Roster {
     pub entries: Vec<RosterEntry>,
 }
 
+/// How long an unpaid place is held before it is released (confirmed by Long).
+pub const HOLD_MINUTES: i64 = 30;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PaymentStatus {
+    /// Held until the hold expires; then released automatically.
+    AwaitingPayment,
+    /// The player says they transferred: no expiry, waiting for the host.
+    PaymentReported,
+    /// The host confirmed, or nothing is owed.
+    Confirmed,
+}
+
+impl PaymentStatus {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            PaymentStatus::AwaitingPayment => "awaiting_payment",
+            PaymentStatus::PaymentReported => "payment_reported",
+            PaymentStatus::Confirmed => "confirmed",
+        }
+    }
+
+    pub fn parse(raw: &str) -> Option<Self> {
+        match raw {
+            "awaiting_payment" => Some(PaymentStatus::AwaitingPayment),
+            "payment_reported" => Some(PaymentStatus::PaymentReported),
+            "confirmed" => Some(PaymentStatus::Confirmed),
+            _ => None,
+        }
+    }
+}
+
+/// Status and hold for a party that just joined. Nothing is owed for a free
+/// match or for the host's own party, so those are confirmed at once.
+pub fn initial_payment(
+    price_per_player_vnd: i64,
+    is_host: bool,
+    now: DateTime<Utc>,
+) -> (PaymentStatus, Option<DateTime<Utc>>) {
+    if price_per_player_vnd == 0 || is_host {
+        (PaymentStatus::Confirmed, None)
+    } else {
+        (
+            PaymentStatus::AwaitingPayment,
+            Some(now + chrono::Duration::minutes(HOLD_MINUTES)),
+        )
+    }
+}
+
+/// What one transfer covers: the holder plus their guests.
+pub fn party_amount_vnd(price_per_player_vnd: i64, party_size: i64) -> i64 {
+    price_per_player_vnd.saturating_mul(party_size)
+}
+
 /// The signed-in user's own place in a match.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MyPlace {
     pub team: Team,
     pub guests: Vec<String>,
+    /// Identifies the party in the transfer memo and the host's list.
+    pub payment_code: i64,
+    pub payment_status: PaymentStatus,
+    pub hold_expires_at: Option<DateTime<Utc>>,
+    pub amount_vnd: i64,
+    pub host: UserId,
+}
+
+/// One party as the host sees it when checking transfers.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HostParty {
+    pub payment_code: i64,
+    pub team: Team,
+    pub holder_name: Option<String>,
+    pub guests: Vec<String>,
+    pub amount_vnd: i64,
+    pub payment_status: PaymentStatus,
+    pub hold_expires_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum HostView {
+    MatchNotFound,
+    NotHost,
+    Parties(Vec<HostParty>),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReportOutcome {
+    Reported,
+    /// Already reported or confirmed; reporting again changes nothing.
+    AlreadyDone,
+    NotJoined,
+    MatchNotFound,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HostAction {
+    Confirm,
+    /// "Not received": releases the party's places.
+    Reject,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HostActionOutcome {
+    Done,
+    MatchNotFound,
+    NotHost,
+    PartyNotFound,
+    /// A confirmed payment cannot be rejected.
+    AlreadyConfirmed,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -201,6 +306,7 @@ pub trait SlotRepository: Send + Sync {
     fn roster(
         &self,
         match_id: &ShareId,
+        now: DateTime<Utc>,
     ) -> impl Future<Output = Result<Option<Roster>, RepoError>> + Send;
 
     /// Outer `None` when the match does not exist; inner `None` when not joined.
@@ -208,7 +314,32 @@ pub trait SlotRepository: Send + Sync {
         &self,
         match_id: &ShareId,
         holder: UserId,
+        now: DateTime<Utc>,
     ) -> impl Future<Output = Result<Option<Option<MyPlace>>, RepoError>> + Send;
+
+    /// The holder says they transferred: stops the hold's countdown.
+    fn report_payment(
+        &self,
+        match_id: &ShareId,
+        holder: UserId,
+        now: DateTime<Utc>,
+    ) -> impl Future<Output = Result<ReportOutcome, RepoError>> + Send;
+
+    fn host_parties(
+        &self,
+        match_id: &ShareId,
+        caller: UserId,
+        now: DateTime<Utc>,
+    ) -> impl Future<Output = Result<HostView, RepoError>> + Send;
+
+    fn host_action(
+        &self,
+        match_id: &ShareId,
+        caller: UserId,
+        payment_code: i64,
+        action: HostAction,
+        now: DateTime<Utc>,
+    ) -> impl Future<Output = Result<HostActionOutcome, RepoError>> + Send;
 }
 
 #[cfg(test)]
@@ -298,6 +429,45 @@ mod tests {
             check_claim(&started, &join(Team::A, &[])),
             Err(ClaimRejected::MatchStarted)
         );
+    }
+
+    #[test]
+    fn paid_places_are_held_for_thirty_minutes() {
+        let now: DateTime<Utc> = "2099-10-10T10:00:00Z".parse().unwrap();
+
+        assert_eq!(
+            initial_payment(50_000, false, now),
+            (
+                PaymentStatus::AwaitingPayment,
+                Some("2099-10-10T10:30:00Z".parse().unwrap())
+            )
+        );
+        assert_eq!(
+            initial_payment(0, false, now),
+            (PaymentStatus::Confirmed, None)
+        );
+        assert_eq!(
+            initial_payment(50_000, true, now),
+            (PaymentStatus::Confirmed, None)
+        );
+    }
+
+    #[test]
+    fn one_transfer_covers_the_whole_party() {
+        assert_eq!(party_amount_vnd(50_000, 3), 150_000);
+        assert_eq!(party_amount_vnd(i64::MAX, 3), i64::MAX);
+    }
+
+    #[test]
+    fn payment_statuses_round_trip() {
+        for status in [
+            PaymentStatus::AwaitingPayment,
+            PaymentStatus::PaymentReported,
+            PaymentStatus::Confirmed,
+        ] {
+            assert_eq!(PaymentStatus::parse(status.as_str()), Some(status));
+        }
+        assert_eq!(PaymentStatus::parse("paid"), None);
     }
 
     #[test]

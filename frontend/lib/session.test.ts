@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { getMe, sessionCookieHeader, signInUrl } from "./api";
+import { getBanks, getMe, getPayout, sessionCookieHeader, signInUrl } from "./api";
 
 function respond(status: number, body: unknown) {
   return vi.fn().mockResolvedValue(
@@ -55,5 +55,27 @@ describe("sessionCookieHeader", () => {
 describe("signInUrl", () => {
   it("starts Google sign-in and comes back to the given page", () => {
     expect(signInUrl("/create")).toBe("/api/auth/google/start?next=%2Fcreate");
+  });
+});
+
+describe("getPayout", () => {
+  it("returns the signed-in user's payout account, or null when there is none", async () => {
+    const account = { bankBin: "970436", accountNumber: "0123456789", accountName: "PHAM LONG" };
+    const found = respond(200, account);
+
+    expect(await getPayout("daghep_session=abc", { baseUrl: "http://api", fetchImpl: found })).toEqual(account);
+    expect(found.mock.calls[0][0]).toBe("http://api/api/me/payout");
+    expect(found.mock.calls[0][1].headers.cookie).toBe("daghep_session=abc");
+    expect(found.mock.calls[0][1].cache).toBe("no-store");
+    expect(await getPayout("daghep_session=abc", { baseUrl: "http://api", fetchImpl: respond(404, {}) })).toBeNull();
+    expect(await getPayout("", { baseUrl: "http://api", fetchImpl: vi.fn() })).toBeNull();
+  });
+});
+
+describe("getBanks", () => {
+  it("returns the bank list", async () => {
+    const banks = [{ bin: "970436", name: "Vietcombank" }];
+
+    expect(await getBanks({ baseUrl: "http://api", fetchImpl: respond(200, { banks }) })).toEqual(banks);
   });
 });

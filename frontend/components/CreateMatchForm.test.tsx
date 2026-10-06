@@ -168,4 +168,29 @@ describe("CreateMatchForm", () => {
       "polite",
     );
   });
+
+  it("asks for a payout account before posting a paid match", async () => {
+    const onSubmit = vi.fn();
+    render(<CreateMatchForm onSubmit={onSubmit} hasPayout={false} />);
+    fillRequired();
+
+    const link = screen.getByRole("link", { name: t.payoutLink });
+    expect(link.getAttribute("href")).toBe("/account/payout?next=%2Fcreate");
+    fireEvent.click(screen.getByRole("button", { name: t.submit }));
+
+    expect(await screen.findByRole("alert")).toHaveProperty("textContent", t.errors.payout);
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it("posts a free match without a payout account", async () => {
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    render(<CreateMatchForm onSubmit={onSubmit} hasPayout={false} />);
+    fillRequired();
+    fireEvent.change(field(t.totalFee), { target: { value: "0" } });
+
+    expect(screen.queryByRole("link", { name: t.payoutLink })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: t.submit }));
+
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+  });
 });

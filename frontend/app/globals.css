@@ -547,3 +547,166 @@ main {
   opacity: 0.6;
   cursor: progress;
 }
+
+.notice {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #fff4dc;
+  color: #6b4a00;
+  font-size: 14px;
+}
+
+.notice a {
+  font-weight: 700;
+}
+
+.account-bar__link {
+  font-size: 14px;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+}
+
+.payment {
+  margin-top: 12px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.payment h3 {
+  margin: 0;
+  font-size: 17px;
+}
+
+.payment__amount {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin: 0;
+}
+
+.payment__amount strong {
+  font-family: var(--font-display);
+  font-size: 28px;
+}
+
+.payment__qr {
+  align-self: center;
+  width: 220px;
+  height: 220px;
+  background: #ffffff;
+  border-radius: 10px;
+  padding: 6px;
+}
+
+.payment__hint {
+  margin: 0;
+  font-size: 13px;
+  text-align: center;
+}
+
+.payment__details {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.pay-row {
+  display: grid;
+  grid-template-columns: 110px minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  font-size: 14px;
+}
+
+.pay-row dt {
+  color: var(--ink-muted);
+}
+
+.pay-row dd {
+  margin: 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.pay-status {
+  margin: 0;
+  font-size: 14px;
+}
+
+.pay-status--done {
+  color: var(--brand);
+  font-weight: 600;
+}
+
+.host-payments {
+  margin-top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.host-payments__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.host-party {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  font-size: 14px;
+}
+
+.host-party__who,
+.host-party__money {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.host-party__money {
+  text-align: right;
+}
+
+.host-party__actions {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.button-small {
+  min-height: 40px;
+  padding: 0 16px;
+  border: none;
+  border-radius: 10px;
+  background: var(--brand);
+  color: #ffffff;
+  font: 700 14px var(--font-body);
+  cursor: pointer;
+}
+
+.button-small:disabled {
+  opacity: 0.6;
+}

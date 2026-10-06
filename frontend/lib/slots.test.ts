@@ -10,6 +10,35 @@ function respond(status: number, body?: unknown) {
   );
 }
 
+const payment = {
+  bankName: "ACB",
+  accountNumber: "257678859",
+  accountName: "PHAM LONG",
+  amountVnd: 100000,
+  memo: "DG k7Qm2xPa 7",
+  qrPayload: "000201...",
+};
+const joinedBody = {
+  joined: true,
+  team: "b",
+  guests: ["An"],
+  paymentCode: 7,
+  paymentStatus: "awaiting_payment",
+  holdExpiresAt: "2099-10-01T00:30:00Z",
+  amountVnd: 100000,
+  payment,
+};
+const joinedPlace = {
+  status: "in",
+  team: "b",
+  guests: ["An"],
+  paymentCode: 7,
+  paymentStatus: "awaiting_payment",
+  holdExpiresAt: "2099-10-01T00:30:00Z",
+  amountVnd: 100000,
+  payment,
+};
+
 const roster = { teams: [{ team: "a", capacity: 9, players: [] }, { team: "b", capacity: 9, players: [] }] };
 
 describe("emptyRoster", () => {
@@ -38,21 +67,19 @@ describe("slotsClient", () => {
       status: "signedOut",
     });
     expect(await slotsClient(respond(200, { joined: false })).mine("k7Qm2xPa")).toEqual({ status: "out" });
-    expect(
-      await slotsClient(respond(200, { joined: true, team: "b", guests: ["An"] })).mine("k7Qm2xPa"),
-    ).toEqual({ status: "in", team: "b", guests: ["An"] });
+    expect(await slotsClient(respond(200, joinedBody)).mine("k7Qm2xPa")).toEqual(joinedPlace);
   });
 
   it("joins with a team and guest names", async () => {
-    const fetchImpl = respond(201, { joined: true, team: "a", guests: ["An"] });
+    const fetchImpl = respond(201, joinedBody);
 
-    const result = await slotsClient(fetchImpl).join("k7Qm2xPa", "a", ["An"]);
+    const result = await slotsClient(fetchImpl).join("k7Qm2xPa", "b", ["An"]);
 
-    expect(result).toEqual({ ok: true, place: { status: "in", team: "a", guests: ["An"] } });
+    expect(result).toEqual({ ok: true, place: joinedPlace });
     const [url, init] = fetchImpl.mock.calls[0];
     expect(url).toBe("/api/matches/k7Qm2xPa/slots");
     expect(init.method).toBe("POST");
-    expect(JSON.parse(init.body)).toEqual({ team: "a", guests: ["An"] });
+    expect(JSON.parse(init.body)).toEqual({ team: "b", guests: ["An"] });
   });
 
   it("maps refusals to error codes", async () => {
@@ -82,6 +109,42 @@ describe("slotsClient", () => {
     expect(await slotsClient(respond(409, { error: "match_started" })).leave("x")).toEqual({
       ok: false,
       error: "match_started",
+    });
+  });
+
+  it("reports a transfer and returns the updated place", async () => {
+    const fetchImpl = respond(200, { ...joinedBody, paymentStatus: "payment_reported", holdExpiresAt: null });
+
+    const result = await slotsClient(fetchImpl).reportPayment("k7Qm2xPa");
+
+    expect(result).toEqual({
+      ok: true,
+      place: { ...joinedPlace, paymentStatus: "payment_reported", holdExpiresAt: null },
+    });
+    const [url, init] = fetchImpl.mock.calls[0];
+    expect(url).toBe("/api/matches/k7Qm2xPa/slots/mine/report-payment");
+    expect(init.method).toBe("POST");
+  });
+
+  it("loads the host's payment list, or says the viewer is not the host", async () => {
+    const parties = [{ paymentCode: 7, team: "a", holderName: "Long", guests: [], amountVnd: 50000, paymentStatus: "confirmed", holdExpiresAt: null }];
+
+    expect(await slotsClient(respond(200, { parties })).hostParties("k7Qm2xPa")).toEqual({ status: "host", parties });
+    expect(await slotsClient(respond(403, { error: "not_host" })).hostParties("k7Qm2xPa")).toEqual({ status: "notHost" });
+    expect(await slotsClient(respond(401, { error: "unauthenticated" })).hostParties("k7Qm2xPa")).toEqual({
+      status: "notHost",
+    });
+  });
+
+  it("confirms or rejects a party as the host", async () => {
+    const fetchImpl = respond(204);
+
+    expect(await slotsClient(fetchImpl).hostAction("k7Qm2xPa", 7, "confirm")).toEqual({ ok: true });
+    expect(fetchImpl.mock.calls[0][0]).toBe("/api/matches/k7Qm2xPa/payments/7/confirm");
+    expect(fetchImpl.mock.calls[0][1].method).toBe("POST");
+    expect(await slotsClient(respond(409, { error: "already_confirmed" })).hostAction("x", 7, "reject")).toEqual({
+      ok: false,
+      error: "already_confirmed",
     });
   });
 });

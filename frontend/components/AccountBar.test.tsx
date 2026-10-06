@@ -15,6 +15,14 @@ describe("SignInPrompt", () => {
   });
 });
 
+describe("SignInPrompt title", () => {
+  it("can say what signing in is for", () => {
+    render(<SignInPrompt next="/account/payout" title="Tài khoản" />);
+
+    expect(screen.getByRole("heading", { name: "Tài khoản" })).toBeTruthy();
+  });
+});
+
 describe("AccountBar", () => {
   it("shows who is signed in and signs out with a POST", () => {
     render(<AccountBar me={{ displayName: "Long", avatarUrl: null }} />);
@@ -24,6 +32,12 @@ describe("AccountBar", () => {
     const form = button.closest("form");
     expect(form?.getAttribute("method")).toBe("post");
     expect(form?.getAttribute("action")).toBe("/api/auth/logout");
+  });
+
+  it("links to the payout account page", () => {
+    render(<AccountBar me={{ displayName: "Long", avatarUrl: null }} />);
+
+    expect(screen.getByRole("link", { name: t.payoutLink }).getAttribute("href")).toBe("/account/payout");
   });
 
   it("falls back to a generic name when the account has none", () => {

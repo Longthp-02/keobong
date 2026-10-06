@@ -213,8 +213,11 @@
       "totalFeeVnd": "Nhập tiền sân là số nguyên từ 0 đến 100.000.000đ.",
       "slotCount": "Số chỗ phải là số nguyên từ 2 đến 30.",
       "unknown": "Thông tin chưa hợp lệ, vui lòng kiểm tra lại.",
-      "unauthenticated": "Phiên đăng nhập đã hết hạn. Hãy tải lại trang và đăng nhập lại."
-    }
+      "unauthenticated": "Phiên đăng nhập đã hết hạn. Hãy tải lại trang và đăng nhập lại.",
+      "payout": "Kèo có thu tiền cần tài khoản nhận tiền để người chơi chuyển khoản."
+    },
+    "payoutNeeded": "Kèo có thu tiền: hãy thêm tài khoản nhận tiền trước khi đăng kèo.",
+    "payoutLink": "Thêm tài khoản nhận tiền"
   },
   "auth": {
     "signInTitle": "Đăng nhập để tạo kèo",
@@ -226,7 +229,8 @@
     "failedTitle": "Đăng nhập chưa thành công",
     "failedBody": "Có thể bạn đã huỷ, hoặc liên kết đăng nhập đã hết hạn. Hãy thử lại.",
     "tryAgain": "Thử đăng nhập lại",
-    "backHome": "Về trang chủ"
+    "backHome": "Về trang chủ",
+    "payoutLink": "Tài khoản nhận tiền"
   },
   "slots": {
     "title": "Đội hình",
@@ -257,8 +261,65 @@
       "match_started": "Kèo đã bắt đầu.",
       "guests": "Tên bạn đi cùng phải có từ 1 đến 40 ký tự.",
       "unauthenticated": "Phiên đăng nhập đã hết hạn. Hãy đăng nhập lại.",
-      "unexpected": "Có lỗi xảy ra. Hãy thử lại."
+      "unexpected": "Có lỗi xảy ra. Hãy thử lại.",
+      "not_joined": "Bạn không còn giữ chỗ trong kèo này."
     },
     "retry": "Thử lại"
+  },
+  "payout": {
+    "title": "Tài khoản nhận tiền",
+    "intro": "Người chơi đã giữ chỗ trong kèo của bạn sẽ thấy tài khoản này và mã VietQR để chuyển khoản. Người khác không thấy.",
+    "bank": "Ngân hàng",
+    "chooseBank": "Chọn ngân hàng",
+    "accountNumber": "Số tài khoản",
+    "accountName": "Tên chủ tài khoản",
+    "accountNameHint": "Viết hoa, không dấu, đúng như trong ứng dụng ngân hàng.",
+    "save": "Lưu tài khoản",
+    "saving": "Đang lưu…",
+    "saved": "Đã lưu tài khoản nhận tiền.",
+    "backToCreate": "Quay lại tạo kèo",
+    "errors": {
+      "bankBin": "Chọn ngân hàng.",
+      "accountNumber": "Số tài khoản gồm 6 đến 19 chữ số.",
+      "accountName": "Tên chủ tài khoản viết hoa không dấu, 2 đến 50 ký tự.",
+      "unauthenticated": "Phiên đăng nhập đã hết hạn. Hãy tải lại trang và đăng nhập lại.",
+      "unexpected": "Có lỗi xảy ra. Hãy thử lại."
+    }
+  },
+  "payment": {
+    "title": "Chuyển khoản cho chủ kèo",
+    "amount": "Số tiền",
+    "holdUntil": "Giữ chỗ đến {time}. Quá giờ mà chưa chuyển khoản, chỗ sẽ được trả lại.",
+    "qrAlt": "Mã VietQR để chuyển khoản",
+    "scanHint": "Mở ứng dụng ngân hàng, quét mã QR. Số tiền và nội dung đã điền sẵn.",
+    "bank": "Ngân hàng",
+    "accountNumber": "Số tài khoản",
+    "accountName": "Chủ tài khoản",
+    "memo": "Nội dung",
+    "copy": "Sao chép",
+    "copied": "Đã chép",
+    "reportPaid": "Tôi đã chuyển khoản",
+    "reporting": "Đang gửi…",
+    "reported": "Đã báo chuyển khoản. Chờ chủ kèo xác nhận, chỗ của bạn vẫn được giữ.",
+    "confirmed": "Chủ kèo đã xác nhận thanh toán.",
+    "unavailable": "Chủ kèo chưa có tài khoản nhận tiền. Hãy liên hệ chủ kèo để thanh toán."
+  },
+  "host": {
+    "title": "Quản lý thanh toán",
+    "empty": "Chưa có ai giữ chỗ.",
+    "code": "Mã CK {code}",
+    "withGuests": "+ {names}",
+    "status": {
+      "awaiting_payment": "Chờ chuyển khoản đến {time}",
+      "payment_reported": "Đã báo chuyển khoản",
+      "confirmed": "Đã nhận tiền"
+    },
+    "confirm": "Đã nhận",
+    "reject": "Chưa nhận được",
+    "errors": {
+      "already_confirmed": "Khoản này đã được xác nhận.",
+      "party_not_found": "Người này không còn giữ chỗ.",
+      "unexpected": "Có lỗi xảy ra. Hãy thử lại."
+    }
   }
 }

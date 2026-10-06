@@ -21,7 +21,11 @@ const LEVELS = Array.from({ length: 9 }, (_, i) => 1 + i * 0.5);
 type Props = {
   /** Resolves with the rejected field, or undefined when the match was created (the caller navigates). */
   onSubmit: (input: CreateMatchInput) => Promise<{ field: string } | undefined>;
+  /** Whether the host saved a payout account; a paid match needs one. */
+  hasPayout?: boolean;
 };
+
+const PAYOUT_PAGE = `/account/payout?next=${encodeURIComponent("/create")}`;
 
 /** Converts a date and time picked in Ho Chi Minh City (UTC+7, no DST) to a UTC ISO string. */
 function toUtcIso(date: string, time: string): string {
@@ -65,7 +69,7 @@ function errorMessage(field: string): string {
   return errors[field] ?? t.errors.unknown;
 }
 
-export function CreateMatchForm({ onSubmit }: Props) {
+export function CreateMatchForm({ onSubmit, hasPayout = true }: Props) {
   const [venueName, setVenueName] = useState("");
   const [date, setDate] = useState("");
   const [startTime, setStartTime] = useState("");
@@ -82,6 +86,7 @@ export function CreateMatchForm({ onSubmit }: Props) {
   const [submitting, setSubmitting] = useState(false);
 
   const fee = parseWholeNumber(totalFee);
+  const needsPayout = !hasPayout && fee !== null && fee > 0;
   const slots = parseWholeNumber(slotCount);
   const price = fee === null || slots === null ? null : pricePerPlayerVnd(fee, slots);
 
@@ -99,7 +104,8 @@ export function CreateMatchForm({ onSubmit }: Props) {
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const invalid = checkInputs({ date, startTime, endTime, totalFee, slotCount });
+    const invalid =
+      checkInputs({ date, startTime, endTime, totalFee, slotCount }) ?? (needsPayout ? "payout" : null);
     if (invalid) {
       showError(invalid, errorMessage(invalid));
       return;
@@ -276,6 +282,11 @@ export function CreateMatchForm({ onSubmit }: Props) {
       </div>
       <p className="muted field-hint">{t.slotHint}</p>
 
+      {needsPayout ? (
+        <p className="notice">
+          {t.payoutNeeded} <a href={PAYOUT_PAGE}>{t.payoutLink}</a>
+        </p>
+      ) : null}
       <p className="price-preview" aria-live="polite">
         <span>{t.pricePerPlayer}</span>
         <strong data-testid="price-per-player">{price === null ? "—" : formatVnd(price)}</strong>

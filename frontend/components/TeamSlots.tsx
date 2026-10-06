@@ -12,6 +12,8 @@ import {
   slotsClient,
 } from "../lib/slots";
 import { fill } from "../lib/text";
+import { HostPayments } from "./HostPayments";
+import { PaymentPanel } from "./PaymentPanel";
 import messages from "../messages/vi.json";
 
 const t = messages.slots;
@@ -156,6 +158,27 @@ export function TeamSlots({ shareId, startsAt, initialRoster, client = defaultCl
     }
   }
 
+  async function reportPayment() {
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await client.reportPayment(shareId);
+      if (result.ok) {
+        setMine(result.place);
+      } else {
+        showError(result.error);
+        if (result.error === "not_joined") {
+          setMine({ status: "out" });
+          await refreshRoster();
+        }
+      }
+    } catch {
+      showError("unexpected");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function leave() {
     setBusy(true);
     setError(null);
@@ -202,6 +225,7 @@ export function TeamSlots({ shareId, startsAt, initialRoster, client = defaultCl
             <strong>{fill(t.joined, { team: t.team[mine.team] })}</strong>
           </p>
           {mine.guests.length > 0 ? <p className="muted">{fill(t.withGuests, { names: mine.guests.join(", ") })}</p> : null}
+          <PaymentPanel place={mine} onReport={reportPayment} busy={busy} />
           <button type="button" className="button-secondary" onClick={leave} disabled={busy}>
             {busy ? t.leaving : t.leave}
           </button>
@@ -278,6 +302,7 @@ export function TeamSlots({ shareId, startsAt, initialRoster, client = defaultCl
         </p>
       ) : null}
       {actions()}
+      <HostPayments shareId={shareId} client={client} onChange={refreshRoster} />
     </section>
   );
 }

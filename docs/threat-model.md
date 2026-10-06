@@ -8,7 +8,7 @@ Daghep MVP: accounts, matches, slots, VietQR display, host payment confirmation,
 - A non-host marks payments or attendance (IDOR).
 - A host maliciously marks players as no-shows.
 - Fake matches used to collect transfers (scam hosts).
-- Bank account numbers scraped from public match pages.
+- Bank account numbers scraped from public match pages. Mitigated (PR 3d): payout accounts are returned only by `GET /api/me/payout` (owner) and inside `GET /api/matches/{id}/slots/mine` while the caller holds an unpaid place; tested that public views never contain them; `Debug` output redacts them.
 - Spam match creation; slot squatting by bots holding all slots.
 - Link preview leaking private data or injecting markup.
 - OAuth misconfiguration (open redirect, missing state/nonce). Mitigated (PR 3b): PKCE + single-use `state` bound to the browser + `nonce`; ID token issuer/audience/expiry checked; return paths limited to same-site paths; tested in `backend/tests/auth_api.rs`.

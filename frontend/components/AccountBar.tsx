@@ -8,6 +8,9 @@ export function AccountBar({ me }: { me: MeView }) {
   return (
     <div className="account-bar">
       <span className="muted">{t.signedInAs}</span> <strong>{me.displayName ?? t.anonymousName}</strong>
+      <a href="/account/payout" className="account-bar__link">
+        {t.payoutLink}
+      </a>
       <form method="post" action="/api/auth/logout">
         <button type="submit" className="link-button">
           {t.signOut}

@@ -4,6 +4,7 @@ pub mod auth;
 pub mod clock;
 pub mod config;
 pub mod matches;
+pub mod payments;
 pub mod random;
 pub mod slots;
 pub mod text;
@@ -54,11 +55,18 @@ pub fn app(deps: Deps) -> Router {
             matches::PgMatchRepository::new(deps.pool.clone()),
             deps.clock.clone(),
             auth_state.clone(),
+            payments::PgPayoutRepository::new(deps.pool.clone()),
+        ))
+        .merge(payments::router(
+            payments::PgPayoutRepository::new(deps.pool.clone()),
+            deps.clock.clone(),
+            auth_state.clone(),
         ))
         .merge(slots::router(
-            slots::PgSlotRepository::new(deps.pool),
+            slots::PgSlotRepository::new(deps.pool.clone()),
             deps.clock,
             auth_state,
+            payments::PgPayoutRepository::new(deps.pool),
         ))
         // Every request body is small JSON; refuse anything bigger before parsing.
         .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))

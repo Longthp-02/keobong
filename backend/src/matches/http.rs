@@ -13,6 +13,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::auth::{AuthState, AuthenticatedUser};
+use crate::payments::PgPayoutRepository;
+use crate::payments::service::has_payout_account;
 
 use super::domain::{Clock, Field, Format, Match, MatchType, NewMatchInput};
 use super::repo::PgMatchRepository;
@@ -23,6 +25,7 @@ struct MatchState {
     repo: PgMatchRepository,
     clock: Arc<dyn Clock>,
     auth: AuthState,
+    payouts: PgPayoutRepository,
 }
 
 impl FromRef<MatchState> for AuthState {
@@ -31,11 +34,21 @@ impl FromRef<MatchState> for AuthState {
     }
 }
 
-pub fn router(repo: PgMatchRepository, clock: Arc<dyn Clock>, auth: AuthState) -> Router {
+pub fn router(
+    repo: PgMatchRepository,
+    clock: Arc<dyn Clock>,
+    auth: AuthState,
+    payouts: PgPayoutRepository,
+) -> Router {
     Router::new()
         .route("/api/matches", post(post_match))
         .route("/api/matches/{share_id}", get(get_match))
-        .with_state(MatchState { repo, clock, auth })
+        .with_state(MatchState {
+            repo,
+            clock,
+            auth,
+            payouts,
+        })
 }
 
 /// Public view of a match. Deliberately excludes internal ids and any host
@@ -137,7 +150,17 @@ async fn post_match(
         }
     })?;
     let input = request.into_input().map_err(CreateMatchError::Invalid)?;
-    let created = create_match(&state.repo, state.clock.as_ref(), host.id, input).await?;
+    let host_has_payout = has_payout_account(&state.payouts, host.id)
+        .await
+        .map_err(|err| CreateMatchError::Payouts(err.to_string()))?;
+    let created = create_match(
+        &state.repo,
+        state.clock.as_ref(),
+        host.id,
+        host_has_payout,
+        input,
+    )
+    .await?;
     Ok((StatusCode::CREATED, Json(MatchView::from(created))))
 }
 
@@ -152,6 +175,7 @@ fn field_name(field: Field) -> &'static str {
         Field::LevelMax => "levelMax",
         Field::TotalFeeVnd => "totalFeeVnd",
         Field::SlotCount => "slotCount",
+        Field::Payout => "payout",
     }
 }
 

@@ -184,6 +184,24 @@ pub async fn sign_in(app: &Router, subject: &str) -> String {
     cookie_value(&set_cookie(&response, "daghep_session").expect("session cookie"))
 }
 
+/// Saves a payout account for the signed-in user (needed to host paid matches).
+pub async fn add_payout(app: &Router, session: &str) {
+    let request = Request::put("/api/me/payout")
+        .header(COOKIE, format!("daghep_session={session}"))
+        .header(axum::http::header::CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            serde_json::json!({
+                "bankBin": "970416",
+                "accountNumber": "257678859",
+                "accountName": "PHAM LONG"
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let response = call(app, request).await;
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
 /// Inserts a user directly (for fixtures that need a match host).
 pub async fn insert_user(pool: &PgPool) -> i64 {
     sqlx::query_scalar("INSERT INTO users (display_name) VALUES ('Host') RETURNING id")

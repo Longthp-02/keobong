@@ -1,8 +1,8 @@
 //! Join, leave and roster use cases. Depends only on domain ports.
 
 use super::domain::{
-    ClaimOutcome, ClaimRejected, JoinRequest, LeaveRejected, MyPlace, ReleaseOutcome, RepoError,
-    Roster, SlotRepository,
+    ClaimOutcome, ClaimRejected, HostAction, HostActionOutcome, HostView, JoinRequest,
+    LeaveRejected, MyPlace, ReleaseOutcome, RepoError, ReportOutcome, Roster, SlotRepository,
 };
 use crate::auth::UserId;
 use crate::clock::Clock;
@@ -60,25 +60,72 @@ pub async fn leave<R: SlotRepository, C: Clock + ?Sized>(
     }
 }
 
-/// Public list of who holds a place. `None` when the match does not exist.
-pub async fn roster<R: SlotRepository>(
+/// Public list of who holds a place (expired holds excluded). `None` when the
+/// match does not exist.
+pub async fn roster<R: SlotRepository, C: Clock + ?Sized>(
     repo: &R,
+    clock: &C,
     raw_share_id: &str,
 ) -> Result<Option<Roster>, RepoError> {
     match ShareId::parse(raw_share_id) {
-        Some(share_id) => repo.roster(&share_id).await,
+        Some(share_id) => repo.roster(&share_id, clock.now()).await,
         None => Ok(None),
     }
 }
 
 /// The user's own place. Outer `None` when the match does not exist.
-pub async fn my_place<R: SlotRepository>(
+pub async fn my_place<R: SlotRepository, C: Clock + ?Sized>(
     repo: &R,
+    clock: &C,
     holder: UserId,
     raw_share_id: &str,
 ) -> Result<Option<Option<MyPlace>>, RepoError> {
     match ShareId::parse(raw_share_id) {
-        Some(share_id) => repo.my_place(&share_id, holder).await,
+        Some(share_id) => repo.my_place(&share_id, holder, clock.now()).await,
         None => Ok(None),
+    }
+}
+
+/// The holder says they transferred; the hold stops expiring.
+pub async fn report_payment<R: SlotRepository, C: Clock + ?Sized>(
+    repo: &R,
+    clock: &C,
+    holder: UserId,
+    raw_share_id: &str,
+) -> Result<ReportOutcome, RepoError> {
+    match ShareId::parse(raw_share_id) {
+        Some(share_id) => repo.report_payment(&share_id, holder, clock.now()).await,
+        None => Ok(ReportOutcome::MatchNotFound),
+    }
+}
+
+/// Parties and their payment status, for the match's host only.
+pub async fn host_parties<R: SlotRepository, C: Clock + ?Sized>(
+    repo: &R,
+    clock: &C,
+    caller: UserId,
+    raw_share_id: &str,
+) -> Result<HostView, RepoError> {
+    match ShareId::parse(raw_share_id) {
+        Some(share_id) => repo.host_parties(&share_id, caller, clock.now()).await,
+        None => Ok(HostView::MatchNotFound),
+    }
+}
+
+/// The host confirms a transfer or reports it missing (which releases the party).
+pub async fn host_action<R: SlotRepository, C: Clock + ?Sized>(
+    repo: &R,
+    clock: &C,
+    caller: UserId,
+    raw_share_id: &str,
+    payment_code: i64,
+    action: HostAction,
+) -> Result<HostActionOutcome, RepoError> {
+    match ShareId::parse(raw_share_id) {
+        Some(share_id) => {
+            repo.host_action(&share_id, caller, payment_code, action, clock.now())
+                .await
+        }
+        None => Ok(HostActionOutcome::MatchNotFound),
     }
 }
