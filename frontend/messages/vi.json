@@ -302,7 +302,9 @@
     "reporting": "Đang gửi…",
     "reported": "Đã báo chuyển khoản. Chờ chủ kèo xác nhận, chỗ của bạn vẫn được giữ.",
     "confirmed": "Chủ kèo đã xác nhận thanh toán.",
-    "unavailable": "Chủ kèo chưa có tài khoản nhận tiền. Hãy liên hệ chủ kèo để thanh toán."
+    "unavailable": "Chủ kèo chưa có tài khoản nhận tiền. Hãy liên hệ chủ kèo để thanh toán.",
+    "expired": "Hết thời gian giữ chỗ. Đừng chuyển khoản nữa; nếu còn chỗ, hãy giữ chỗ lại.",
+    "copyLabel": "Sao chép {label}"
   },
   "host": {
     "title": "Quản lý thanh toán",
@@ -315,11 +317,14 @@
       "confirmed": "Đã nhận tiền"
     },
     "confirm": "Đã nhận",
-    "reject": "Chưa nhận được",
+    "reject": "Chưa nhận được tiền",
     "errors": {
       "already_confirmed": "Khoản này đã được xác nhận.",
       "party_not_found": "Người này không còn giữ chỗ.",
       "unexpected": "Có lỗi xảy ra. Hãy thử lại."
-    }
+    },
+    "rejectConfirm": "Trả lại {count} chỗ của {name}? Không thể hoàn tác.",
+    "rejectYes": "Trả chỗ",
+    "rejectNo": "Không"
   }
 }

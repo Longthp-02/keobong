@@ -35,12 +35,16 @@ pub async fn save_payout_account<R: PayoutRepository, C: Clock + ?Sized>(
     Ok(account)
 }
 
-/// Whether `user` can host a paid match.
+/// Whether `user` can host a paid match: they have an account at a bank that
+/// still accepts VietQR (otherwise they must update it).
 pub async fn has_payout_account<R: PayoutRepository>(
     repo: &R,
     user: UserId,
 ) -> Result<bool, RepoError> {
-    Ok(repo.find(user).await?.is_some())
+    Ok(repo
+        .find(user)
+        .await?
+        .is_some_and(|account| account.is_supported()))
 }
 
 /// Transfer instructions for a player paying `host`. `None` when the host has

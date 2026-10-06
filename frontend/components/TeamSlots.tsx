@@ -158,6 +158,11 @@ export function TeamSlots({ shareId, startsAt, initialRoster, client = defaultCl
     }
   }
 
+  const reloadAfterExpiry = useCallback(() => {
+    loadMine();
+    void refreshRoster();
+  }, [loadMine, refreshRoster]);
+
   async function reportPayment() {
     setBusy(true);
     setError(null);
@@ -225,7 +230,7 @@ export function TeamSlots({ shareId, startsAt, initialRoster, client = defaultCl
             <strong>{fill(t.joined, { team: t.team[mine.team] })}</strong>
           </p>
           {mine.guests.length > 0 ? <p className="muted">{fill(t.withGuests, { names: mine.guests.join(", ") })}</p> : null}
-          <PaymentPanel place={mine} onReport={reportPayment} busy={busy} />
+          <PaymentPanel place={mine} onReport={reportPayment} onExpired={reloadAfterExpiry} busy={busy} />
           <button type="button" className="button-secondary" onClick={leave} disabled={busy}>
             {busy ? t.leaving : t.leave}
           </button>

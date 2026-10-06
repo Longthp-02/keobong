@@ -82,7 +82,10 @@ export function PayoutForm({ banks, initial, next, save = savePayout }: Props) {
           autoComplete="off"
           maxLength={50}
           value={accountName}
-          onChange={(e) => setAccountName(toAccountName(e.target.value, { typing: true }))}
+          onChange={(e) => setAccountName(e.target.value)}
+          // Converted when leaving the field: rewriting on every keystroke
+          // breaks Vietnamese keyboards that compose letters with diacritics.
+          onBlur={() => setAccountName(toAccountName(accountName))}
           {...invalid("accountName")}
         />
       </label>

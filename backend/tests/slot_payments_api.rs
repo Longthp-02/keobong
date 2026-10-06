@@ -372,3 +372,90 @@ async fn free_matches_and_the_hosts_own_party_need_no_transfer(pool: PgPool) {
         (&json!("confirmed"), &Value::Null)
     );
 }
+
+#[sqlx::test]
+async fn an_expired_hold_can_no_longer_be_reported_or_managed(pool: PgPool) {
+    let clock = TestClock::at(NOW);
+    let app = app_with(pool, clock.clone(), FRONTEND);
+    let m = create_match(&app, 900_000).await;
+    let p1 = sign_in(&app, "p1").await;
+    join(&app, &m, &p1, json!([])).await;
+    let code = mine(&app, &m, &p1).await["paymentCode"].clone();
+
+    clock.advance(Duration::minutes(30));
+
+    assert_eq!(
+        report(&app, &m, &p1).await,
+        (StatusCode::CONFLICT, json!({ "error": "not_joined" }))
+    );
+    for action in ["confirm", "reject"] {
+        assert_eq!(
+            host_action(&app, &m, &m.host, &code, action).await,
+            (StatusCode::NOT_FOUND, json!({ "error": "party_not_found" })),
+            "{action}"
+        );
+    }
+    assert_eq!(
+        host_list(&app, &m, &m.host).await.1,
+        json!({ "parties": [] })
+    );
+}
+
+#[sqlx::test]
+async fn a_place_freed_by_an_expired_hold_goes_to_the_next_player(pool: PgPool) {
+    let clock = TestClock::at(NOW);
+    let app = app_with(pool, clock.clone(), FRONTEND);
+    let m = create_match(&app, 900_000).await;
+    // Fill team A (9 places): one party of 3 that will expire, six that pay.
+    let late = sign_in(&app, "late").await;
+    join(&app, &m, &late, json!(["G1", "G2"])).await;
+    for i in 0..6 {
+        let player = sign_in(&app, &format!("payer-{i}")).await;
+        join(&app, &m, &player, json!([])).await;
+        report(&app, &m, &player).await;
+    }
+    let next = sign_in(&app, "next").await;
+    assert_eq!(
+        join(&app, &m, &next, json!([])).await.0,
+        StatusCode::CONFLICT
+    );
+
+    clock.advance(Duration::minutes(31));
+
+    assert_eq!(
+        join(&app, &m, &next, json!(["G3", "G4"])).await.0,
+        StatusCode::CREATED
+    );
+}
+
+#[sqlx::test]
+async fn the_host_can_reject_a_reported_transfer(pool: PgPool) {
+    let app = app(pool);
+    let m = create_match(&app, 900_000).await;
+    let p1 = sign_in(&app, "p1").await;
+    join(&app, &m, &p1, json!([])).await;
+    report(&app, &m, &p1).await;
+    let code = mine(&app, &m, &p1).await["paymentCode"].clone();
+
+    assert_eq!(
+        host_action(&app, &m, &m.host, &code, "reject").await.0,
+        StatusCode::NO_CONTENT
+    );
+    assert_eq!(mine(&app, &m, &p1).await, json!({ "joined": false }));
+}
+
+#[sqlx::test]
+async fn players_get_no_payment_details_when_the_hosts_bank_is_unsupported(pool: PgPool) {
+    let app = app(pool.clone());
+    let m = create_match(&app, 900_000).await;
+    sqlx::query("UPDATE payout_accounts SET bank_bin = '999999'")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let p1 = sign_in(&app, "p1").await;
+
+    let (status, body) = join(&app, &m, &p1, json!([])).await;
+
+    assert_eq!(status, StatusCode::CREATED);
+    assert_eq!(body["payment"], Value::Null);
+}

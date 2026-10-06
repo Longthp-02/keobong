@@ -18,14 +18,15 @@ export default async function PayoutPage({ searchParams }: Props) {
   if (!isApiConfigured()) {
     notFound();
   }
+  // Only the create page is offered as a way back, so the link cannot point elsewhere.
+  const next = (await searchParams).next === "/create" ? "/create" : null;
   const cookie = sessionCookieHeader((await cookies()).get(SESSION_COOKIE)?.value);
   const me = await getMe(cookie);
   if (!me) {
-    return <SignInPrompt next="/account/payout" title={t.title} />;
+    const here = next ? `/account/payout?next=${encodeURIComponent(next)}` : "/account/payout";
+    return <SignInPrompt next={here} title={t.title} />;
   }
   const [banks, payout] = await Promise.all([getBanks(), getPayout(cookie)]);
-  // Only the create page is offered as a way back, so the link cannot point elsewhere.
-  const next = (await searchParams).next === "/create" ? "/create" : null;
   return (
     <>
       <AccountBar me={me} />

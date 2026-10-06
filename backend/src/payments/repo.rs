@@ -31,9 +31,8 @@ impl PayoutRepository for PgPayoutRepository {
         .await
         .map_err(unavailable)?;
         row.map(|(bin, number, name)| {
-            // Stored values passed the same validation; anything else is corruption.
-            PayoutAccount::validate(&bin, &number, &name)
-                .map_err(|field| RepoError::Corrupt(format!("payout account field {field:?}")))
+            PayoutAccount::from_storage(bin, number, name)
+                .ok_or_else(|| RepoError::Corrupt("payout account format".to_owned()))
         })
         .transpose()
     }

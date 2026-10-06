@@ -68,12 +68,19 @@ describe("HostPayments", () => {
     expect(screen.queryByRole("button", { name: t.reject })).toBeNull();
   });
 
-  it("reports a missing transfer", async () => {
+  it("asks before releasing a party whose transfer is missing", async () => {
     const api = client({});
     render(<HostPayments shareId="k7Qm2xPa" client={api} onChange={vi.fn()} />);
 
     fireEvent.click(await screen.findByRole("button", { name: t.reject }));
+    expect(screen.getByText(fill(t.rejectConfirm, { count: 2, name: "Long" }))).toBeTruthy();
+    expect(api.hostAction).not.toHaveBeenCalled();
 
+    fireEvent.click(screen.getByRole("button", { name: t.rejectNo }));
+    expect(screen.queryByRole("button", { name: t.rejectYes })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: t.reject }));
+    fireEvent.click(screen.getByRole("button", { name: t.rejectYes }));
     await waitFor(() => expect(api.hostAction).toHaveBeenCalledWith("k7Qm2xPa", 7, "reject"));
   });
 
@@ -82,6 +89,7 @@ describe("HostPayments", () => {
     render(<HostPayments shareId="k7Qm2xPa" client={api} onChange={vi.fn()} />);
 
     fireEvent.click(await screen.findByRole("button", { name: t.reject }));
+    fireEvent.click(screen.getByRole("button", { name: t.rejectYes }));
 
     expect(await screen.findByRole("alert")).toHaveProperty("textContent", t.errors.already_confirmed);
   });

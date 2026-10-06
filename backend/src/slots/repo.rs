@@ -420,8 +420,10 @@ impl SlotRepository for PgSlotRepository {
         };
         let update = match action {
             HostAction::Confirm => {
+                // $3 (now) is bound for both statements; confirming does not need it.
                 "UPDATE slots SET payment_status = 'confirmed', hold_expires_at = NULL
-                 WHERE match_id = $1 AND holder_user_id = $2 AND released_at IS NULL"
+                 WHERE match_id = $1 AND holder_user_id = $2 AND released_at IS NULL
+                   AND $3::timestamptz IS NOT NULL"
             }
             HostAction::Reject => {
                 if parse_status(&status)? == PaymentStatus::Confirmed {

@@ -13,6 +13,7 @@ function fill() {
   fireEvent.change(screen.getByLabelText(t.bank), { target: { value: "970416" } });
   fireEvent.change(screen.getByLabelText(t.accountNumber), { target: { value: " 257678859 " } });
   fireEvent.change(screen.getByLabelText(t.accountName), { target: { value: "Phạm Long" } });
+  fireEvent.blur(screen.getByLabelText(t.accountName));
 }
 
 describe("PayoutForm", () => {
@@ -26,6 +27,14 @@ describe("PayoutForm", () => {
 
     expect(await screen.findByText(t.saved)).toBeTruthy();
     expect(save).toHaveBeenCalledWith({ bankBin: "970416", accountNumber: "257678859", accountName: "PHAM LONG" });
+  });
+
+  it("leaves the name alone while typing so Vietnamese keyboards keep working", () => {
+    render(<PayoutForm banks={banks} initial={null} next={null} save={vi.fn()} />);
+
+    fireEvent.change(screen.getByLabelText(t.accountName), { target: { value: "Phạm" } });
+
+    expect((screen.getByLabelText(t.accountName) as HTMLInputElement).value).toBe("Phạm");
   });
 
   it("starts from the saved account", () => {

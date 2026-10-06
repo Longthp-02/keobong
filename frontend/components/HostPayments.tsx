@@ -27,6 +27,8 @@ export function HostPayments({ shareId, client, onChange }: Props) {
   const [parties, setParties] = useState<HostParty[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** The party whose release the host is being asked to confirm. */
+  const [confirmingReject, setConfirmingReject] = useState<number | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -42,6 +44,7 @@ export function HostPayments({ shareId, client, onChange }: Props) {
   }, [load]);
 
   async function act(party: HostParty, action: "confirm" | "reject") {
+    setConfirmingReject(null);
     setBusy(true);
     setError(null);
     try {
@@ -90,12 +93,32 @@ export function HostPayments({ shareId, client, onChange }: Props) {
                 {statusText(party)}
               </span>
             </div>
-            {party.paymentStatus !== "confirmed" ? (
+            {party.paymentStatus !== "confirmed" && confirmingReject === party.paymentCode ? (
+              <div className="host-party__actions">
+                <span>
+                  {fill(t.rejectConfirm, {
+                    count: 1 + party.guests.length,
+                    name: party.holderName ?? messages.auth.anonymousName,
+                  })}
+                </span>
+                <button type="button" className="button-small" onClick={() => act(party, "reject")} disabled={busy}>
+                  {t.rejectYes}
+                </button>
+                <button type="button" className="link-button" onClick={() => setConfirmingReject(null)}>
+                  {t.rejectNo}
+                </button>
+              </div>
+            ) : party.paymentStatus !== "confirmed" ? (
               <div className="host-party__actions">
                 <button type="button" className="button-small" onClick={() => act(party, "confirm")} disabled={busy}>
                   {t.confirm}
                 </button>
-                <button type="button" className="link-button" onClick={() => act(party, "reject")} disabled={busy}>
+                <button
+                  type="button"
+                  className="link-button"
+                  onClick={() => setConfirmingReject(party.paymentCode)}
+                  disabled={busy}
+                >
                   {t.reject}
                 </button>
               </div>

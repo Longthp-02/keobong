@@ -128,3 +128,44 @@ async fn saving_a_payout_account_needs_sign_in_and_the_same_site(pool: PgPool) {
         .insert(ORIGIN, "https://evil.example".parse().unwrap());
     assert_eq!(call(&app, cross_site).await.status(), StatusCode::FORBIDDEN);
 }
+
+#[sqlx::test]
+async fn a_bank_no_longer_listed_asks_the_host_to_update_instead_of_failing(pool: PgPool) {
+    let app = app(pool.clone());
+    let session = sign_in(&app, "host").await;
+    call(&app, put_payout(&session, account())).await;
+    // As if the bank were later removed from the supported list.
+    sqlx::query("UPDATE payout_accounts SET bank_bin = '999999'")
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let read = call(
+        &app,
+        get_with_cookie("/api/me/payout", &format!("daghep_session={session}")),
+    )
+    .await;
+    assert_eq!(read.status(), StatusCode::OK);
+    assert_eq!(json_body(read).await["bankBin"], json!("999999"));
+
+    let create = Request::post("/api/matches")
+        .header(COOKIE, format!("daghep_session={session}"))
+        .header(CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            json!({
+                "venueName": "SSA Sports Center",
+                "startsAt": "2099-10-10T11:30:00Z",
+                "endsAt": "2099-10-10T13:00:00Z",
+                "format": "seven_a_side",
+                "matchType": "casual",
+                "levelMin": 2.5,
+                "levelMax": 3.5,
+                "totalFeeVnd": 900000
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let response = call(&app, create).await;
+    assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(json_body(response).await["field"], json!("payout"));
+}

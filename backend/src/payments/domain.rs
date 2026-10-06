@@ -115,6 +115,31 @@ impl PayoutAccount {
     }
 }
 
+impl PayoutAccount {
+    /// Rebuilds a stored account. Only the stored format is re-checked: a bank
+    /// that was later dropped from [`BANKS`] must not make the account unreadable.
+    pub fn from_storage(
+        bank_bin: String,
+        account_number: String,
+        account_name: String,
+    ) -> Option<Self> {
+        let digits = |s: &str, len: std::ops::RangeInclusive<usize>| {
+            len.contains(&s.len()) && s.bytes().all(|b| b.is_ascii_digit())
+        };
+        (digits(&bank_bin, 6..=6) && digits(&account_number, 6..=19) && !account_name.is_empty())
+            .then_some(Self {
+                bank_bin,
+                account_number,
+                account_name,
+            })
+    }
+
+    /// Whether players can pay into this account with VietQR today.
+    pub fn is_supported(&self) -> bool {
+        bank_name(&self.bank_bin).is_some()
+    }
+}
+
 /// What a player needs to pay the host.
 #[derive(Clone, PartialEq, Eq)]
 pub struct PaymentInstructions {
@@ -160,7 +185,10 @@ pub fn transfer_memo(payment_code: i64) -> String {
     format!("DAGHEP {payment_code}")
 }
 
+/// One EMVCo field: id, two-digit length, value. Callers pass validated
+/// values of at most 99 bytes (the longest, the account block, is under 64).
 fn tlv(id: &str, value: &str) -> String {
+    debug_assert!(value.len() <= 99, "EMVCo field {id} too long");
     format!("{id}{:02}{value}", value.len())
 }
 
@@ -232,7 +260,7 @@ mod tests {
 
     #[test]
     fn payload_matches_a_published_vietqr_example() {
-        // From the vietnam-qr-pay library documentation: ACB, 10,000đ, "Chuyen tien".
+        // From the vietnam-qr-pay library documentation: ACB, 10,000 VND, "Chuyen tien".
         assert_eq!(
             vietqr_payload("970416", "257678859", 10_000, "Chuyen tien"),
             "00020101021238530010A0000007270123000697041601092576788590208QRIBFTTA\
@@ -274,6 +302,19 @@ mod tests {
                 "{name}"
             );
         }
+    }
+
+    #[test]
+    fn stored_accounts_stay_readable_when_a_bank_is_dropped() {
+        let account =
+            PayoutAccount::from_storage("999999".into(), "0123456789".into(), "PHAM LONG".into())
+                .unwrap();
+
+        assert!(!account.is_supported());
+        assert!(PaymentInstructions::new(&account, 50_000, transfer_memo(7)).is_none());
+        assert!(
+            PayoutAccount::from_storage("97043".into(), "0123456789".into(), "X".into()).is_none()
+        );
     }
 
     #[test]

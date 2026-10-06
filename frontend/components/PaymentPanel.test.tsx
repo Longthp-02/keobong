@@ -72,6 +72,25 @@ describe("PaymentPanel", () => {
     expect(container.textContent).toBe("");
   });
 
+  it("stops asking for money once the hold has expired", async () => {
+    const onExpired = vi.fn();
+    render(
+      <PaymentPanel place={place({ holdExpiresAt: "2000-01-01T00:00:00Z" })} onReport={vi.fn()} onExpired={onExpired} />,
+    );
+
+    expect(await screen.findByText(t.expired)).toBeTruthy();
+    expect(screen.queryByRole("img", { name: t.qrAlt })).toBeNull();
+    expect(screen.queryByRole("button", { name: t.reportPaid })).toBeNull();
+    expect(onExpired).toHaveBeenCalledTimes(1);
+  });
+
+  it("names what each copy button copies", () => {
+    render(<PaymentPanel place={place()} onReport={vi.fn()} />);
+
+    expect(screen.getByRole("button", { name: fill(t.copyLabel, { label: t.accountNumber }) })).toBeTruthy();
+    expect(screen.getByRole("button", { name: fill(t.copyLabel, { label: t.memo }) })).toBeTruthy();
+  });
+
   it("explains when the host has no payout account", () => {
     render(<PaymentPanel place={place({ payment: null })} onReport={vi.fn()} />);
 

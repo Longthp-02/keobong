@@ -12,8 +12,39 @@ const t = messages.payment;
 type Props = {
   place: JoinedPlace;
   onReport: () => Promise<void> | void;
+  /** Called once when the hold runs out, so the caller can reload the place. */
+  onExpired?: () => void;
   busy?: boolean;
 };
+
+/** True once `deadline` has passed; re-renders at that moment. */
+function useExpired(deadline: string | null, onExpired?: () => void): boolean {
+  const [expired, setExpired] = useState(false);
+  useEffect(() => {
+    setExpired(false);
+    if (!deadline) {
+      return;
+    }
+    const expire = () => {
+      setExpired(true);
+      onExpired?.();
+    };
+    // setTimeout fires at once for delays above 2^31 - 1 ms, so wait in capped steps.
+    const MAX_DELAY_MS = 2_147_483_647;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const check = () => {
+      const remaining = Date.parse(deadline) - Date.now();
+      if (remaining <= 0) {
+        expire();
+      } else {
+        timer = setTimeout(check, Math.min(remaining, MAX_DELAY_MS));
+      }
+    };
+    check();
+    return () => clearTimeout(timer);
+  }, [deadline, onExpired]);
+  return expired;
+}
 
 /** Renders the VietQR payload in the browser, so bank details never go to a QR service. */
 function useQrDataUrl(payload: string | null): string | null {
@@ -50,7 +81,13 @@ function CopyRow({ label, value }: { label: string; value: string }) {
       <dt>{label}</dt>
       <dd>
         <span>{value}</span>
-        <button type="button" className="link-button" onClick={copy}>
+        <button
+          type="button"
+          className="link-button"
+          onClick={copy}
+          aria-label={fill(t.copyLabel, { label })}
+          aria-live="polite"
+        >
           {copied ? t.copied : t.copy}
         </button>
       </dd>
@@ -59,9 +96,18 @@ function CopyRow({ label, value }: { label: string; value: string }) {
 }
 
 /** What a player who holds a place still has to do to pay the host. */
-export function PaymentPanel({ place, onReport, busy = false }: Props) {
-  const qr = useQrDataUrl(place.paymentStatus === "confirmed" ? null : (place.payment?.qrPayload ?? null));
+export function PaymentPanel({ place, onReport, onExpired, busy = false }: Props) {
+  const awaiting = place.paymentStatus === "awaiting_payment";
+  const expired = useExpired(awaiting ? place.holdExpiresAt : null, onExpired);
+  const qr = useQrDataUrl(place.paymentStatus === "confirmed" || expired ? null : (place.payment?.qrPayload ?? null));
 
+  if (expired) {
+    return (
+      <p className="form-error" role="alert">
+        {t.expired}
+      </p>
+    );
+  }
   if (place.paymentStatus === "confirmed") {
     return place.amountVnd > 0 ? <p className="pay-status pay-status--done">{t.confirmed}</p> : null;
   }
