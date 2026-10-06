@@ -51,6 +51,20 @@ describe("PayoutForm", () => {
     expect((screen.getByLabelText(t.accountNumber) as HTMLInputElement).value).toBe("0123456789");
   });
 
+  it("asks to choose again when the saved bank is no longer supported", () => {
+    render(
+      <PayoutForm
+        banks={banks}
+        initial={{ bankBin: "999999", accountNumber: "0123456789", accountName: "PHAM LONG" }}
+        next={null}
+        save={vi.fn()}
+      />,
+    );
+
+    expect((screen.getByLabelText(t.bank) as HTMLSelectElement).value).toBe("");
+    expect(screen.getByText(t.bankUnsupported)).toBeTruthy();
+  });
+
   it("shows the field the server rejected", async () => {
     render(
       <PayoutForm banks={banks} initial={null} next={null} save={vi.fn().mockResolvedValue({ ok: false, error: "accountNumber" })} />,

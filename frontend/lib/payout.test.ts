@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { savePayout, toAccountName } from "./payout";
+import { canHostPaidMatches, savePayout, toAccountName } from "./payout";
 
 function respond(status: number, body: unknown) {
   return vi.fn().mockResolvedValue(
@@ -44,5 +44,15 @@ describe("savePayout", () => {
   it("reports an expired session and other failures", async () => {
     expect(await savePayout(account, respond(401, {}))).toEqual({ ok: false, error: "unauthenticated" });
     expect(await savePayout(account, respond(500, {}))).toEqual({ ok: false, error: "unexpected" });
+  });
+});
+
+describe("canHostPaidMatches", () => {
+  const banks = [{ bin: "970436", name: "Vietcombank" }];
+
+  it("needs a payout account at a supported bank", () => {
+    expect(canHostPaidMatches({ bankBin: "970436", accountNumber: "1", accountName: "A" }, banks)).toBe(true);
+    expect(canHostPaidMatches({ bankBin: "999999", accountNumber: "1", accountName: "A" }, banks)).toBe(false);
+    expect(canHostPaidMatches(null, banks)).toBe(false);
   });
 });

@@ -52,3 +52,8 @@ export async function savePayout(
   }
   return { ok: false, error: "unexpected" };
 }
+
+/** A paid match needs a payout account at a bank that still accepts VietQR. */
+export function canHostPaidMatches(account: PayoutAccount | null, banks: Bank[]): boolean {
+  return account !== null && banks.some((bank) => bank.bin === account.bankBin);
+}

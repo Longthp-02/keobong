@@ -17,7 +17,7 @@ struct Match {
     host: String,
 }
 
-/// Creates a match 9 days after `NOW`; 900,000đ over 18 places is 50,000đ each.
+/// Creates a match 9 days after `NOW`; 900,000 VND over 18 places is 50,000 VND each.
 async fn create_match(app: &Router, total_fee_vnd: i64) -> Match {
     let host = sign_in(app, "host").await;
     add_payout(app, &host).await;

@@ -284,7 +284,8 @@
       "accountName": "Tên chủ tài khoản viết hoa không dấu, 2 đến 50 ký tự.",
       "unauthenticated": "Phiên đăng nhập đã hết hạn. Hãy tải lại trang và đăng nhập lại.",
       "unexpected": "Có lỗi xảy ra. Hãy thử lại."
-    }
+    },
+    "bankUnsupported": "Ngân hàng đã lưu không còn hỗ trợ VietQR. Hãy chọn lại ngân hàng."
   },
   "payment": {
     "title": "Chuyển khoản cho chủ kèo",

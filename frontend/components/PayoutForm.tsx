@@ -15,7 +15,8 @@ type Props = {
 };
 
 export function PayoutForm({ banks, initial, next, save = savePayout }: Props) {
-  const [bankBin, setBankBin] = useState(initial?.bankBin ?? "");
+  const savedBankListed = initial !== null && banks.some((bank) => bank.bin === initial.bankBin);
+  const [bankBin, setBankBin] = useState(savedBankListed ? initial.bankBin : "");
   const [accountNumber, setAccountNumber] = useState(initial?.accountNumber ?? "");
   const [accountName, setAccountName] = useState(initial?.accountName ?? "");
   const [busy, setBusy] = useState(false);
@@ -50,6 +51,7 @@ export function PayoutForm({ banks, initial, next, save = savePayout }: Props) {
 
   return (
     <form className="create-form" onSubmit={submit} noValidate>
+      {initial && !savedBankListed ? <p className="notice">{t.bankUnsupported}</p> : null}
       <label className="field">
         <span>{t.bank}</span>
         <select value={bankBin} onChange={(e) => setBankBin(e.target.value)} {...invalid("bankBin")}>
