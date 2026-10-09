@@ -259,6 +259,11 @@ pub enum HostActionOutcome {
     PartyNotFound,
     /// A confirmed payment cannot be rejected.
     AlreadyConfirmed,
+    /// Only a transfer the player reported can be rejected; unpaid holds
+    /// expire on their own (confirmed by Long 2026-10-09).
+    NotReported,
+    /// Rejecting closes at kickoff; no-show marking covers later cases.
+    MatchStarted,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

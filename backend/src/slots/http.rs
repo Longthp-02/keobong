@@ -408,6 +408,8 @@ async fn host_action_response(
         Ok(HostActionOutcome::MatchNotFound) => not_found(),
         Ok(HostActionOutcome::PartyNotFound) => error(StatusCode::NOT_FOUND, "party_not_found"),
         Ok(HostActionOutcome::AlreadyConfirmed) => error(StatusCode::CONFLICT, "already_confirmed"),
+        Ok(HostActionOutcome::NotReported) => error(StatusCode::CONFLICT, "not_reported"),
+        Ok(HostActionOutcome::MatchStarted) => error(StatusCode::CONFLICT, "match_started"),
         Err(err) => internal_error("failed to update payment", &err),
     }
 }

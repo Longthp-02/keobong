@@ -283,6 +283,7 @@ async fn the_host_can_report_a_missing_transfer_which_frees_the_places(pool: PgP
     let p2 = sign_in(&app, "p2").await;
     join(&app, &m, &p1, json!(["An"])).await;
     join(&app, &m, &p2, json!([])).await;
+    report(&app, &m, &p1).await;
     let (_, list) = host_list(&app, &m, &m.host).await;
     let first = list["parties"][0]["paymentCode"].clone();
     let second = list["parties"][1]["paymentCode"].clone();
@@ -458,4 +459,44 @@ async fn players_get_no_payment_details_when_the_hosts_bank_is_unsupported(pool:
 
     assert_eq!(status, StatusCode::CREATED);
     assert_eq!(body["payment"], Value::Null);
+}
+
+#[sqlx::test]
+async fn a_transfer_can_be_rejected_only_after_the_player_reports_it(pool: PgPool) {
+    let app = app(pool);
+    let m = create_match(&app, 900_000).await;
+    let p1 = sign_in(&app, "p1").await;
+    join(&app, &m, &p1, json!([])).await;
+    let code = mine(&app, &m, &p1).await["paymentCode"].clone();
+
+    // Still inside the 30-minute hold: the countdown handles unpaid places.
+    assert_eq!(
+        host_action(&app, &m, &m.host, &code, "reject").await,
+        (StatusCode::CONFLICT, json!({ "error": "not_reported" }))
+    );
+    assert_eq!(mine(&app, &m, &p1).await["joined"], json!(true));
+}
+
+#[sqlx::test]
+async fn a_transfer_cannot_be_rejected_after_kickoff(pool: PgPool) {
+    let clock = TestClock::at(NOW);
+    let app = app_with(pool, clock.clone(), FRONTEND);
+    let m = create_match(&app, 900_000).await;
+    let p1 = sign_in(&app, "p1").await;
+    join(&app, &m, &p1, json!([])).await;
+    report(&app, &m, &p1).await;
+    let code = mine(&app, &m, &p1).await["paymentCode"].clone();
+
+    // Kickoff is 2099-10-10T11:30Z; NOW is 2099-10-01T00:00Z.
+    clock.advance(Duration::days(9) + Duration::minutes(690));
+
+    assert_eq!(
+        host_action(&app, &m, &m.host, &code, "reject").await,
+        (StatusCode::CONFLICT, json!({ "error": "match_started" }))
+    );
+    // Confirming a late transfer is still possible.
+    assert_eq!(
+        host_action(&app, &m, &m.host, &code, "confirm").await.0,
+        StatusCode::NO_CONTENT
+    );
 }

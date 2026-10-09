@@ -307,7 +307,7 @@ export function TeamSlots({ shareId, startsAt, initialRoster, client = defaultCl
         </p>
       ) : null}
       {actions()}
-      <HostPayments shareId={shareId} client={client} onChange={refreshRoster} />
+      <HostPayments shareId={shareId} startsAt={startsAt} client={client} onChange={refreshRoster} />
     </section>
   );
 }

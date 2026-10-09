@@ -10,6 +10,8 @@ const t = messages.host;
 
 type Props = {
   shareId: string;
+  /** Rejecting a transfer closes at kickoff. */
+  startsAt: string;
   client: SlotsClient;
   /** Called after a change so the roster can refresh. */
   onChange: () => void;
@@ -23,12 +25,15 @@ function statusText(party: HostParty): string {
 }
 
 /** The host's list of parties to check transfers against. Hidden for everyone else. */
-export function HostPayments({ shareId, client, onChange }: Props) {
+export function HostPayments({ shareId, startsAt, client, onChange }: Props) {
   const [parties, setParties] = useState<HostParty[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   /** The party whose release the host is being asked to confirm. */
   const [confirmingReject, setConfirmingReject] = useState<number | null>(null);
+  // Decided after hydration so server and client render the same markup.
+  const [started, setStarted] = useState(false);
+  useEffect(() => setStarted(Date.parse(startsAt) <= Date.now()), [startsAt]);
 
   const load = useCallback(async () => {
     try {
@@ -113,14 +118,17 @@ export function HostPayments({ shareId, client, onChange }: Props) {
                 <button type="button" className="button-small" onClick={() => act(party, "confirm")} disabled={busy}>
                   {t.confirm}
                 </button>
-                <button
-                  type="button"
-                  className="link-button"
-                  onClick={() => setConfirmingReject(party.paymentCode)}
-                  disabled={busy}
-                >
-                  {t.reject}
-                </button>
+                {/* Only a reported transfer can be rejected, and only before kickoff (Long, 2026-10-09). */}
+                {party.paymentStatus === "payment_reported" && !started ? (
+                  <button
+                    type="button"
+                    className="link-button"
+                    onClick={() => setConfirmingReject(party.paymentCode)}
+                    disabled={busy}
+                  >
+                    {t.reject}
+                  </button>
+                ) : null}
               </div>
             ) : null}
           </li>

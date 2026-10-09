@@ -426,8 +426,13 @@ impl SlotRepository for PgSlotRepository {
                    AND $3::timestamptz IS NOT NULL"
             }
             HostAction::Reject => {
-                if parse_status(&status)? == PaymentStatus::Confirmed {
-                    return Ok(HostActionOutcome::AlreadyConfirmed);
+                match parse_status(&status)? {
+                    PaymentStatus::Confirmed => return Ok(HostActionOutcome::AlreadyConfirmed),
+                    PaymentStatus::AwaitingPayment => return Ok(HostActionOutcome::NotReported),
+                    PaymentStatus::PaymentReported => {}
+                }
+                if now >= facts.starts_at {
+                    return Ok(HostActionOutcome::MatchStarted);
                 }
                 "UPDATE slots SET released_at = GREATEST(claimed_at, $3)
                  WHERE match_id = $1 AND holder_user_id = $2 AND released_at IS NULL"

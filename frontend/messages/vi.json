@@ -322,7 +322,9 @@
     "errors": {
       "already_confirmed": "Khoản này đã được xác nhận.",
       "party_not_found": "Người này không còn giữ chỗ.",
-      "unexpected": "Có lỗi xảy ra. Hãy thử lại."
+      "unexpected": "Có lỗi xảy ra. Hãy thử lại.",
+      "not_reported": "Chỉ báo chưa nhận được tiền sau khi người chơi đã báo chuyển khoản.",
+      "match_started": "Kèo đã bắt đầu, không thể trả chỗ nữa."
     },
     "rejectConfirm": "Trả lại {count} chỗ của {name}? Không thể hoàn tác.",
     "rejectYes": "Trả chỗ",

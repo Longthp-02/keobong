@@ -57,7 +57,12 @@ export type HostParty = {
 };
 
 export type HostView = { status: "notHost" } | { status: "host"; parties: HostParty[] };
-export type HostActionError = "already_confirmed" | "party_not_found" | "unexpected";
+export type HostActionError =
+  | "already_confirmed"
+  | "party_not_found"
+  | "not_reported"
+  | "match_started"
+  | "unexpected";
 
 export type SlotError =
   | "team_full"
@@ -181,7 +186,7 @@ export function slotsClient(fetchImpl: typeof fetch = (...args) => fetch(...args
         return { ok: true };
       }
       const body = (await response.json().catch(() => ({}))) as { error?: string };
-      const known: HostActionError[] = ["already_confirmed", "party_not_found"];
+      const known: HostActionError[] = ["already_confirmed", "party_not_found", "not_reported", "match_started"];
       return {
         ok: false,
         error: known.includes(body.error as HostActionError) ? (body.error as HostActionError) : "unexpected",

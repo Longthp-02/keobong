@@ -6,6 +6,7 @@ import messages from "../messages/vi.json";
 import { HostPayments } from "./HostPayments";
 
 const t = messages.host;
+const FUTURE = "2099-10-10T11:30:00Z";
 
 function party(overrides: Partial<HostParty> = {}): HostParty {
   return {
@@ -36,14 +37,14 @@ function client(overrides: Partial<SlotsClient>): SlotsClient {
 describe("HostPayments", () => {
   it("shows nothing to players who are not the host", async () => {
     const api = client({ hostParties: vi.fn().mockResolvedValue({ status: "notHost" }) });
-    const { container } = render(<HostPayments shareId="k7Qm2xPa" client={api} onChange={vi.fn()} />);
+    const { container } = render(<HostPayments shareId="k7Qm2xPa" startsAt={FUTURE} client={api} onChange={vi.fn()} />);
 
     await waitFor(() => expect(api.hostParties).toHaveBeenCalled());
     expect(container.textContent).toBe("");
   });
 
   it("lists each party with its amount, status and transfer code", async () => {
-    render(<HostPayments shareId="k7Qm2xPa" client={client({})} onChange={vi.fn()} />);
+    render(<HostPayments shareId="k7Qm2xPa" startsAt={FUTURE} client={client({})} onChange={vi.fn()} />);
 
     expect(await screen.findByText("Long")).toBeTruthy();
     expect(screen.getByText(fill(t.withGuests, { names: "An" }))).toBeTruthy();
@@ -58,7 +59,7 @@ describe("HostPayments", () => {
       .mockResolvedValue({ status: "host", parties: [party({ paymentStatus: "confirmed" })] });
     const api = client({ hostParties });
     const onChange = vi.fn();
-    render(<HostPayments shareId="k7Qm2xPa" client={api} onChange={onChange} />);
+    render(<HostPayments shareId="k7Qm2xPa" startsAt={FUTURE} client={api} onChange={onChange} />);
 
     fireEvent.click(await screen.findByRole("button", { name: t.confirm }));
 
@@ -70,7 +71,7 @@ describe("HostPayments", () => {
 
   it("asks before releasing a party whose transfer is missing", async () => {
     const api = client({});
-    render(<HostPayments shareId="k7Qm2xPa" client={api} onChange={vi.fn()} />);
+    render(<HostPayments shareId="k7Qm2xPa" startsAt={FUTURE} client={api} onChange={vi.fn()} />);
 
     fireEvent.click(await screen.findByRole("button", { name: t.reject }));
     expect(screen.getByText(fill(t.rejectConfirm, { count: 2, name: "Long" }))).toBeTruthy();
@@ -86,11 +87,31 @@ describe("HostPayments", () => {
 
   it("explains a refused action", async () => {
     const api = client({ hostAction: vi.fn().mockResolvedValue({ ok: false, error: "already_confirmed" }) });
-    render(<HostPayments shareId="k7Qm2xPa" client={api} onChange={vi.fn()} />);
+    render(<HostPayments shareId="k7Qm2xPa" startsAt={FUTURE} client={api} onChange={vi.fn()} />);
 
     fireEvent.click(await screen.findByRole("button", { name: t.reject }));
     fireEvent.click(screen.getByRole("button", { name: t.rejectYes }));
 
     expect(await screen.findByRole("alert")).toHaveProperty("textContent", t.errors.already_confirmed);
+  });
+
+  it("offers rejection only after the player reported a transfer", async () => {
+    const api = client({
+      hostParties: vi.fn().mockResolvedValue({
+        status: "host",
+        parties: [party({ paymentStatus: "awaiting_payment", holdExpiresAt: "2099-10-10T10:00:00Z" })],
+      }),
+    });
+    render(<HostPayments shareId="k7Qm2xPa" startsAt={FUTURE} client={api} onChange={vi.fn()} />);
+
+    expect(await screen.findByRole("button", { name: t.confirm })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: t.reject })).toBeNull();
+  });
+
+  it("offers no rejection once the match has started", async () => {
+    render(<HostPayments shareId="k7Qm2xPa" startsAt="2000-01-01T00:00:00Z" client={client({})} onChange={vi.fn()} />);
+
+    expect(await screen.findByRole("button", { name: t.confirm })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: t.reject })).toBeNull();
   });
 });

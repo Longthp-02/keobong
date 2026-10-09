@@ -54,7 +54,7 @@ backend/
 
 ## Key Design Decisions
 - **Slot claiming (PR 3c):** players pick a team, not a position, so a place is a row inserted on join (own place or named guest) and released by setting `released_at`. The claim transaction runs at READ COMMITTED, locks the match row with `FOR NO KEY UPDATE`, counts active places in the team and inserts the whole group, so concurrent joins queue per match and never overbook. A partial unique index allows one own active place per user per match.
-- **Boundary exception (PR 3c, approved by Long 2026-10-05):** `slots/repo.rs` reads and locks the `matches` row directly, because the capacity check and the insert must be in one transaction. It reads only `id`, `slot_count`, `starts_at`, and since PR 3d `total_fee_vnd` and `host_user_id` (price per player and host checks; TODO: verify with Long). Everything else goes through public feature APIs.
+- **Boundary exception (PR 3c, approved by Long 2026-10-05):** `slots/repo.rs` reads and locks the `matches` row directly, because the capacity check and the insert must be in one transaction. It reads only `id`, `slot_count`, `starts_at`, and since PR 3d `total_fee_vnd` and `host_user_id` (price per player and host checks; approved by Long 2026-10-09). Everything else goes through public feature APIs.
 - **Geo search:** `geography(Point, 4326)` with a GiST index and `ST_DWithin`.
 - **Money:** integer VND (`i64`); no floating point.
 - **Share ids:** short, random, unguessable; internal ids never appear in URLs.
