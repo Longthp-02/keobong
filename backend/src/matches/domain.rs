@@ -153,6 +153,8 @@ pub enum Field {
     LevelMax,
     TotalFeeVnd,
     SlotCount,
+    /// A paid match needs the host's payout account so players know where to pay.
+    Payout,
 }
 
 #[derive(Debug, Clone)]

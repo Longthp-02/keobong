@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import type { MyPlace, RosterView, SlotsClient } from "../lib/slots";
+import type { JoinedPlace, MyPlace, RosterView, SlotsClient, Team } from "../lib/slots";
 import { fill } from "../lib/text";
 import messages from "../messages/vi.json";
 import { TeamSlots } from "./TeamSlots";
@@ -25,6 +25,23 @@ function client(mine: MyPlace, overrides: Partial<SlotsClient> = {}): SlotsClien
     mine: vi.fn().mockResolvedValue(mine),
     join: vi.fn(),
     leave: vi.fn(),
+    reportPayment: vi.fn(),
+    hostParties: vi.fn().mockResolvedValue({ status: "notHost" }),
+    hostAction: vi.fn(),
+    ...overrides,
+  };
+}
+
+function joined(team: Team, guests: string[], overrides: Partial<JoinedPlace> = {}): JoinedPlace {
+  return {
+    status: "in",
+    team,
+    guests,
+    paymentCode: 7,
+    paymentStatus: "confirmed",
+    holdExpiresAt: null,
+    amountVnd: 0,
+    payment: null,
     ...overrides,
   };
 }
@@ -69,7 +86,7 @@ describe("TeamSlots", () => {
     const api = client(
       { status: "out" },
       {
-        join: vi.fn().mockResolvedValue({ ok: true, place: { status: "in", team: "b", guests: ["An"] } }),
+        join: vi.fn().mockResolvedValue({ ok: true, place: joined("b", ["An"]) }),
         // First the refresh on load, then the refresh after joining.
         roster: vi.fn().mockResolvedValueOnce(roster()).mockResolvedValue(roster([], ["Long", "An"])),
       },
@@ -135,7 +152,7 @@ describe("TeamSlots", () => {
 
   it("lets a player who joined leave the match", async () => {
     const api = client(
-      { status: "in", team: "a", guests: [] },
+      joined("a", []),
       { leave: vi.fn().mockResolvedValue({ ok: true }) },
     );
     render(<TeamSlots shareId={SHARE_ID} startsAt={FUTURE} initialRoster={roster(["Long"])} client={api} />);
@@ -182,5 +199,59 @@ describe("TeamSlots", () => {
 
     expect(await screen.findByText(t.started)).toBeTruthy();
     expect(screen.queryByRole("button")).toBeNull();
+  });
+
+  it("shows how to pay after joining a paid match and reports the transfer", async () => {
+    const payment = {
+      bankName: "ACB",
+      accountNumber: "257678859",
+      accountName: "PHAM LONG",
+      amountVnd: 50000,
+      memo: "DG k7Qm2xPa 7",
+      qrPayload: "000201",
+    };
+    const awaiting = joined("a", [], {
+      paymentStatus: "awaiting_payment",
+      holdExpiresAt: "2099-10-10T11:42:00Z",
+      amountVnd: 50000,
+      payment,
+    });
+    const api = client(awaiting, {
+      reportPayment: vi.fn().mockResolvedValue({
+        ok: true,
+        place: { ...awaiting, paymentStatus: "payment_reported", holdExpiresAt: null },
+      }),
+    });
+    render(<TeamSlots shareId={SHARE_ID} startsAt={FUTURE} initialRoster={roster(["Long"])} client={api} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: messages.payment.reportPaid }));
+
+    expect(await screen.findByText(messages.payment.reported)).toBeTruthy();
+    expect(api.reportPayment).toHaveBeenCalledWith(SHARE_ID);
+  });
+
+  it("shows the host's payment list to the host", async () => {
+    const api = client(
+      { status: "out" },
+      {
+        hostParties: vi.fn().mockResolvedValue({
+          status: "host",
+          parties: [
+            {
+              paymentCode: 7,
+              team: "a",
+              holderName: "Minh",
+              guests: [],
+              amountVnd: 50000,
+              paymentStatus: "payment_reported",
+              holdExpiresAt: null,
+            },
+          ],
+        }),
+      },
+    );
+    render(<TeamSlots shareId={SHARE_ID} startsAt={FUTURE} initialRoster={roster()} client={api} />);
+
+    expect(await screen.findByRole("heading", { name: messages.host.title })).toBeTruthy();
   });
 });

@@ -17,6 +17,7 @@ async fn send(pool: PgPool, request: Request<Body>) -> (StatusCode, Value) {
 async fn send_at(now: &str, pool: PgPool, mut request: Request<Body>) -> (StatusCode, Value) {
     let app = common::app_with(pool, common::TestClock::at(now), common::FRONTEND);
     let session = common::sign_in(&app, "host-1").await;
+    common::add_payout(&app, &session).await;
     request.headers_mut().insert(
         header::COOKIE,
         format!("daghep_session={session}").parse().unwrap(),
@@ -290,4 +291,43 @@ async fn oversized_request_bodies_are_refused(pool: PgPool) {
 
     assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE);
     assert_eq!(body, json!({ "error": "payload_too_large" }));
+}
+
+#[sqlx::test]
+async fn a_paid_match_needs_the_hosts_payout_account(pool: PgPool) {
+    let app = common::app(pool.clone());
+    let session = common::sign_in(&app, "no-bank").await;
+    let mut request = post_json(valid_request());
+    request.headers_mut().insert(
+        header::COOKIE,
+        format!("daghep_session={session}").parse().unwrap(),
+    );
+
+    let response = common::call(&app, request).await;
+
+    assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(
+        common::json_body(response).await,
+        json!({ "error": "invalid_match", "field": "payout" })
+    );
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM matches")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(count, 0);
+}
+
+#[sqlx::test]
+async fn a_free_match_needs_no_payout_account(pool: PgPool) {
+    let app = common::app(pool);
+    let session = common::sign_in(&app, "no-bank").await;
+    let mut request = post_json(with(valid_request(), "totalFeeVnd", json!(0)));
+    request.headers_mut().insert(
+        header::COOKIE,
+        format!("daghep_session={session}").parse().unwrap(),
+    );
+
+    let response = common::call(&app, request).await;
+
+    assert_eq!(response.status(), StatusCode::CREATED);
 }

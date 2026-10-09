@@ -5,7 +5,7 @@ import { CreateMatchForm } from "../../components/CreateMatchForm";
 import type { CreateMatchInput } from "../../lib/api";
 import { createMatchAction } from "./actions";
 
-export function CreateMatchClient() {
+export function CreateMatchClient({ hasPayout }: { hasPayout: boolean }) {
   const router = useRouter();
 
   async function submit(input: CreateMatchInput) {
@@ -17,5 +17,5 @@ export function CreateMatchClient() {
     return undefined;
   }
 
-  return <CreateMatchForm onSubmit={submit} />;
+  return <CreateMatchForm onSubmit={submit} hasPayout={hasPayout} />;
 }

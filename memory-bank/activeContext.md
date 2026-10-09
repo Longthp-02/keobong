@@ -3,7 +3,7 @@
 > Update after every meaningful AI session.
 
 ## Current Focus
-Step 3 in progress: 3a create match (PR #4) and 3b Google sign-in (PR #5) merged; 3c slots (PR open). Next: 3d VietQR, payment confirmation, 30-minute release, host cancel.
+Step 3 in progress: 3a create match (PR #4) and 3b Google sign-in (PR #5) merged; 3c slots (PR #6) merged; 3d payments (PR open). Next: 3d-2 host cancels a match, then 3e Zalo login + deploy.
 
 ## Latest Decisions
 - Name: Daghep (UI: "Da Ghep" with Vietnamese diacritics in vi.json); domain daghep.vn owned by Long (active). Renamed from "Keo" because "keo bong" reads as football betting slang.
@@ -36,4 +36,4 @@ Step 3 in progress: 3a create match (PR #4) and 3b Google sign-in (PR #5) merged
 - Before deploy: GCP project with billing + budget alert, Neon project (Singapore), Vercel account.
 
 ## Next Safe Step
-PR 3d: host payout profile + VietQR for slot holders, host marks paid, 30-minute auto-release of unpaid holds, host cancels a match.
+PR 3d-2: host cancels a match (players see "match cancelled"; no joins after).

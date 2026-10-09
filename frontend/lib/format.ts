@@ -31,3 +31,8 @@ export function formatVnd(amount: number): string {
 export function formatLevelRange(min: number, max: number): string {
   return `${min.toFixed(1)} – ${max.toFixed(1)}`;
 }
+
+/** "18:42" in Ho Chi Minh City time. */
+export function formatClock(iso: string): string {
+  return timeFormat.format(new Date(iso));
+}

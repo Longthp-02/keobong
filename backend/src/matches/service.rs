@@ -42,19 +42,26 @@ pub enum CreateMatchError {
     Randomness(String),
     #[error(transparent)]
     Repo(#[from] RepoError),
+    #[error("payout lookup failed: {0}")]
+    Payouts(String),
 }
 
 /// Collisions are astronomically unlikely with 60-bit ids; a few retries make them harmless.
 const SHARE_ID_ATTEMPTS: usize = 3;
 
-/// Validates the input and stores the match, hosted by `host`, under a fresh share id.
+/// Validates the input and stores the match, hosted by `host`, under a fresh
+/// share id. A paid match needs the host's payout account (confirmed by Long).
 pub async fn create_match<R: MatchRepository, C: Clock + ?Sized>(
     repo: &R,
     clock: &C,
     host: UserId,
+    host_has_payout: bool,
     input: NewMatchInput,
 ) -> Result<Match, CreateMatchError> {
     let new = NewMatch::validate(input, clock.now()).map_err(CreateMatchError::Invalid)?;
+    if new.total_fee_vnd > 0 && !host_has_payout {
+        return Err(CreateMatchError::Invalid(Field::Payout));
+    }
     for _ in 0..SHARE_ID_ATTEMPTS {
         let share_id =
             ShareId::generate().map_err(|e| CreateMatchError::Randomness(e.to_string()))?;
@@ -143,11 +150,21 @@ mod tests {
         let mut bad = input();
         bad.level_min = 0.5;
 
-        let result = create_match(&UnreachableRepo, &FixedClock, UserId(1), bad).await;
+        let result = create_match(&UnreachableRepo, &FixedClock, UserId(1), true, bad).await;
 
         assert!(matches!(
             result,
             Err(CreateMatchError::Invalid(Field::LevelMin))
+        ));
+    }
+
+    #[tokio::test]
+    async fn a_paid_match_without_a_payout_account_is_rejected_before_storage() {
+        let result = create_match(&UnreachableRepo, &FixedClock, UserId(1), false, input()).await;
+
+        assert!(matches!(
+            result,
+            Err(CreateMatchError::Invalid(Field::Payout))
         ));
     }
 
@@ -158,7 +175,7 @@ mod tests {
             attempts: Default::default(),
         };
 
-        let created = create_match(&repo, &FixedClock, UserId(1), input())
+        let created = create_match(&repo, &FixedClock, UserId(1), true, input())
             .await
             .unwrap();
 
@@ -176,7 +193,7 @@ mod tests {
             attempts: Default::default(),
         };
 
-        let result = create_match(&repo, &FixedClock, UserId(1), input()).await;
+        let result = create_match(&repo, &FixedClock, UserId(1), true, input()).await;
 
         assert!(matches!(result, Err(CreateMatchError::ShareIdUnavailable)));
         assert_eq!(repo.attempts.lock().unwrap().len(), 3);

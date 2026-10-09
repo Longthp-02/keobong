@@ -1,3 +1,4 @@
+import type { Bank, PayoutAccount } from "./payout";
 import type { RosterView } from "./slots";
 
 /** Public match view returned by `GET /api/matches/{shareId}`. */
@@ -117,6 +118,42 @@ export async function getRoster(shareId: string, options: Options = {}): Promise
     throw new Error(`Roster API failed with status ${response.status}`);
   }
   return (await response.json()) as RosterView;
+}
+
+/** The signed-in user's payout account, or `null` when there is none or nobody is signed in. */
+export async function getPayout(cookie: string, options: Options = {}): Promise<PayoutAccount | null> {
+  if (!cookie.split(";").some((pair) => pair.trim().startsWith(`${SESSION_COOKIE}=`))) {
+    return null;
+  }
+  const baseUrl = options.baseUrl ?? apiBaseUrl();
+  const fetchImpl = options.fetchImpl ?? fetch;
+
+  const response = await fetchImpl(`${baseUrl}/api/me/payout`, {
+    headers: { accept: "application/json", cookie },
+    cache: "no-store",
+  });
+  if (response.status === 404 || response.status === 401) {
+    return null;
+  }
+  if (!response.ok) {
+    throw new Error(`Payout API failed with status ${response.status}`);
+  }
+  return (await response.json()) as PayoutAccount;
+}
+
+/** Banks that accept VietQR transfers. */
+export async function getBanks(options: Options = {}): Promise<Bank[]> {
+  const baseUrl = options.baseUrl ?? apiBaseUrl();
+  const fetchImpl = options.fetchImpl ?? fetch;
+
+  const response = await fetchImpl(`${baseUrl}/api/banks`, {
+    headers: { accept: "application/json" },
+    next: { revalidate: 86400 },
+  } as RequestInit);
+  if (!response.ok) {
+    throw new Error(`Banks API failed with status ${response.status}`);
+  }
+  return ((await response.json()) as { banks: Bank[] }).banks;
 }
 
 export type CreateMatchInput = Omit<MatchView, "shareId" | "pricePerPlayerVnd">;

@@ -56,7 +56,8 @@ Confirmed:
 - Launch area: District 2 (Thu Duc City), Ho Chi Minh City. First venues to try: SSA Sports Center, Football Field An Phu, An Phu Sports Complex.
 - Open source under MIT; repository is public.
 - MVP sized for ~100 users; architecture must scale without rewrites.
-- Slot hold: joining holds a slot for 30 minutes. If the host has not confirmed payment within 30 minutes, the slot is released automatically.
+- Slot hold: joining a paid match holds the place for 30 minutes. If the player has neither reported a transfer nor had it confirmed by the host within 30 minutes, the place is released automatically.
+- Payments (confirmed by Long 2026-10-06): the host saves one payout account on their profile (bank, account number, account name) and reuses it; a paid match cannot be posted without it (free matches can). A player who taps "I transferred" stops the 30-minute countdown and waits for the host; the host confirms ("received") or reports it missing, which releases the party's places. Free matches hold places immediately with no countdown. The host's own party in their own match needs no transfer (confirmed by Long 2026-10-09). The host can report a transfer missing only after the player reported it, and only before kickoff (confirmed by Long 2026-10-09); later cases go to no-show marking. One transfer covers the player and their guests; the memo is `DAGHEP <payment code>`, and the host sees the same code in their list.
 - One account may hold its own slot plus up to 2 named guests in the same match.
 - Only the host marks no-shows. A marked player can dispute it; disputes are reviewed by the admin (Long).
 - The host's VietQR / bank details are shown only to players who currently hold a slot in that match — never on the public match page or in link previews.

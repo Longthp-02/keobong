@@ -18,16 +18,58 @@ export type TeamView = { team: Team; capacity: number; players: PlayerView[] };
 /** Public roster from `GET /api/matches/{shareId}/slots`. */
 export type RosterView = { teams: TeamView[] };
 
-export type MyPlace =
-  | { status: "signedOut" }
-  | { status: "out" }
-  | { status: "in"; team: Team; guests: string[] };
+export type PaymentStatus = "awaiting_payment" | "payment_reported" | "confirmed";
+
+/** Where to transfer; only sent to the player holding the place. */
+export type PaymentInfo = {
+  bankName: string;
+  accountNumber: string;
+  accountName: string;
+  amountVnd: number;
+  memo: string;
+  qrPayload: string;
+};
+
+export type JoinedPlace = {
+  status: "in";
+  team: Team;
+  guests: string[];
+  paymentCode: number;
+  paymentStatus: PaymentStatus;
+  /** While awaiting payment: when the place is released. */
+  holdExpiresAt: string | null;
+  amountVnd: number;
+  /** Present while a transfer is still expected. */
+  payment: PaymentInfo | null;
+};
+
+export type MyPlace = { status: "signedOut" } | { status: "out" } | JoinedPlace;
+
+/** One party as the host sees it. */
+export type HostParty = {
+  paymentCode: number;
+  team: Team;
+  holderName: string | null;
+  guests: string[];
+  amountVnd: number;
+  paymentStatus: PaymentStatus;
+  holdExpiresAt: string | null;
+};
+
+export type HostView = { status: "notHost" } | { status: "host"; parties: HostParty[] };
+export type HostActionError =
+  | "already_confirmed"
+  | "party_not_found"
+  | "not_reported"
+  | "match_started"
+  | "unexpected";
 
 export type SlotError =
   | "team_full"
   | "already_joined"
   | "match_started"
   | "guests"
+  | "not_joined"
   | "unauthenticated"
   | "unexpected";
 
@@ -39,6 +81,13 @@ export type SlotsClient = {
   mine(shareId: string): Promise<MyPlace>;
   join(shareId: string, team: Team, guests: string[]): Promise<JoinResult>;
   leave(shareId: string): Promise<LeaveResult>;
+  reportPayment(shareId: string): Promise<JoinResult>;
+  hostParties(shareId: string): Promise<HostView>;
+  hostAction(
+    shareId: string,
+    paymentCode: number,
+    action: "confirm" | "reject",
+  ): Promise<{ ok: true } | { ok: false; error: HostActionError }>;
 };
 
 /** A roster with nobody in it, split like the API: team A takes the odd place. */
@@ -51,13 +100,17 @@ export function emptyRoster(slotCount: number): RosterView {
   };
 }
 
-type PlaceBody = { joined: boolean; team?: Team; guests?: string[] };
+type PlaceBody = { joined: false } | ({ joined: true } & Omit<JoinedPlace, "status">);
 
 function toPlace(body: PlaceBody): MyPlace {
-  return body.joined && body.team ? { status: "in", team: body.team, guests: body.guests ?? [] } : { status: "out" };
+  if (!body.joined) {
+    return { status: "out" };
+  }
+  const { joined: _joined, ...place } = body;
+  return { status: "in", ...place };
 }
 
-const KNOWN_CONFLICTS: SlotError[] = ["team_full", "already_joined", "match_started"];
+const KNOWN_CONFLICTS: SlotError[] = ["team_full", "already_joined", "match_started", "not_joined"];
 
 async function errorOf(response: Response): Promise<SlotError> {
   if (response.status === 401) {
@@ -103,6 +156,41 @@ export function slotsClient(fetchImpl: typeof fetch = (...args) => fetch(...args
         return { ok: true, place: toPlace((await response.json()) as PlaceBody) };
       }
       return { ok: false, error: await errorOf(response) };
+    },
+    async reportPayment(shareId) {
+      const response = await fetchImpl(`${base(shareId)}/mine/report-payment`, { method: "POST" });
+      if (response.ok) {
+        return { ok: true, place: toPlace((await response.json()) as PlaceBody) };
+      }
+      return { ok: false, error: await errorOf(response) };
+    },
+    async hostParties(shareId) {
+      const response = await fetchImpl(`/api/matches/${encodeURIComponent(shareId)}/payments`, {
+        cache: "no-store",
+      });
+      if (response.status === 401 || response.status === 403) {
+        return { status: "notHost" };
+      }
+      if (!response.ok) {
+        throw new Error(`Payments API failed with status ${response.status}`);
+      }
+      const body = (await response.json()) as { parties: HostParty[] };
+      return { status: "host", parties: body.parties };
+    },
+    async hostAction(shareId, paymentCode, action) {
+      const response = await fetchImpl(
+        `/api/matches/${encodeURIComponent(shareId)}/payments/${paymentCode}/${action}`,
+        { method: "POST" },
+      );
+      if (response.ok) {
+        return { ok: true };
+      }
+      const body = (await response.json().catch(() => ({}))) as { error?: string };
+      const known: HostActionError[] = ["already_confirmed", "party_not_found", "not_reported", "match_started"];
+      return {
+        ok: false,
+        error: known.includes(body.error as HostActionError) ? (body.error as HostActionError) : "unexpected",
+      };
     },
     async leave(shareId) {
       const response = await fetchImpl(`${base(shareId)}/mine`, { method: "DELETE" });

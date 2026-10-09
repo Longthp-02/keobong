@@ -14,6 +14,7 @@ use sqlx::PgPool;
 /// Creates a match as a fresh host and returns its share id.
 async fn create_match(app: &Router, slot_count: u32) -> String {
     let host = sign_in(app, "host").await;
+    add_payout(app, &host).await;
     let request = Request::post("/api/matches")
         .header(CONTENT_TYPE, "application/json")
         .header(COOKIE, format!("daghep_session={host}"))
@@ -113,8 +114,8 @@ async fn a_player_takes_a_place_with_named_guests(pool: PgPool) {
 
     assert_eq!(status, StatusCode::CREATED);
     assert_eq!(
-        body,
-        json!({ "joined": true, "team": "b", "guests": ["An", "Bình"] })
+        (&body["joined"], &body["team"], &body["guests"]),
+        (&json!(true), &json!("b"), &json!(["An", "Bình"]))
     );
     assert_eq!(
         roster(&app, &share_id).await["teams"][1],
@@ -125,12 +126,11 @@ async fn a_player_takes_a_place_with_named_guests(pool: PgPool) {
             { "name": "Bình", "avatarUrl": null, "isGuest": true, "guestOf": "Player p1" }
         ]})
     );
+    let (status, own) = mine(&app, &share_id, &player).await;
+    assert_eq!(status, StatusCode::OK);
     assert_eq!(
-        mine(&app, &share_id, &player).await,
-        (
-            StatusCode::OK,
-            json!({ "joined": true, "team": "b", "guests": ["An", "Bình"] })
-        )
+        (&own["joined"], &own["team"], &own["guests"]),
+        (&json!(true), &json!("b"), &json!(["An", "Bình"]))
     );
 }
 
@@ -423,8 +423,8 @@ async fn the_database_allows_one_own_place_per_player(pool: PgPool) {
     let app = app(pool.clone());
     let share_id = create_match(&app, 18).await;
     let user = insert_user(&pool).await;
-    let insert = "INSERT INTO slots (match_id, team, holder_user_id, claimed_at)
-                  SELECT id, 'a', $2, now() FROM matches WHERE share_id = $1";
+    let insert = "INSERT INTO slots (match_id, team, holder_user_id, claimed_at, payment_status)
+                  SELECT id, 'a', $2, now(), 'confirmed' FROM matches WHERE share_id = $1";
 
     sqlx::query(insert)
         .bind(&share_id)
