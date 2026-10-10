@@ -56,6 +56,20 @@ jobs:
   image:
     name: Backend image (Docker)
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgis/postgis:16-3.4
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
       - name: Build the production image
@@ -71,6 +85,12 @@ jobs:
           done
           docker logs api
           exit 1
+      - name: Migrations run from the image, as the Cloud Run job does
+        run: |
+          # Test-only database inside the CI runner; not a secret.
+          docker run --rm --network host \
+            --env DATABASE_URL=postgres://postgres:postgres@localhost:5432/postgres \
+            daghep-api:ci migrate
 
   frontend:
     name: Frontend (Next.js)
