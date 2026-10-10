@@ -2,9 +2,12 @@
 
 use crate::auth::UserId;
 
+use chrono::NaiveDate;
+
 use super::domain::{
-    CancelOutcome, Clock, Field, InsertError, Match, MatchRepository, NewMatch, NewMatchInput,
-    RepoError, ShareId,
+    CancelOutcome, Clock, Field, GeoPoint, InsertError, LIST_PAGE_SIZE, ListCursor, ListedMatch,
+    Match, MatchRepository, MatchType, NewMatch, NewMatchInput, RepoError, ShareId, UpcomingQuery,
+    Venue, list_window,
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -67,12 +70,73 @@ pub async fn create_match<R: MatchRepository, C: Clock + ?Sized>(
         let share_id =
             ShareId::generate().map_err(|e| CreateMatchError::Randomness(e.to_string()))?;
         match repo.insert(&share_id, &new, host).await {
-            Ok(()) => return Ok(Match::from_new(share_id, new)),
+            Ok(venue) => return Ok(Match::from_new(share_id, new, venue)),
             Err(InsertError::DuplicateShareId) => continue,
+            Err(InsertError::UnknownVenue) => return Err(CreateMatchError::Invalid(Field::Venue)),
             Err(InsertError::Repo(err)) => return Err(err.into()),
         }
     }
     Err(CreateMatchError::ShareIdUnavailable)
+}
+
+/// Venues a host can choose for a new match.
+pub async fn venues<R: MatchRepository>(repo: &R) -> Result<Vec<Venue>, RepoError> {
+    repo.active_venues().await
+}
+
+/// Filters for the list of upcoming matches.
+#[derive(Debug, Clone, Default)]
+pub struct ListRequest {
+    /// One local day; `None` lists every listed day.
+    pub day: Option<NaiveDate>,
+    pub match_type: Option<MatchType>,
+    pub near: Option<GeoPoint>,
+    pub after: Option<ListCursor>,
+}
+
+#[derive(Debug)]
+pub struct UpcomingPage {
+    pub matches: Vec<ListedMatch>,
+    /// Present when there may be more matches after this page.
+    pub next: Option<ListCursor>,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum ListError {
+    #[error("day outside the listed days")]
+    DayOutOfRange,
+    #[error(transparent)]
+    Repo(#[from] RepoError),
+}
+
+/// One page of upcoming, not cancelled matches in kickoff order.
+pub async fn upcoming_matches<R: MatchRepository, C: Clock + ?Sized>(
+    repo: &R,
+    clock: &C,
+    request: ListRequest,
+) -> Result<UpcomingPage, ListError> {
+    let now = clock.now();
+    let (from, until) = list_window(now, request.day).ok_or(ListError::DayOutOfRange)?;
+    let matches = repo
+        .upcoming(&UpcomingQuery {
+            now,
+            from,
+            until,
+            match_type: request.match_type,
+            near: request.near,
+            after: request.after,
+            limit: LIST_PAGE_SIZE,
+        })
+        .await?;
+    let full_page = i64::try_from(matches.len()).is_ok_and(|n| n >= LIST_PAGE_SIZE);
+    let next = full_page
+        .then(|| matches.last())
+        .flatten()
+        .map(|last| ListCursor {
+            starts_at: last.found.starts_at,
+            share_id: last.found.share_id.clone(),
+        });
+    Ok(UpcomingPage { matches, next })
 }
 
 /// The host cancels the match. Malformed ids are unknown matches.
@@ -105,8 +169,16 @@ mod tests {
             _id: &ShareId,
             _new: &NewMatch,
             _host: UserId,
-        ) -> Result<(), InsertError> {
+        ) -> Result<Venue, InsertError> {
             panic!("storage must not be written for invalid input");
+        }
+
+        async fn active_venues(&self) -> Result<Vec<Venue>, RepoError> {
+            panic!("not used in these tests");
+        }
+
+        async fn upcoming(&self, _: &UpcomingQuery) -> Result<Vec<ListedMatch>, RepoError> {
+            panic!("storage must not be queried for a day outside the list");
         }
 
         async fn cancel(
@@ -133,16 +205,28 @@ mod tests {
         async fn insert(
             &self,
             id: &ShareId,
-            _new: &NewMatch,
+            new: &NewMatch,
             _host: UserId,
-        ) -> Result<(), InsertError> {
+        ) -> Result<Venue, InsertError> {
             let mut attempts = self.attempts.lock().unwrap();
             attempts.push(id.as_str().to_owned());
             if attempts.len() <= self.collisions {
                 Err(InsertError::DuplicateShareId)
             } else {
-                Ok(())
+                Ok(Venue {
+                    slug: new.venue.clone(),
+                    name: "SSA Sports Center".to_owned(),
+                    address: "28 Duyên Hải".to_owned(),
+                })
             }
+        }
+
+        async fn active_venues(&self) -> Result<Vec<Venue>, RepoError> {
+            panic!("not used in these tests");
+        }
+
+        async fn upcoming(&self, _: &UpcomingQuery) -> Result<Vec<ListedMatch>, RepoError> {
+            panic!("not used in these tests");
         }
 
         async fn cancel(
@@ -165,7 +249,7 @@ mod tests {
 
     fn input() -> NewMatchInput {
         NewMatchInput {
-            venue_name: "SSA Sports Center".to_owned(),
+            venue: "ssa-amitie".to_owned(),
             starts_at: "2026-10-10T11:30:00Z".parse().unwrap(),
             ends_at: "2026-10-10T13:00:00Z".parse().unwrap(),
             format: super::super::domain::Format::SevenASide,
@@ -229,6 +313,18 @@ mod tests {
 
         assert!(matches!(result, Err(CreateMatchError::ShareIdUnavailable)));
         assert_eq!(repo.attempts.lock().unwrap().len(), 3);
+    }
+
+    #[tokio::test]
+    async fn a_day_outside_the_list_is_rejected_without_querying_storage() {
+        let request = ListRequest {
+            day: NaiveDate::from_ymd_opt(2026, 10, 11),
+            ..ListRequest::default()
+        };
+
+        let result = upcoming_matches(&UnreachableRepo, &FixedClock, request).await;
+
+        assert!(matches!(result, Err(ListError::DayOutOfRange)));
     }
 
     #[tokio::test]

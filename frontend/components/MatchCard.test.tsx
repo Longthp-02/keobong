@@ -19,6 +19,7 @@ const match: MatchView = {
   slotCount: 14,
   pricePerPlayerVnd: 65000,
   cancelledAt: null,
+  venueAddress: null,
 };
 
 describe("MatchCard", () => {
@@ -102,5 +103,13 @@ describe("MatchCard", () => {
 
     expect(screen.getByText(messages.match.cancelled)).toBeTruthy();
     expect(screen.queryByText(fill(messages.match.placesLeft, { count: 14 }))).toBeNull();
+  });
+
+  it("shows the venue's address when there is one", () => {
+    const { rerender } = render(<MatchCard match={{ ...match, venueAddress: "28 Duyên Hải, An Khánh" }} />);
+    expect(screen.getByText("28 Duyên Hải, An Khánh")).toBeTruthy();
+
+    rerender(<MatchCard match={match} />);
+    expect(screen.queryByText("28 Duyên Hải, An Khánh")).toBeNull();
   });
 });

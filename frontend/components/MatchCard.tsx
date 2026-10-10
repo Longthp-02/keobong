@@ -34,6 +34,7 @@ export function MatchCard({ match, roster, started = false }: Props) {
         </p>
         <p className="match-card__time">{formatTimeRange(match.startsAt, match.endsAt)}</p>
         <h1 className="match-card__venue">{match.venueName}</h1>
+        {match.venueAddress ? <p className="match-card__address">{match.venueAddress}</p> : null}
         <p className="match-card__fee">
           {t.totalFee} {formatVnd(match.totalFeeVnd)}
         </p>

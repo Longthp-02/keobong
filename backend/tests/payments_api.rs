@@ -153,7 +153,7 @@ async fn a_bank_no_longer_listed_asks_the_host_to_update_instead_of_failing(pool
         .header(CONTENT_TYPE, "application/json")
         .body(Body::from(
             json!({
-                "venueName": "SSA Sports Center",
+                "venueId": "ssa-amitie",
                 "startsAt": "2099-10-10T11:30:00Z",
                 "endsAt": "2099-10-10T13:00:00Z",
                 "format": "seven_a_side",

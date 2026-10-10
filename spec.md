@@ -70,6 +70,7 @@ Confirmed:
 
 - Slot capacity (2026-10-04): default includes substitutes so players can rotate — 5-a-side 14 (10 + 4), 7-a-side 18 (14 + 4), 11-a-side 28 (22 + 6). The host can change it.
 - Price per player (2026-10-04): total fee ÷ slot count, rounded up to the nearest 1,000 VND; the host keeps the small remainder.
+- Venues and the match list (confirmed by Long 2026-10-10): hosts choose from a fixed list of venues (launch: SSA Sports Center (Amitie Thảo Điền), Sân bóng An Phú Quận 2, Khu thể thao An Phú); other venues are added on request via lienhe@daghep.vn. The home page lists matches for today and the next six days in Ho Chi Minh City, only those with open places, not cancelled and not started, by kickoff time; filters by day and match type; distance shown when the visitor shares their position.
 - Who can host (2026-10-04): any signed-in user. Venues use the same flow; a "verified venue" badge comes later.
 - Cancellation (2026-10-04): the host can cancel a match and slot holders see "match cancelled" on the page; refunds are between players and host (the app holds no money). A player can leave before kickoff; leaving within 2 hours of kickoff lets the host mark a no-show.
 - Cancellation details (built in PR 3d-2; confirmed by Long 2026-10-10): only before kickoff, cannot be undone; "[Đã huỷ]" in link previews; afterwards nothing changes any more: no joining, leaving, reporting a transfer or confirming/rejecting payments, holds stop expiring, and no QR is shown, so the host's list stays complete for refunds.

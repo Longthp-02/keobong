@@ -5,6 +5,8 @@ import type { RosterView } from "./slots";
 export type MatchView = {
   shareId: string;
   venueName: string;
+  /** `null` for matches created before venues existed. */
+  venueAddress: string | null;
   startsAt: string;
   endsAt: string;
   format: "five_a_side" | "seven_a_side" | "eleven_a_side";
@@ -173,7 +175,71 @@ export async function getBanks(options: Options = {}): Promise<Bank[]> {
   return ((await response.json()) as { banks: Bank[] }).banks;
 }
 
-export type CreateMatchInput = Omit<MatchView, "shareId" | "pricePerPlayerVnd" | "cancelledAt">;
+/** A venue hosts can choose, from `GET /api/venues`. */
+export type Venue = { id: string; name: string; address: string };
+
+/** Venues offered for new matches. */
+export async function getVenues(options: Options = {}): Promise<Venue[]> {
+  const baseUrl = options.baseUrl ?? apiBaseUrl();
+  const fetchImpl = options.fetchImpl ?? fetch;
+
+  const response = await fetchImpl(`${baseUrl}/api/venues`, {
+    headers: { accept: "application/json" },
+    next: { revalidate: 300 },
+  } as RequestInit);
+  if (!response.ok) {
+    throw new Error(`Venues API failed with status ${response.status}`);
+  }
+  return ((await response.json()) as { venues: Venue[] }).venues;
+}
+
+/** A match in the list, with how many places are left and, if asked, how far it is. */
+export type OpenMatch = MatchView & { placesLeft: number; distanceM: number | null };
+export type OpenMatchPage = { matches: OpenMatch[]; nextCursor: string | null };
+export type OpenMatchQuery = {
+  date: string;
+  type?: MatchView["matchType"];
+  near?: { lat: number; lng: number };
+  cursor?: string;
+};
+
+/**
+ * Upcoming matches with open places, from the browser through the site's `/api`
+ * proxy. The position is rounded to about 100 m: enough for distances, and
+ * less precise in logs.
+ */
+export async function browserOpenMatches(
+  query: OpenMatchQuery,
+  fetchImpl: typeof fetch = (...args) => fetch(...args),
+): Promise<OpenMatchPage> {
+  const params = new URLSearchParams({ date: query.date });
+  if (query.type) {
+    params.set("type", query.type);
+  }
+  if (query.near) {
+    params.set("lat", query.near.lat.toFixed(3));
+    params.set("lng", query.near.lng.toFixed(3));
+  }
+  if (query.cursor) {
+    params.set("cursor", query.cursor);
+  }
+  const response = await fetchImpl(`/api/matches?${params}`, {
+    headers: { accept: "application/json" },
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    throw new Error(`Match list API failed with status ${response.status}`);
+  }
+  return (await response.json()) as OpenMatchPage;
+}
+
+/**
+ * What the form sends. `venueName` is only read by an API from before venues
+ * existed (during a deploy); the current API takes the name from the venue.
+ */
+export type CreateMatchInput = Omit<MatchView, "shareId" | "pricePerPlayerVnd" | "cancelledAt" | "venueAddress"> & {
+  venueId: string;
+};
 
 export type CreateMatchResult = { ok: true; match: MatchView } | { ok: false; field: string };
 
@@ -181,10 +247,7 @@ export type CreateMatchResult = { ok: true; match: MatchView } | { ok: false; fi
  * Creates a match as the signed-in user. Returns the offending field on a 422,
  * `unauthenticated` on a 401, and throws on any other failure.
  */
-export async function createMatch(
-  input: CreateMatchInput,
-  options: Options = {},
-): Promise<CreateMatchResult> {
+export async function createMatch(input: CreateMatchInput, options: Options = {}): Promise<CreateMatchResult> {
   const baseUrl = options.baseUrl ?? apiBaseUrl();
   const fetchImpl = options.fetchImpl ?? fetch;
 

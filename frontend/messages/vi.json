@@ -36,6 +36,26 @@
     "matchFull": "Đã đủ người",
     "joinedLabel": "Đã có"
   },
+  "list": {
+    "today": "Hôm nay",
+    "tomorrow": "Mai",
+    "weekday": ["Chủ nhật", "Thứ 2", "Thứ 3", "Thứ 4", "Thứ 5", "Thứ 6", "Thứ 7"],
+    "weekdayShort": ["CN", "T2", "T3", "T4", "T5", "T6", "T7"],
+    "daysLabel": "Chọn ngày",
+    "typesLabel": "Lọc theo kiểu trận",
+    "allTypes": "Tất cả",
+    "summary": "{count} kèo đang thiếu người",
+    "nearMe": "Gần tôi",
+    "nearMeActive": "Theo vị trí của bạn",
+    "locating": "Đang lấy vị trí…",
+    "locationFailed": "Không lấy được vị trí. Bạn vẫn xem được danh sách, chỉ chưa có khoảng cách.",
+    "loading": "Đang tải…",
+    "loadMore": "Xem thêm kèo",
+    "empty": "Chưa có kèo nào thiếu người trong ngày này.",
+    "loadFailed": "Không tải được danh sách kèo.",
+    "retry": "Thử lại",
+    "free": "Miễn phí"
+  },
   "legal": {
     "contactEmail": "lienhe@daghep.vn",
     "contactLabel": "Liên hệ:",
@@ -195,7 +215,9 @@
   "create": {
     "title": "Tạo kèo",
     "venue": "Sân",
-    "venuePlaceholder": "VD: Sân SSA, Quận 2",
+    "venuePlaceholder": "Chọn sân",
+    "venuesUnavailable": "Chưa tải được danh sách sân. Hãy tải lại trang sau ít phút.",
+    "venueMissing": "Sân của bạn chưa có trong danh sách? Gửi tên và địa chỉ sân tới lienhe@daghep.vn.",
     "date": "Ngày",
     "startTime": "Giờ bắt đầu",
     "endTime": "Giờ kết thúc",
@@ -211,7 +233,7 @@
     "submitting": "Đang tạo…",
     "unexpectedError": "Có lỗi xảy ra, vui lòng thử lại.",
     "errors": {
-      "venueName": "Nhập tên sân (tối đa 120 ký tự).",
+      "venueId": "Chọn một sân trong danh sách.",
       "startsAt": "Chọn ngày và giờ bắt đầu trong vòng 30 ngày tới.",
       "endsAt": "Giờ kết thúc phải sau giờ bắt đầu, trong cùng ngày, tối đa 4 tiếng.",
       "format": "Chọn loại sân.",

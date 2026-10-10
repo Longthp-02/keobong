@@ -26,7 +26,7 @@ async fn create_match(app: &Router, total_fee_vnd: i64) -> Match {
         .header(COOKIE, format!("daghep_session={host}"))
         .body(Body::from(
             json!({
-                "venueName": "SSA Sports Center",
+                "venueId": "ssa-amitie",
                 "startsAt": "2099-10-10T11:30:00Z",
                 "endsAt": "2099-10-10T13:00:00Z",
                 "format": "seven_a_side",

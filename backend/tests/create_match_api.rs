@@ -36,7 +36,7 @@ fn post_json(body: Value) -> Request<Body> {
 
 fn valid_request() -> Value {
     json!({
-        "venueName": "SSA Sports Center",
+        "venueId": "ssa-amitie",
         "startsAt": "2099-10-10T11:30:00Z",
         "endsAt": "2099-10-10T13:00:00Z",
         "format": "seven_a_side",
@@ -63,7 +63,8 @@ async fn creating_a_match_returns_its_public_view_with_defaults(pool: PgPool) {
         "unexpected share id {share_id}"
     );
     let mut expected = json!({
-        "venueName": "SSA Sports Center",
+        "venueName": "SSA Sports Center (Amitie Thảo Điền)",
+        "venueAddress": "28 Duyên Hải, An Khánh",
         "startsAt": "2099-10-10T11:30:00Z",
         "endsAt": "2099-10-10T13:00:00Z",
         "format": "seven_a_side",
@@ -126,7 +127,8 @@ async fn host_can_choose_the_slot_count_and_price_rounds_up(pool: PgPool) {
 #[sqlx::test]
 async fn invalid_fields_are_rejected_with_the_offending_field(pool: PgPool) {
     let cases = [
-        ("venueName", json!("   ")),
+        ("venueId", json!("   ")),
+        ("venueId", json!("no-such-venue")),
         ("startsAt", json!("2001-01-01T10:00:00Z")),
         ("startsAt", json!("2099-11-15T11:30:00Z")),
         ("endsAt", json!("2099-10-10T16:00:00Z")),
@@ -138,7 +140,7 @@ async fn invalid_fields_are_rejected_with_the_offending_field(pool: PgPool) {
         ("levelMax", json!(2.0)),
         ("totalFeeVnd", json!(-1)),
         ("totalFeeVnd", json!(i64::MAX)),
-        ("venueName", json!("SSA\u{0}Center")),
+        ("venueId", json!("SSA\u{0}Center")),
         ("slotCount", json!(31)),
         ("slotCount", json!(40000)),
     ];
@@ -192,7 +194,7 @@ async fn repository_reports_a_taken_share_id_as_duplicate(pool: PgPool) {
     let repo = PgMatchRepository::new(pool);
     let new = NewMatch::validate(
         NewMatchInput {
-            venue_name: "SSA Sports Center".to_owned(),
+            venue: "ssa-amitie".to_owned(),
             starts_at: "2099-10-10T11:30:00Z".parse().unwrap(),
             ends_at: "2099-10-10T13:00:00Z".parse().unwrap(),
             format: Format::SevenASide,
@@ -286,7 +288,7 @@ async fn cross_site_match_creation_is_refused(pool: PgPool) {
 
 #[sqlx::test]
 async fn oversized_request_bodies_are_refused(pool: PgPool) {
-    let request = with(valid_request(), "venueName", json!("x".repeat(20_000)));
+    let request = with(valid_request(), "venueId", json!("x".repeat(20_000)));
 
     let (status, body) = send(pool, post_json(request)).await;
 
@@ -331,4 +333,51 @@ async fn a_free_match_needs_no_payout_account(pool: PgPool) {
     let response = common::call(&app, request).await;
 
     assert_eq!(response.status(), StatusCode::CREATED);
+}
+
+#[sqlx::test]
+async fn a_venue_that_is_no_longer_offered_cannot_be_chosen(pool: PgPool) {
+    sqlx::query("UPDATE venues SET active = false WHERE slug = 'ssa-amitie'")
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let (status, body) = send(pool, post_json(valid_request())).await;
+
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(
+        body,
+        json!({ "error": "invalid_match", "field": "venueId" })
+    );
+}
+
+#[sqlx::test]
+async fn the_match_takes_the_venues_name_and_location(pool: PgPool) {
+    // A name sent by an older web app is ignored; the venue decides.
+    let request = with(valid_request(), "venueName", json!("Somewhere else"));
+    let (status, body) = send(pool.clone(), post_json(request)).await;
+    assert_eq!(status, StatusCode::CREATED);
+    assert_eq!(body["venueName"], "SSA Sports Center (Amitie Thảo Điền)");
+
+    let distance: f64 = sqlx::query_scalar(
+        "SELECT ST_Distance(m.location, v.location)
+         FROM matches m JOIN venues v ON v.id = m.venue_id
+         WHERE m.share_id = $1",
+    )
+    .bind(body["shareId"].as_str().unwrap())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(distance, 0.0);
+}
+
+#[sqlx::test]
+async fn a_match_needs_a_venue(pool: PgPool) {
+    let mut request = valid_request();
+    request.as_object_mut().unwrap().remove("venueId");
+
+    let (status, body) = send(pool, post_json(request)).await;
+
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(body, json!({ "error": "invalid_request" }));
 }

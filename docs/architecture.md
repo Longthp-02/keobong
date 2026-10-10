@@ -55,7 +55,9 @@ backend/
 ## Key Design Decisions
 - **Slot claiming (PR 3c):** players pick a team, not a position, so a place is a row inserted on join (own place or named guest) and released by setting `released_at`. The claim transaction runs at READ COMMITTED, locks the match row with `FOR NO KEY UPDATE`, counts active places in the team and inserts the whole group, so concurrent joins queue per match and never overbook. A partial unique index allows one own active place per user per match.
 - **Boundary exception (PR 3c, approved by Long 2026-10-05):** `slots/repo.rs` reads and locks the `matches` row directly, because the capacity check and the insert must be in one transaction. It reads only `id`, `slot_count`, `starts_at`, and since PR 3d `total_fee_vnd` and `host_user_id` (price per player and host checks; approved by Long 2026-10-09), and since PR 3d-2 `cancelled_at` (approved by Long 2026-10-10). Everything else goes through public feature APIs.
-- **Geo search:** `geography(Point, 4326)` with a GiST index and `ST_DWithin`.
+- **Venues (PR 3f-list, approved by Long 2026-10-10):** a fixed list in `venues` (slug, name, address, location), owned by the `matches` feature because only matches use it. Creating a match takes a venue slug; one statement checks the venue is active and copies its name and location into the match, so the match keeps its name if the venue is renamed; the address is read from the venue. Venue names and addresses in the seed migration are real place names, so they stay in Vietnamese as data. Old matches have no venue.
+- **Match list (discovery feature):** `discovery` owns no tables. It asks `matches::service::upcoming_matches` for a page of candidates (not cancelled, kickoff in the window, ordered by `(starts_at, share_id)`, keyset cursor in microseconds; the cursor's kickoff bounds the scan on `matches_starts_at_idx`) and `slots::service::taken_places` for the held places of those matches in one query, then drops full matches. Pages can therefore be shorter than the page size and still have a next cursor. `slots/repo.rs` reads `matches.share_id`, `id` and `cancelled_at` for this, within the boundary exception below.
+- **Geo search:** `geography(Point, 4326)` with a GiST index; the list computes `ST_Distance` from the visitor's rounded position (never stored).
 - **Money:** integer VND (`i64`); no floating point.
 - **Share ids:** short, random, unguessable; internal ids never appear in URLs.
 - **Payment (PR 3d):** display-only. The `payments` feature owns payout accounts and builds the VietQR (EMVCo, NAPAS 247) payload server-side; the browser renders the QR locally, so bank details never reach a QR service. Payment status lives on each place of a party (`awaiting_payment` with `hold_expires_at`, `payment_reported`, `confirmed`). Expired holds need no background job: they count as released in every read, and every locked write first records them as `released_at`.
@@ -65,4 +67,4 @@ backend/
 - **Errors:** one error enum per feature mapped to HTTP status in `http.rs`; never `unwrap()` on runtime paths.
 
 ## TODO: verify
-DB and frontend hosting, maps provider, whether venues get a separate module.
+Maps provider (not needed while venues are a fixed list).

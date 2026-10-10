@@ -74,6 +74,8 @@ gcloud run deploy daghep-api --source backend --region "$REGION" \
 Answer `Y` if asked to create the `cloud-run-source-deploy` repository. Then create the tables right away, using the migration steps below with the image of the revision you just deployed. The web app does not call the API until `API_BASE_URL` is set on Vercel, so nobody sees the empty database.
 
 ## Releases
+Vercel deploys the web app as soon as a PR is merged, but the API is deployed by hand. When a PR adds API endpoints the web app uses, run the release below right after merging; until then the new pages show their "could not load" state.
+
 New code goes live only after its migrations have run:
 ```bash
 cd ~/keobong && git pull

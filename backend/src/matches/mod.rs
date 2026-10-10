@@ -5,5 +5,5 @@ mod http;
 mod repo;
 pub mod service;
 
-pub use http::router;
+pub use http::{MatchView, router};
 pub use repo::PgMatchRepository;

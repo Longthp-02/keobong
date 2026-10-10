@@ -14,6 +14,7 @@ const sample: MatchView = {
   slotCount: 14,
   pricePerPlayerVnd: 65000,
   cancelledAt: null,
+  venueAddress: null,
 };
 
 function respond(status: number, body: unknown) {

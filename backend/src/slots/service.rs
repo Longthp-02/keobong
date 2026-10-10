@@ -60,6 +60,18 @@ pub async fn leave<R: SlotRepository, C: Clock + ?Sized>(
     }
 }
 
+/// Places held per match, for lists of many matches (one query).
+pub async fn taken_places<R: SlotRepository, C: Clock + ?Sized>(
+    repo: &R,
+    clock: &C,
+    match_ids: &[ShareId],
+) -> Result<std::collections::HashMap<String, i64>, RepoError> {
+    if match_ids.is_empty() {
+        return Ok(std::collections::HashMap::new());
+    }
+    repo.taken_places(match_ids, clock.now()).await
+}
+
 /// Public list of who holds a place (expired holds excluded). `None` when the
 /// match does not exist.
 pub async fn roster<R: SlotRepository, C: Clock + ?Sized>(
