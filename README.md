@@ -39,6 +39,9 @@ Then open http://localhost:3000/create. Without these variables sign-in answers 
 Since PR 3b every match has a host; reset an older local database with
 `DROP DATABASE daghep_dev; CREATE DATABASE daghep_dev;` and `cargo run -- migrate`.
 
+## Deploy
+See `docs/deploy.md` (Cloud Run + Neon + Vercel).
+
 ## Stack
 - Backend: Rust (Axum, sqlx)
 - Database: PostgreSQL + PostGIS

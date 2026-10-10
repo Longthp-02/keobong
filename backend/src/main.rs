@@ -38,11 +38,12 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     // Lazy pool: no connection is opened until the first request, which keeps
     // scale-to-zero cold starts fast.
-    // Short acquire timeout: fail fast with a 500 instead of hanging while the
-    // database is unreachable or still waking up.
+    // Acquire timeout: long enough for a scaled-to-zero Neon database to wake
+    // (usually under a second, sometimes a few), short enough to fail with a
+    // 500 instead of hanging when the database is unreachable.
     let pool = PgPoolOptions::new()
         .max_connections(5)
-        .acquire_timeout(Duration::from_secs(5))
+        .acquire_timeout(Duration::from_secs(10))
         .connect_lazy(&config.database_url)?;
 
     match std::env::args().nth(1).as_deref() {

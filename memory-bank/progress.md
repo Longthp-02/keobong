@@ -24,7 +24,7 @@
 - Rate limiting for sign-in start and match creation (e.g. Cloud Armor); `__Host-` cookie prefix in production.
 
 ## Known Risks
-Cold-start user acquisition, Zalo login approval time, slot race conditions, no-show disputes, extra hand-wiring for OAuth/sessions in Rust, database free-tier limits. Backend Dockerfile not yet built in CI (verify before first deploy).
+Cold-start user acquisition, Zalo login approval time, slot race conditions, no-show disputes, extra hand-wiring for OAuth/sessions in Rust, database free-tier limits. Backend Dockerfile built and smoke-tested in CI (PR 3e).
 
 ## Completed Setup Work
 - Foundation docs (2026-10-03).
