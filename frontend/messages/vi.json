@@ -7,7 +7,10 @@
     "privacyLink": "Chính sách bảo mật",
     "termsLink": "Điều khoản sử dụng",
     "legalNav": "Pháp lý",
-    "createLink": "Tạo kèo"
+    "createLink": "Tạo kèo",
+    "notFoundTitle": "Không tìm thấy trang",
+    "notFoundBody": "Đường dẫn này không tồn tại. Hãy kiểm tra lại địa chỉ.",
+    "backHome": "Về trang chủ"
   },
   "match": {
     "format": {
