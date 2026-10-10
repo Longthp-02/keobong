@@ -10,8 +10,10 @@ const t = messages.host;
 
 type Props = {
   shareId: string;
-  /** Rejecting a transfer closes at kickoff. */
+  /** Rejecting a transfer and cancelling close at kickoff. */
   startsAt: string;
+  /** A cancelled match keeps the list (for refunds) without actions. */
+  cancelled: boolean;
   client: SlotsClient;
   /** Called after a change so the roster can refresh. */
   onChange: () => void;
@@ -25,12 +27,13 @@ function statusText(party: HostParty): string {
 }
 
 /** The host's list of parties to check transfers against. Hidden for everyone else. */
-export function HostPayments({ shareId, startsAt, client, onChange }: Props) {
+export function HostPayments({ shareId, startsAt, cancelled, client, onChange }: Props) {
   const [parties, setParties] = useState<HostParty[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   /** The party whose release the host is being asked to confirm. */
   const [confirmingReject, setConfirmingReject] = useState<number | null>(null);
+  const [confirmingCancel, setConfirmingCancel] = useState(false);
   // Decided after hydration so server and client render the same markup.
   const [started, setStarted] = useState(false);
   useEffect(() => setStarted(Date.parse(startsAt) <= Date.now()), [startsAt]);
@@ -66,9 +69,27 @@ export function HostPayments({ shareId, startsAt, client, onChange }: Props) {
     }
   }
 
+  async function cancelMatch() {
+    setConfirmingCancel(false);
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await client.cancelMatch(shareId);
+      if (!result.ok) {
+        setError(t.errors[result.error]);
+      }
+      onChange();
+    } catch {
+      setError(t.errors.unexpected);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   if (!parties) {
     return null;
   }
+  const canAct = !cancelled;
   return (
     <section className="host-payments" aria-labelledby="host-payments-title">
       <h2 id="host-payments-title" className="team-slots__title">
@@ -79,6 +100,7 @@ export function HostPayments({ shareId, startsAt, client, onChange }: Props) {
           {error}
         </p>
       ) : null}
+      {cancelled ? <p className="notice">{t.cancelledNote}</p> : null}
       {parties.length === 0 ? <p className="muted">{t.empty}</p> : null}
       <ul className="host-payments__list">
         {parties.map((party) => (
@@ -98,7 +120,7 @@ export function HostPayments({ shareId, startsAt, client, onChange }: Props) {
                 {statusText(party)}
               </span>
             </div>
-            {party.paymentStatus !== "confirmed" && confirmingReject === party.paymentCode ? (
+            {!canAct ? null : party.paymentStatus !== "confirmed" && confirmingReject === party.paymentCode ? (
               <div className="host-party__actions">
                 <span>
                   {fill(t.rejectConfirm, {
@@ -134,6 +156,23 @@ export function HostPayments({ shareId, startsAt, client, onChange }: Props) {
           </li>
         ))}
       </ul>
+      {canAct && !started ? (
+        confirmingCancel ? (
+          <div className="host-party__actions">
+            <span>{t.cancelConfirm}</span>
+            <button type="button" className="button-danger" onClick={cancelMatch} disabled={busy}>
+              {t.cancelYes}
+            </button>
+            <button type="button" className="link-button" onClick={() => setConfirmingCancel(false)}>
+              {t.cancelNo}
+            </button>
+          </div>
+        ) : (
+          <button type="button" className="button-secondary" onClick={() => setConfirmingCancel(true)} disabled={busy}>
+            {t.cancel}
+          </button>
+        )
+      ) : null}
     </section>
   );
 }

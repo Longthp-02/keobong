@@ -89,10 +89,13 @@ pub struct ClaimContext {
     /// Active places already taken in the requested team.
     pub taken_in_team: i64,
     pub already_joined: bool,
+    pub cancelled: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum ClaimRejected {
+    #[error("the host cancelled the match")]
+    MatchCancelled,
     #[error("the match has already started")]
     MatchStarted,
     #[error("the user already holds a place in this match")]
@@ -103,6 +106,9 @@ pub enum ClaimRejected {
 
 /// The whole party (holder plus guests) joins one team, or nobody does.
 pub fn check_claim(ctx: &ClaimContext, request: &JoinRequest) -> Result<(), ClaimRejected> {
+    if ctx.cancelled {
+        return Err(ClaimRejected::MatchCancelled);
+    }
     if ctx.now >= ctx.starts_at {
         return Err(ClaimRejected::MatchStarted);
     }
@@ -145,6 +151,7 @@ pub struct RosterEntry {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Roster {
     pub slot_count: i16,
+    pub cancelled: bool,
     /// In the order places were taken.
     pub entries: Vec<RosterEntry>,
 }
@@ -214,6 +221,8 @@ pub struct MyPlace {
     pub hold_expires_at: Option<DateTime<Utc>>,
     pub amount_vnd: i64,
     pub host: UserId,
+    /// Nothing is owed for a cancelled match.
+    pub match_cancelled: bool,
 }
 
 /// One party as the host sees it when checking transfers.
@@ -242,6 +251,7 @@ pub enum ReportOutcome {
     AlreadyDone,
     NotJoined,
     MatchNotFound,
+    MatchCancelled,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -264,6 +274,8 @@ pub enum HostActionOutcome {
     NotReported,
     /// Rejecting closes at kickoff; no-show marking covers later cases.
     MatchStarted,
+    /// Payments of a cancelled match are settled between players and host.
+    MatchCancelled,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -388,6 +400,7 @@ mod tests {
             slot_count: 18,
             taken_in_team,
             already_joined: false,
+            cancelled: false,
         }
     }
 
@@ -412,6 +425,19 @@ mod tests {
         assert_eq!(
             check_claim(&ctx(9), &join(Team::B, &[])),
             Err(ClaimRejected::TeamFull)
+        );
+    }
+
+    #[test]
+    fn nobody_joins_a_cancelled_match() {
+        let cancelled = ClaimContext {
+            cancelled: true,
+            ..ctx(0)
+        };
+
+        assert_eq!(
+            check_claim(&cancelled, &join(Team::A, &[])),
+            Err(ClaimRejected::MatchCancelled)
         );
     }
 

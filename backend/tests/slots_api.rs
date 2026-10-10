@@ -92,7 +92,7 @@ async fn a_new_match_has_two_empty_teams_splitting_the_places(pool: PgPool) {
         json!({ "teams": [
             { "team": "a", "capacity": 8, "players": [] },
             { "team": "b", "capacity": 7, "players": [] }
-        ]})
+        ], "cancelled": false })
     );
 }
 

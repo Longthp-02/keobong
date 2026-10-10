@@ -73,7 +73,8 @@ async fn get_match_by_share_id_returns_public_view(pool: PgPool) {
             "levelMax": 3.5,
             "totalFeeVnd": 900000,
             "slotCount": 14,
-            "pricePerPlayerVnd": 65000
+            "pricePerPlayerVnd": 65000,
+            "cancelledAt": null
         })
     );
 }

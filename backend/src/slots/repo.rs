@@ -47,6 +47,7 @@ struct MatchFacts {
     starts_at: DateTime<Utc>,
     total_fee_vnd: i64,
     host_user_id: i64,
+    cancelled_at: Option<DateTime<Utc>>,
 }
 
 impl MatchFacts {
@@ -55,7 +56,9 @@ impl MatchFacts {
     }
 }
 
-const MATCH_FACTS: &str = "SELECT id, slot_count, starts_at, total_fee_vnd, host_user_id FROM matches WHERE share_id = $1";
+const MATCH_FACTS: &str =
+    "SELECT id, slot_count, starts_at, total_fee_vnd, host_user_id, cancelled_at
+     FROM matches WHERE share_id = $1";
 
 /// Starts a READ COMMITTED transaction, locks the match and records expired holds.
 async fn lock_match(
@@ -167,6 +170,7 @@ impl SlotRepository for PgSlotRepository {
             slot_count: facts.slot_count,
             taken_in_team,
             already_joined,
+            cancelled: facts.cancelled_at.is_some(),
         };
         if let Err(reason) = check_claim(&ctx, request) {
             return Ok(ClaimOutcome::Rejected(reason));
@@ -276,6 +280,7 @@ impl SlotRepository for PgSlotRepository {
             .collect::<Result<_, RepoError>>()?;
         Ok(Some(Roster {
             slot_count: facts.slot_count,
+            cancelled: facts.cancelled_at.is_some(),
             entries,
         }))
     }
@@ -307,6 +312,7 @@ impl SlotRepository for PgSlotRepository {
             hold_expires_at: party.hold_expires_at,
             amount_vnd: party_amount_vnd(facts.price_per_player_vnd(), party_size),
             host: UserId(facts.host_user_id),
+            match_cancelled: facts.cancelled_at.is_some(),
             guests: party.guests,
         })))
     }
@@ -321,6 +327,9 @@ impl SlotRepository for PgSlotRepository {
         let Some(facts) = lock_match(&mut tx, share_id, now).await? else {
             return Ok(ReportOutcome::MatchNotFound);
         };
+        if facts.cancelled_at.is_some() {
+            return Ok(ReportOutcome::MatchCancelled);
+        }
         let reported = sqlx::query(
             "UPDATE slots SET payment_status = 'payment_reported', hold_expires_at = NULL
              WHERE match_id = $1 AND holder_user_id = $2 AND released_at IS NULL
@@ -405,6 +414,9 @@ impl SlotRepository for PgSlotRepository {
         };
         if facts.host_user_id != caller.0 {
             return Ok(HostActionOutcome::NotHost);
+        }
+        if facts.cancelled_at.is_some() {
+            return Ok(HostActionOutcome::MatchCancelled);
         }
         let party: Option<(i64, String)> = sqlx::query_as(
             "SELECT holder_user_id, payment_status FROM slots

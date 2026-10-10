@@ -16,6 +16,7 @@ function roster(aPlayers: string[] = [], bPlayers: string[] = [], capacity = 3):
       { team: "a", capacity, players: aPlayers.map(player) },
       { team: "b", capacity, players: bPlayers.map(player) },
     ],
+    cancelled: false,
   };
 }
 
@@ -28,6 +29,7 @@ function client(mine: MyPlace, overrides: Partial<SlotsClient> = {}): SlotsClien
     reportPayment: vi.fn(),
     hostParties: vi.fn().mockResolvedValue({ status: "notHost" }),
     hostAction: vi.fn(),
+    cancelMatch: vi.fn(),
     ...overrides,
   };
 }
@@ -253,5 +255,25 @@ describe("TeamSlots", () => {
     render(<TeamSlots shareId={SHARE_ID} startsAt={FUTURE} initialRoster={roster()} client={api} />);
 
     expect(await screen.findByRole("heading", { name: messages.host.title })).toBeTruthy();
+  });
+
+  it("shows a cancelled match without any way to join", async () => {
+    const cancelled = { ...roster(["Long"]), cancelled: true };
+    const api = client({ status: "out" }, { roster: vi.fn().mockResolvedValue(cancelled) });
+    render(<TeamSlots shareId={SHARE_ID} startsAt={FUTURE} initialRoster={cancelled} client={api} />);
+
+    expect(await screen.findByText(t.cancelled)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: fill(t.join, { team: t.team.a }) })).toBeNull();
+  });
+
+  it("tells a player who joined a cancelled match how to get a refund", async () => {
+    const cancelled = { ...roster(["Long"]), cancelled: true };
+    const place = joined("a", [], { paymentStatus: "payment_reported", amountVnd: 50000 });
+    const api = client(place, { roster: vi.fn().mockResolvedValue(cancelled) });
+    render(<TeamSlots shareId={SHARE_ID} startsAt={FUTURE} initialRoster={cancelled} client={api} />);
+
+    expect(await screen.findByText(t.cancelledRefund)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: messages.payment.reportPaid })).toBeNull();
+    expect(screen.queryByRole("button", { name: t.leave })).toBeNull();
   });
 });

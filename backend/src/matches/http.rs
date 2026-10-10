@@ -16,9 +16,11 @@ use crate::auth::{AuthState, AuthenticatedUser};
 use crate::payments::PgPayoutRepository;
 use crate::payments::service::has_payout_account;
 
-use super::domain::{Clock, Field, Format, Match, MatchType, NewMatchInput};
+use super::domain::{CancelOutcome, Clock, Field, Format, Match, MatchType, NewMatchInput};
 use super::repo::PgMatchRepository;
-use super::service::{CreateMatchError, GetMatchError, create_match, get_public_match};
+use super::service::{
+    CreateMatchError, GetMatchError, cancel_match, create_match, get_public_match,
+};
 
 #[derive(Clone)]
 struct MatchState {
@@ -43,6 +45,7 @@ pub fn router(
     Router::new()
         .route("/api/matches", post(post_match))
         .route("/api/matches/{share_id}", get(get_match))
+        .route("/api/matches/{share_id}/cancel", post(post_cancel))
         .with_state(MatchState {
             repo,
             clock,
@@ -67,6 +70,7 @@ struct MatchView {
     total_fee_vnd: i64,
     slot_count: i16,
     price_per_player_vnd: i64,
+    cancelled_at: Option<DateTime<Utc>>,
 }
 
 impl From<Match> for MatchView {
@@ -84,6 +88,7 @@ impl From<Match> for MatchView {
             total_fee_vnd: m.total_fee_vnd,
             slot_count: m.slot_count,
             price_per_player_vnd,
+            cancelled_at: m.cancelled_at,
         }
     }
 }
@@ -221,5 +226,23 @@ impl IntoResponse for CreateMatchError {
                 .into_response(),
             other => internal_error("failed to create match", &other),
         }
+    }
+}
+
+async fn post_cancel(
+    State(state): State<MatchState>,
+    AuthenticatedUser(user): AuthenticatedUser,
+    Path(share_id): Path<String>,
+) -> Response {
+    let body =
+        |status: StatusCode, code: &str| (status, Json(json!({ "error": code }))).into_response();
+    match cancel_match(&state.repo, state.clock.as_ref(), user.id, &share_id).await {
+        Ok(CancelOutcome::Cancelled | CancelOutcome::AlreadyCancelled) => {
+            StatusCode::NO_CONTENT.into_response()
+        }
+        Ok(CancelOutcome::NotHost) => body(StatusCode::FORBIDDEN, "not_host"),
+        Ok(CancelOutcome::MatchNotFound) => body(StatusCode::NOT_FOUND, "match_not_found"),
+        Ok(CancelOutcome::MatchStarted) => body(StatusCode::CONFLICT, "match_started"),
+        Err(err) => internal_error("failed to cancel match", &err),
     }
 }

@@ -3,7 +3,8 @@
 use crate::auth::UserId;
 
 use super::domain::{
-    Clock, Field, InsertError, Match, MatchRepository, NewMatch, NewMatchInput, RepoError, ShareId,
+    CancelOutcome, Clock, Field, InsertError, Match, MatchRepository, NewMatch, NewMatchInput,
+    RepoError, ShareId,
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -74,6 +75,19 @@ pub async fn create_match<R: MatchRepository, C: Clock + ?Sized>(
     Err(CreateMatchError::ShareIdUnavailable)
 }
 
+/// The host cancels the match. Malformed ids are unknown matches.
+pub async fn cancel_match<R: MatchRepository, C: Clock + ?Sized>(
+    repo: &R,
+    clock: &C,
+    caller: UserId,
+    raw_share_id: &str,
+) -> Result<CancelOutcome, RepoError> {
+    match ShareId::parse(raw_share_id) {
+        Some(share_id) => repo.cancel(&share_id, caller, clock.now()).await,
+        None => Ok(CancelOutcome::MatchNotFound),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -93,6 +107,15 @@ mod tests {
             _host: UserId,
         ) -> Result<(), InsertError> {
             panic!("storage must not be written for invalid input");
+        }
+
+        async fn cancel(
+            &self,
+            _: &ShareId,
+            _: UserId,
+            _: chrono::DateTime<chrono::Utc>,
+        ) -> Result<CancelOutcome, RepoError> {
+            panic!("not used in these tests");
         }
     }
 
@@ -120,6 +143,15 @@ mod tests {
             } else {
                 Ok(())
             }
+        }
+
+        async fn cancel(
+            &self,
+            _: &ShareId,
+            _: UserId,
+            _: chrono::DateTime<chrono::Utc>,
+        ) -> Result<CancelOutcome, RepoError> {
+            panic!("not used in these tests");
         }
     }
 

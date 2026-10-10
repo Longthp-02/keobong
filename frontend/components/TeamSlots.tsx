@@ -203,6 +203,14 @@ export function TeamSlots({ shareId, startsAt, initialRoster, client = defaultCl
   }
 
   function actions() {
+    if (roster.cancelled) {
+      return (
+        <div className="my-place">
+          <p className="form-error">{t.cancelled}</p>
+          {mine?.status === "in" && mine.amountVnd > 0 ? <p className="muted">{t.cancelledRefund}</p> : null}
+        </div>
+      );
+    }
     if (started) {
       return <p className="muted">{t.started}</p>;
     }
@@ -307,7 +315,13 @@ export function TeamSlots({ shareId, startsAt, initialRoster, client = defaultCl
         </p>
       ) : null}
       {actions()}
-      <HostPayments shareId={shareId} startsAt={startsAt} client={client} onChange={refreshRoster} />
+      <HostPayments
+        shareId={shareId}
+        startsAt={startsAt}
+        cancelled={roster.cancelled}
+        client={client}
+        onChange={refreshRoster}
+      />
     </section>
   );
 }

@@ -72,7 +72,8 @@ async fn creating_a_match_returns_its_public_view_with_defaults(pool: PgPool) {
         "levelMax": 3.5,
         "totalFeeVnd": 900000,
         "slotCount": 18,
-        "pricePerPlayerVnd": 50000
+        "pricePerPlayerVnd": 50000,
+        "cancelledAt": null
     });
     expected["shareId"] = json!(share_id);
     assert_eq!(body, expected);

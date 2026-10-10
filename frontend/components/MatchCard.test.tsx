@@ -16,9 +16,18 @@ const match: MatchView = {
   totalFeeVnd: 900000,
   slotCount: 14,
   pricePerPlayerVnd: 65000,
+  cancelledAt: null,
 };
 
 describe("MatchCard", () => {
+  it("marks a cancelled match", () => {
+    const { rerender } = render(<MatchCard match={match} />);
+    expect(screen.queryByText(messages.match.cancelled)).toBeNull();
+
+    rerender(<MatchCard match={{ ...match, cancelledAt: "2026-10-09T10:00:00Z" }} />);
+    expect(screen.getByText(messages.match.cancelled)).toBeTruthy();
+  });
+
   it("shows venue, format and match type labels", () => {
     render(<MatchCard match={match} />);
 
