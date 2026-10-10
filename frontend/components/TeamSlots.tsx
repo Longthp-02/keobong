@@ -10,6 +10,7 @@ import {
   type SlotsClient,
   type Team,
   type TeamView,
+  emptyRoster,
   slotsClient,
 } from "../lib/slots";
 import { fill } from "../lib/text";
@@ -26,8 +27,8 @@ const defaultClient = slotsClient();
 
 type Props = {
   match: MatchView;
-  /** Server-rendered roster; refreshed from the API after every change. */
-  initialRoster: RosterView;
+  /** Server-rendered roster, or `null` if it could not be loaded; refreshed from the API after every change. */
+  initialRoster: RosterView | null;
   client?: SlotsClient;
 };
 
@@ -84,22 +85,28 @@ function TeamColumn({ team, choice }: { team: TeamView; choice: Choice }) {
         {Array.from({ length: open }, (_, index) => {
           const chosen = index < choice.chosenCount;
           const caption = chosen ? (index === 0 ? t.you : t.guestShort) : t.openShort;
+          const icon = chosen ? <CheckIcon /> : <PlusIcon />;
+          // Every open circle can be tapped, but only the first is announced and
+          // focusable, so assistive technology hears one choice per team.
+          const first = index === 0;
           return (
             <li key={`open-${index}`} className={chosen ? "slot slot--chosen" : "slot slot--open"}>
               {choice.enabled ? (
                 <button
                   type="button"
                   className="slot__circle slot__button"
-                  aria-label={fill(t.takeSlot, { team: label })}
-                  aria-pressed={chosen}
+                  aria-label={first ? fill(t.takeSlot, { team: label }) : undefined}
+                  aria-pressed={first ? choice.chosenCount > 0 : undefined}
+                  aria-hidden={first ? undefined : true}
+                  tabIndex={first ? undefined : -1}
                   disabled={!choice.fits}
                   onClick={choice.onChoose}
                 >
-                  {chosen ? <CheckIcon /> : <PlusIcon />}
+                  {icon}
                 </button>
               ) : (
                 <span className="slot__circle slot__button" aria-hidden="true">
-                  <PlusIcon />
+                  {icon}
                 </span>
               )}
               <span className="slot__caption">{caption}</span>
@@ -148,7 +155,10 @@ function PlusIcon() {
 
 export function TeamSlots({ match, initialRoster, client = defaultClient }: Props) {
   const { shareId, startsAt } = match;
-  const [roster, setRoster] = useState(initialRoster);
+  const [loadedRoster, setRoster] = useState(initialRoster);
+  // Until a roster arrives, show empty teams but no counts that could be wrong.
+  const roster = loadedRoster ?? emptyRoster(match.slotCount, match.cancelledAt !== null);
+  const [isHost, setIsHost] = useState(false);
   const [mine, setMine] = useState<MyPlace | null>(null);
   // Decided after hydration so server and client render the same markup.
   const [started, setStarted] = useState(false);
@@ -187,7 +197,8 @@ export function TeamSlots({ match, initialRoster, client = defaultClient }: Prop
 
   function joinLabel(chosenTeam: Team): string {
     const label = fill(t.join, { team: t.team[chosenTeam] });
-    const amount = match.pricePerPlayerVnd * partySize;
+    // The host's own party is confirmed without a transfer.
+    const amount = isHost ? 0 : match.pricePerPlayerVnd * partySize;
     return amount > 0 ? `${label} · ${formatVnd(amount)}` : label;
   }
 
@@ -349,7 +360,7 @@ export function TeamSlots({ match, initialRoster, client = defaultClient }: Prop
             </button>
           ) : null}
         </fieldset>
-        {match.pricePerPlayerVnd > 0 ? (
+        {match.pricePerPlayerVnd > 0 && !isHost ? (
           <div className="pay-info">
             <strong>{t.payInfoTitle}</strong>
             <p className="muted">{t.payInfoBody}</p>
@@ -390,7 +401,7 @@ export function TeamSlots({ match, initialRoster, client = defaultClient }: Prop
 
   return (
     <>
-      <MatchCard match={match} roster={roster} />
+      <MatchCard match={match} roster={loadedRoster} started={started} />
       <section className="team-slots" aria-labelledby="team-slots-title">
         <div className="roster-card">
           <header className="roster-card__header">
@@ -415,6 +426,7 @@ export function TeamSlots({ match, initialRoster, client = defaultClient }: Prop
           cancelled={roster.cancelled}
           client={client}
           onChange={refreshRoster}
+          onHostKnown={setIsHost}
         />
         {/* Rendered once, so the share button keeps its state while the rest changes. */}
         <div className="action-bar">

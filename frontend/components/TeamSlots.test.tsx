@@ -111,7 +111,7 @@ describe("TeamSlots", () => {
     );
     render(<TeamSlots match={MATCH} initialRoster={roster()} client={api} />);
 
-    fireEvent.click((await screen.findAllByRole("button", { name: fill(t.takeSlot, { team: t.team.b }) }))[0]);
+    fireEvent.click(await screen.findByRole("button", { name: fill(t.takeSlot, { team: t.team.b }) }));
     fireEvent.click(screen.getByRole("button", { name: t.addGuest }));
     fireEvent.change(screen.getByPlaceholderText(t.guestPlaceholder), { target: { value: "An" } });
     fireEvent.click(screen.getByRole("button", { name: fill(t.join, { team: t.team.b }) }));
@@ -350,8 +350,7 @@ describe("TeamSlots", () => {
   it("marks the chosen place in the roster", async () => {
     render(<TeamSlots match={MATCH} initialRoster={roster()} client={client({ status: "out" })} />);
 
-    const slotsB = await screen.findAllByRole("button", { name: fill(t.takeSlot, { team: t.team.b }) });
-    fireEvent.click(slotsB[1]);
+    fireEvent.click(await screen.findByRole("button", { name: fill(t.takeSlot, { team: t.team.b }) }));
 
     expect(within(team(t.team.b)).getByText(t.you)).toBeTruthy();
     expect(within(team(t.team.a)).queryByText(t.you)).toBeNull();
@@ -393,5 +392,78 @@ describe("TeamSlots", () => {
     } finally {
       Reflect.deleteProperty(navigator, "clipboard");
     }
+  });
+
+  it("offers one choice per team to assistive technology", async () => {
+    render(<TeamSlots match={MATCH} initialRoster={roster()} client={client({ status: "out" })} />);
+
+    // Three open places in each team, but one button per team; the other circles only repeat it.
+    expect(await screen.findAllByRole("button", { name: fill(t.takeSlot, { team: t.team.a }) })).toHaveLength(1);
+    expect(screen.getAllByRole("button", { name: fill(t.takeSlot, { team: t.team.b }) })).toHaveLength(1);
+  });
+
+  it("marks a place for each guest in the chosen team", async () => {
+    render(<TeamSlots match={MATCH} initialRoster={roster()} client={client({ status: "out" })} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: t.addGuest }));
+    fireEvent.click(screen.getByRole("button", { name: t.addGuest }));
+
+    const a = team(t.team.a);
+    expect(within(a).getAllByText(t.you)).toHaveLength(1);
+    expect(within(a).getAllByText(t.guestShort)).toHaveLength(2);
+  });
+
+  it("does not ask the host to pay for their own match", async () => {
+    const paid = { ...MATCH, totalFeeVnd: 300000, pricePerPlayerVnd: 50000 };
+    const api = client({ status: "out" }, { hostParties: vi.fn().mockResolvedValue({ status: "host", parties: [] }) });
+    render(<TeamSlots match={paid} initialRoster={roster()} client={api} />);
+
+    expect(await screen.findByRole("button", { name: fill(t.join, { team: t.team.a }) })).toBeTruthy();
+    expect(screen.queryByText(t.payInfoTitle)).toBeNull();
+  });
+
+  it("leaves the counts out of the header while the roster is unknown", async () => {
+    const api = client({ status: "out" }, { roster: vi.fn().mockRejectedValue(new Error("down")) });
+    render(<TeamSlots match={MATCH} initialRoster={null} client={api} />);
+
+    await waitFor(() => expect(api.roster).toHaveBeenCalled());
+    expect(screen.queryByTestId("match-joined")).toBeNull();
+    expect(screen.getByText(`${MATCH.slotCount} ${messages.match.slotsUnit}`)).toBeTruthy();
+  });
+
+  it("stops showing places left once the match has started", async () => {
+    const api = client({ status: "out" });
+    render(<TeamSlots match={{ ...MATCH, startsAt: "2000-01-01T00:00:00Z" }} initialRoster={roster()} client={api} />);
+
+    expect(await screen.findByText(t.started)).toBeTruthy();
+    expect(screen.queryByText(fill(messages.match.placesLeft, { count: 6 }))).toBeNull();
+  });
+
+  it("does nothing when the visitor closes the share sheet", async () => {
+    const share = vi.fn().mockRejectedValue(new DOMException("closed", "AbortError"));
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "share", { value: share, configurable: true });
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    try {
+      render(<TeamSlots match={MATCH} initialRoster={roster()} client={client({ status: "out" })} />);
+
+      fireEvent.click(await screen.findByRole("button", { name: t.share }));
+
+      await waitFor(() => expect(share).toHaveBeenCalled());
+      expect(writeText).not.toHaveBeenCalled();
+      expect(screen.getByRole("status").textContent).toBe("");
+    } finally {
+      Reflect.deleteProperty(navigator, "share");
+      Reflect.deleteProperty(navigator, "clipboard");
+    }
+  });
+
+  it("says when the link could not be shared or copied", async () => {
+    render(<TeamSlots match={MATCH} initialRoster={roster()} client={client({ status: "out" })} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: t.share }));
+
+    // jsdom has neither a share sheet nor a clipboard.
+    expect(await screen.findByText(t.shareFailed)).toBeTruthy();
   });
 });

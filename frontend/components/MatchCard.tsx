@@ -10,9 +10,11 @@ type Props = {
   match: MatchView;
   /** The current roster, when known, to show how many have joined. */
   roster?: RosterView | null;
+  /** After kickoff there is no point in advertising open places. */
+  started?: boolean;
 };
 
-export function MatchCard({ match, roster }: Props) {
+export function MatchCard({ match, roster, started = false }: Props) {
   const joined = roster ? roster.teams.reduce((sum, team) => sum + team.players.length, 0) : null;
   const left = joined === null ? null : Math.max(0, match.slotCount - joined);
   // The roster is fresher than the cached match, so either may report the cancel first.
@@ -23,7 +25,7 @@ export function MatchCard({ match, roster }: Props) {
         <div className="match-card__tags">
           <span className="tag tag--dark">{t.matchType[match.matchType]}</span>
           {cancelled ? <span className="tag tag--alert">{t.cancelled}</span> : null}
-          {!cancelled && left !== null ? (
+          {!cancelled && !started && left !== null ? (
             <span className="tag tag--light">{left > 0 ? fill(t.placesLeft, { count: left }) : t.matchFull}</span>
           ) : null}
         </div>

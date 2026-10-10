@@ -37,7 +37,17 @@ export function ShareButton({ shareId, title }: Props) {
   return (
     <>
       <button type="button" className="button-share" onClick={share}>
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <svg
+          width="20"
+          height="20"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden="true"
+        >
           <circle cx="18" cy="5" r="2.5" />
           <circle cx="6" cy="12" r="2.5" />
           <circle cx="18" cy="19" r="2.5" />
@@ -45,11 +55,10 @@ export function ShareButton({ shareId, title }: Props) {
         </svg>
         {t.share}
       </button>
-      {note ? (
-        <span className="action-bar__note" role="status">
-          {note}
-        </span>
-      ) : null}
+      {/* Always present, so screen readers announce the text when it appears. */}
+      <span className="action-bar__note" role="status">
+        {note ?? ""}
+      </span>
     </>
   );
 }
