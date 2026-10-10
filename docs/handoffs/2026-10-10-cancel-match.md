@@ -13,7 +13,7 @@
 `GET .../slots/mine` returns `payment: null` for a cancelled match. `DELETE .../slots/mine` returns `409 match_cancelled`. Holds stop expiring at the moment of cancellation, so the roster, the players' own places and the host's payment list stay exactly as they were, for refunds.
 
 ## Database changes
-Migration `20261009000000_add_match_cancellation.sql`: `matches.cancelled_at timestamptz NULL`. Cancelling takes the same `FOR NO KEY UPDATE` lock on the match row as claims, so no join can slip in during a cancellation.
+Migration `20261009000000_add_match_cancellation.sql` (approved by Long 2026-10-10): `matches.cancelled_at timestamptz NULL`. Cancelling takes the same `FOR NO KEY UPDATE` lock on the match row as claims, so no join can slip in during a cancellation.
 
 ## Frontend actions
 Done in this PR:
