@@ -73,10 +73,40 @@ gcloud run deploy daghep-api --source backend --region "$REGION" \
 ```
 Answer `Y` if asked to create the `cloud-run-source-deploy` repository. Then create the tables right away, using the migration steps below with the image of the revision you just deployed. The web app does not call the API until `API_BASE_URL` is set on Vercel, so nobody sees the empty database.
 
-## Releases
-Vercel deploys the web app as soon as a PR is merged, but the API is deployed by hand. When a PR adds API endpoints the web app uses, run the release below right after merging; until then the new pages show their "could not load" state.
+## Automatic releases
+After CI passes on `main`, `.github/workflows/deploy.yml` releases the API if anything under `backend/` changed since the running release. The running release's commit is stored in its `commit-sha` label. The steps are the same as the manual release below: build and push the image, deploy a revision without traffic, migrate with that image, switch traffic, then check `/health`. Vercel deploys the web app at the same time, so a web change that needs a new endpoint is live within minutes of the API.
 
-New code goes live only after its migrations have run:
+GitHub signs in to Google Cloud with Workload Identity Federation, so no Google key is stored in GitHub. Only this repository's `main` branch can sign in. The `github-deployer` account can deploy Cloud Run, act as `daghep-api` and push images. It cannot read secrets.
+
+One-time setup (Cloud Shell):
+```bash
+PROJECT_ID=daghep
+PROJECT_NUMBER=$(gcloud projects describe "$PROJECT_ID" --format='value(projectNumber)')
+REPO=Longthp-02/keobong
+DEPLOYER="github-deployer@$PROJECT_ID.iam.gserviceaccount.com"
+gcloud services enable iamcredentials.googleapis.com sts.googleapis.com
+gcloud iam service-accounts create github-deployer --display-name="GitHub deployer"
+gcloud projects add-iam-policy-binding "$PROJECT_ID" \
+  --member="serviceAccount:$DEPLOYER" --role=roles/run.developer --condition=None
+gcloud iam service-accounts add-iam-policy-binding "daghep-api@$PROJECT_ID.iam.gserviceaccount.com" \
+  --member="serviceAccount:$DEPLOYER" --role=roles/iam.serviceAccountUser
+gcloud artifacts repositories add-iam-policy-binding cloud-run-source-deploy --location=asia-southeast1 \
+  --member="serviceAccount:$DEPLOYER" --role=roles/artifactregistry.writer
+gcloud iam workload-identity-pools create github --location=global --display-name="GitHub Actions"
+gcloud iam workload-identity-pools providers create-oidc keobong --location=global \
+  --workload-identity-pool=github --display-name="keobong main" \
+  --issuer-uri=https://token.actions.githubusercontent.com \
+  --attribute-mapping="google.subject=assertion.sub,attribute.repository=assertion.repository,attribute.ref=assertion.ref" \
+  --attribute-condition="assertion.repository=='$REPO' && assertion.ref=='refs/heads/main'"
+gcloud iam service-accounts add-iam-policy-binding "$DEPLOYER" --role=roles/iam.workloadIdentityUser \
+  --member="principalSet://iam.googleapis.com/projects/$PROJECT_NUMBER/locations/global/workloadIdentityPools/github/attribute.repository/$REPO"
+```
+The provider path in `deploy.yml` contains the project number `669288809087`. Update it if the project ever changes.
+
+To release again by hand, for example after a failed run: GitHub → Actions → Deploy API → Run workflow on `main`.
+
+## Releases (manual)
+Use this when GitHub Actions is unavailable. New code goes live only after its migrations have run:
 ```bash
 cd ~/keobong && git pull
 # 1. Build and deploy the new revision without sending it traffic.

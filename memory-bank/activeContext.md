@@ -34,4 +34,4 @@ Production is live (2026-10-10): API on Cloud Run (`daghep-api`, asia-southeast1
 - Zalo for Developers: activate the app, verify the domain daghep.vn, set the callback `https://daghep.vn/api/auth/zalo/callback`.
 
 ## Next Safe Step
-Release the API after PR #12 merges (migrate job adds venues), then check the home list and create a match with a venue on production.
+Long runs the manual release for PR #12 and the one-time Workload Identity setup; then merge the auto-deploy PR and watch its first run in GitHub Actions.

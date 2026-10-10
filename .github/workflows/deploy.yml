@@ -1,0 +1,115 @@
+name: Deploy API
+
+# Releases the API after CI passes on main, in the same order as the manual
+# runbook (docs/deploy.md): new revision without traffic, migrations with that
+# exact image, then traffic. The web app deploys itself on Vercel.
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  # Manual re-run from the Actions tab, e.g. after fixing a failed release.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  # Lets the job ask GitHub for an OIDC token to sign in to Google Cloud
+  # (Workload Identity Federation): no Google key is stored in GitHub.
+  id-token: write
+
+concurrency:
+  # One release at a time; a newer one waits instead of cancelling a half-done release.
+  group: deploy-api
+  cancel-in-progress: false
+
+env:
+  PROJECT_ID: daghep
+  REGION: asia-southeast1
+  SERVICE: daghep-api
+  MIGRATE_JOB: daghep-migrate
+  RUNTIME_ACCOUNT: daghep-api@daghep.iam.gserviceaccount.com
+  DEPLOY_ACCOUNT: github-deployer@daghep.iam.gserviceaccount.com
+  # Public identifiers, not secrets: who may sign in is decided on the Google side
+  # (only this repository's main branch).
+  WORKLOAD_IDENTITY_PROVIDER: projects/669288809087/locations/global/workloadIdentityPools/github/providers/keobong
+  IMAGE: asia-southeast1-docker.pkg.dev/daghep/cloud-run-source-deploy/daghep-api
+
+jobs:
+  deploy:
+    name: Release API
+    # Only after a successful CI run for a push to main (or a manual run on main).
+    if: >-
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push') ||
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The commit CI tested, with history to compare against the running release.
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Sign in to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ env.WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ env.DEPLOY_ACCOUNT }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Decide whether the API changed
+        id: changes
+        run: |
+          sha="$(git rev-parse HEAD)"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          running="$(gcloud run services describe "$SERVICE" --region "$REGION" \
+            --format='value(metadata.labels.commit-sha)')"
+          if [ -z "$running" ] || ! git cat-file -e "$running^{commit}" 2>/dev/null; then
+            echo "Running release has no known commit; deploying."
+            echo "deploy=true" >> "$GITHUB_OUTPUT"
+          elif git diff --quiet "$running" "$sha" -- backend; then
+            echo "backend/ unchanged since $running; nothing to release."
+            echo "deploy=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "backend/ changed since $running; deploying."
+            echo "deploy=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build and push the image
+        if: steps.changes.outputs.deploy == 'true'
+        run: |
+          gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
+          docker build --tag "$IMAGE:${{ steps.changes.outputs.sha }}" backend
+          docker push "$IMAGE:${{ steps.changes.outputs.sha }}"
+
+      - name: Deploy a revision without traffic
+        if: steps.changes.outputs.deploy == 'true'
+        # Environment variables and secrets carry over from the previous revision.
+        run: |
+          gcloud run deploy "$SERVICE" --region "$REGION" --no-traffic \
+            --image "$IMAGE:${{ steps.changes.outputs.sha }}" \
+            --service-account "$RUNTIME_ACCOUNT" \
+            --update-labels "commit-sha=${{ steps.changes.outputs.sha }}"
+
+      - name: Run migrations with that image
+        if: steps.changes.outputs.deploy == 'true'
+        run: |
+          gcloud run jobs deploy "$MIGRATE_JOB" --region "$REGION" \
+            --image "$IMAGE:${{ steps.changes.outputs.sha }}" \
+            --service-account "$RUNTIME_ACCOUNT" \
+            --args migrate --max-retries 0 \
+            --set-secrets "DATABASE_URL=daghep-database-url:latest"
+          gcloud run jobs execute "$MIGRATE_JOB" --region "$REGION" --wait
+
+      - name: Send traffic to the new revision
+        if: steps.changes.outputs.deploy == 'true'
+        run: gcloud run services update-traffic "$SERVICE" --region "$REGION" --to-latest
+
+      - name: Check the live API
+        if: steps.changes.outputs.deploy == 'true'
+        run: |
+          url="$(gcloud run services describe "$SERVICE" --region "$REGION" --format='value(status.url)')"
+          curl --fail --silent --show-error --retry 5 --retry-delay 3 "$url/health"
