@@ -8,8 +8,13 @@ on:
     workflows: [CI]
     types: [completed]
     branches: [main]
-  # Manual re-run from the Actions tab, e.g. after fixing a failed release.
+  # Manual run from the Actions tab, e.g. after fixing a failed release.
   workflow_dispatch:
+    inputs:
+      force:
+        description: Release even if the serving revision already runs this commit
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -30,7 +35,7 @@ env:
   RUNTIME_ACCOUNT: daghep-api@daghep.iam.gserviceaccount.com
   DEPLOY_ACCOUNT: github-deployer@daghep.iam.gserviceaccount.com
   # Public identifiers, not secrets: who may sign in is decided on the Google side
-  # (only this repository's main branch).
+  # (only this workflow file, run from this repository's main branch).
   WORKLOAD_IDENTITY_PROVIDER: projects/669288809087/locations/global/workloadIdentityPools/github/providers/keobong
   IMAGE: asia-southeast1-docker.pkg.dev/daghep/cloud-run-source-deploy/daghep-api
 
@@ -59,22 +64,40 @@ jobs:
           service_account: ${{ env.DEPLOY_ACCOUNT }}
 
       - uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ env.PROJECT_ID }}
 
-      - name: Decide whether the API changed
+      - name: Decide whether to release
         id: changes
+        env:
+          FORCE: ${{ inputs.force }}
         run: |
           sha="$(git rev-parse HEAD)"
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
-          running="$(gcloud run services describe "$SERVICE" --region "$REGION" \
-            --format='value(metadata.labels.commit-sha)')"
-          if [ -z "$running" ] || ! git cat-file -e "$running^{commit}" 2>/dev/null; then
-            echo "Running release has no known commit; deploying."
+          # The commit is read from the image of the revision that serves traffic, so
+          # a release that failed before switching traffic is tried again next time.
+          serving="$(gcloud run services describe "$SERVICE" --region "$REGION" \
+            --format='value(status.traffic[0].revisionName)')"
+          image="$(gcloud run revisions describe "$serving" --region "$REGION" \
+            --format='value(spec.containers[0].image)')"
+          running=""
+          case "$image" in "$IMAGE:"*) running="${image#"$IMAGE:"}" ;; esac
+          echo "Serving $serving ($image)."
+          if [ "$FORCE" = "true" ]; then
+            echo "Forced release."
             echo "deploy=true" >> "$GITHUB_OUTPUT"
+          elif [ -z "$running" ] || ! git cat-file -e "$running^{commit}" 2>/dev/null; then
+            echo "Serving revision has no known commit; releasing."
+            echo "deploy=true" >> "$GITHUB_OUTPUT"
+          elif git merge-base --is-ancestor "$sha" "$running"; then
+            # CI runs can finish out of order; never replace a newer release with an older one.
+            echo "$running already includes $sha; nothing to release."
+            echo "deploy=false" >> "$GITHUB_OUTPUT"
           elif git diff --quiet "$running" "$sha" -- backend; then
             echo "backend/ unchanged since $running; nothing to release."
             echo "deploy=false" >> "$GITHUB_OUTPUT"
           else
-            echo "backend/ changed since $running; deploying."
+            echo "backend/ changed since $running; releasing."
             echo "deploy=true" >> "$GITHUB_OUTPUT"
           fi
 
@@ -91,8 +114,7 @@ jobs:
         run: |
           gcloud run deploy "$SERVICE" --region "$REGION" --no-traffic \
             --image "$IMAGE:${{ steps.changes.outputs.sha }}" \
-            --service-account "$RUNTIME_ACCOUNT" \
-            --update-labels "commit-sha=${{ steps.changes.outputs.sha }}"
+            --service-account "$RUNTIME_ACCOUNT"
 
       - name: Run migrations with that image
         if: steps.changes.outputs.deploy == 'true'
