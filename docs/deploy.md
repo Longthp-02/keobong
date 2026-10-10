@@ -73,10 +73,43 @@ gcloud run deploy daghep-api --source backend --region "$REGION" \
 ```
 Answer `Y` if asked to create the `cloud-run-source-deploy` repository. Then create the tables right away, using the migration steps below with the image of the revision you just deployed. The web app does not call the API until `API_BASE_URL` is set on Vercel, so nobody sees the empty database.
 
-## Releases
-Vercel deploys the web app as soon as a PR is merged, but the API is deployed by hand. When a PR adds API endpoints the web app uses, run the release below right after merging; until then the new pages show their "could not load" state.
+## Automatic releases
+After CI passes on `main`, `.github/workflows/deploy.yml` releases the API if anything under `backend/` changed since the release that serves traffic. Its commit is read from the image tag of the serving revision. The workflow never replaces a newer release with an older commit. The steps follow the manual release below: build and push an image tagged with the commit, deploy a revision without traffic, migrate with that image, switch traffic, then check `/health`. A release that fails before switching traffic leaves the old revision serving, and the next run tries again. Vercel deploys the web app at the same time, so a web change that needs a new endpoint is live within minutes of the API.
 
-New code goes live only after its migrations have run:
+GitHub signs in to Google Cloud with Workload Identity Federation, so no Google key is stored in GitHub. Only this workflow file, run from this repository's `main` branch, can sign in. The `github-deployer` account can deploy Cloud Run, act as `daghep-api` and push images. It cannot read secrets.
+
+One-time setup (Cloud Shell):
+```bash
+PROJECT_ID=daghep
+PROJECT_NUMBER=$(gcloud projects describe "$PROJECT_ID" --format='value(projectNumber)')
+REPO=Longthp-02/keobong
+REPO_ID=1403483431  # gh api repos/Longthp-02/keobong --jq .id; survives renames
+DEPLOYER="github-deployer@$PROJECT_ID.iam.gserviceaccount.com"
+gcloud services enable iamcredentials.googleapis.com sts.googleapis.com
+gcloud iam service-accounts create github-deployer --display-name="GitHub deployer"
+gcloud projects add-iam-policy-binding "$PROJECT_ID" \
+  --member="serviceAccount:$DEPLOYER" --role=roles/run.developer --condition=None
+gcloud iam service-accounts add-iam-policy-binding "daghep-api@$PROJECT_ID.iam.gserviceaccount.com" \
+  --member="serviceAccount:$DEPLOYER" --role=roles/iam.serviceAccountUser
+gcloud artifacts repositories add-iam-policy-binding cloud-run-source-deploy --location=asia-southeast1 \
+  --member="serviceAccount:$DEPLOYER" --role=roles/artifactregistry.writer
+gcloud iam workload-identity-pools create github --location=global --display-name="GitHub Actions"
+gcloud iam workload-identity-pools providers create-oidc keobong --location=global \
+  --workload-identity-pool=github --display-name="keobong main" \
+  --issuer-uri=https://token.actions.githubusercontent.com \
+  --attribute-mapping="google.subject=assertion.sub,attribute.repository_id=assertion.repository_id" \
+  --attribute-condition="assertion.repository_id=='$REPO_ID' && assertion.ref=='refs/heads/main' && assertion.job_workflow_ref=='$REPO/.github/workflows/deploy.yml@refs/heads/main'"
+gcloud iam service-accounts add-iam-policy-binding "$DEPLOYER" --role=roles/iam.workloadIdentityUser \
+  --member="principalSet://iam.googleapis.com/projects/$PROJECT_NUMBER/locations/global/workloadIdentityPools/github/attribute.repository_id/$REPO_ID"
+```
+The provider path in `deploy.yml` contains the project number `669288809087`. Update it if the project ever changes.
+
+In GitHub → Settings → Environments → `production` (created by the first run), set "Deployment branches" to `main` only.
+
+To release by hand, for example after fixing a failed run: GitHub → Actions → Deploy API → Run workflow on `main`. Tick "force" to release even if the serving revision already runs that commit.
+
+## Releases (manual)
+Use this when GitHub Actions is unavailable. New code goes live only after its migrations have run:
 ```bash
 cd ~/keobong && git pull
 # 1. Build and deploy the new revision without sending it traffic.
@@ -112,4 +145,5 @@ First production deploy done on 2026-10-10: service `daghep-api` at `https://dag
 ```bash
 gcloud run services update-traffic daghep-api --region "$REGION" --to-revisions <previous-revision>=100
 ```
+Before rolling back, disable the automatic releases (GitHub → Actions → Deploy API → ⋯ → Disable workflow). Otherwise the next run on `main` sees the old revision serving and releases the newer code again. Enable the workflow again once the fix is merged.
 Traffic stays pinned until the next release's step 3 (`--to-latest`).
