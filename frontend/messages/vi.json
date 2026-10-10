@@ -31,7 +31,10 @@
     "notFoundBody": "Kèo này không tồn tại hoặc đã bị xoá.",
     "pricePerPlayer": "Mỗi người",
     "cancelled": "Kèo đã huỷ",
-    "cancelledTitlePrefix": "[Đã huỷ]"
+    "cancelledTitlePrefix": "[Đã huỷ]",
+    "placesLeft": "Còn {count} chỗ",
+    "matchFull": "Đã đủ người",
+    "joinedLabel": "Đã có"
   },
   "legal": {
     "contactEmail": "lienhe@daghep.vn",
@@ -239,16 +242,25 @@
   },
   "slots": {
     "title": "Đội hình",
+    "takeSlot": "Vào {team}",
+    "you": "Bạn",
+    "openShort": "Trống",
+    "guestShort": "Khách",
+    "tapHint": "Bấm ô trống để chọn đội",
+    "share": "Chia sẻ",
+    "shareText": "Vào kèo đá bóng cùng mình trên Đá Ghép",
+    "linkCopied": "Đã sao chép link",
+    "shareFailed": "Không chia sẻ được. Hãy sao chép địa chỉ trên trình duyệt.",
+    "payInfoTitle": "Chuyển khoản để giữ chỗ",
+    "payInfoBody": "Sau khi giữ chỗ, bạn có 30 phút để chuyển khoản thẳng cho chủ kèo bằng mã VietQR. Số tiền và nội dung đã điền sẵn.",
     "team": {
       "a": "Đội A",
       "b": "Đội B"
     },
     "openPlaces": "Còn {count} chỗ",
     "full": "Đã đủ người",
-    "emptyPlace": "Chỗ trống",
     "guestOf": "Khách của {name}",
     "signInToJoin": "Đăng nhập để giữ chỗ",
-    "chooseTeam": "Chọn đội",
     "guestsLabel": "Bạn đi cùng (tối đa 2 người)",
     "guestPlaceholder": "Tên bạn đi cùng",
     "addGuest": "+ Thêm bạn đi cùng",

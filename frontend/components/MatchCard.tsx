@@ -1,40 +1,62 @@
 import messages from "../messages/vi.json";
 import type { MatchView } from "../lib/api";
+import type { RosterView } from "../lib/slots";
 import { formatLevelRange, formatMatchDate, formatTimeRange, formatVnd } from "../lib/format";
+import { fill } from "../lib/text";
 
 const t = messages.match;
 
-export function MatchCard({ match }: { match: MatchView }) {
+type Props = {
+  match: MatchView;
+  /** The current roster, when known, to show how many have joined. */
+  roster?: RosterView | null;
+};
+
+export function MatchCard({ match, roster }: Props) {
+  const joined = roster ? roster.teams.reduce((sum, team) => sum + team.players.length, 0) : null;
+  const left = joined === null ? null : Math.max(0, match.slotCount - joined);
+  // The roster is fresher than the cached match, so either may report the cancel first.
+  const cancelled = match.cancelledAt !== null || roster?.cancelled === true;
   return (
     <article className="match-card">
       <header className="match-card__hero">
-        {match.cancelledAt ? <p className="match-card__cancelled">{t.cancelled}</p> : null}
         <div className="match-card__tags">
           <span className="tag tag--dark">{t.matchType[match.matchType]}</span>
-          <span className="tag">{t.format[match.format]}</span>
+          {cancelled ? <span className="tag tag--alert">{t.cancelled}</span> : null}
+          {!cancelled && left !== null ? (
+            <span className="tag tag--light">{left > 0 ? fill(t.placesLeft, { count: left }) : t.matchFull}</span>
+          ) : null}
         </div>
-        <p className="match-card__date">{formatMatchDate(match.startsAt)}</p>
+        <p className="match-card__date">
+          {formatMatchDate(match.startsAt)} · <span>{t.format[match.format]}</span>
+        </p>
         <p className="match-card__time">{formatTimeRange(match.startsAt, match.endsAt)}</p>
         <h1 className="match-card__venue">{match.venueName}</h1>
-        <p className="match-card__price">
-          <span>{t.pricePerPlayer}</span>
-          <strong data-testid="match-price">{formatVnd(match.pricePerPlayerVnd)}</strong>
+        <p className="match-card__fee">
+          {t.totalFee} {formatVnd(match.totalFeeVnd)}
         </p>
+        <dl className="match-card__stats">
+          <div>
+            <dt>{t.pricePerPlayer}</dt>
+            <dd data-testid="match-price">{formatVnd(match.pricePerPlayerVnd)}</dd>
+          </div>
+          <div>
+            <dt>{t.level}</dt>
+            <dd>{formatLevelRange(match.levelMin, match.levelMax)}</dd>
+          </div>
+          {joined === null ? (
+            <div>
+              <dt>{t.slots}</dt>
+              <dd>{`${match.slotCount} ${t.slotsUnit}`}</dd>
+            </div>
+          ) : (
+            <div>
+              <dt>{t.joinedLabel}</dt>
+              <dd data-testid="match-joined">{`${joined}/${match.slotCount}`}</dd>
+            </div>
+          )}
+        </dl>
       </header>
-      <dl className="match-card__stats">
-        <div>
-          <dt>{t.level}</dt>
-          <dd>{formatLevelRange(match.levelMin, match.levelMax)}</dd>
-        </div>
-        <div>
-          <dt>{t.totalFee}</dt>
-          <dd>{formatVnd(match.totalFeeVnd)}</dd>
-        </div>
-        <div>
-          <dt>{t.slots}</dt>
-          <dd>{`${match.slotCount} ${t.slotsUnit}`}</dd>
-        </div>
-      </dl>
     </article>
   );
 }

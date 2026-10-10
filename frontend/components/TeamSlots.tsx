@@ -1,7 +1,8 @@
 "use client";
 
-import { type FormEvent, useCallback, useEffect, useState } from "react";
-import { signInUrl } from "../lib/api";
+import { type FormEvent, type ReactNode, useCallback, useEffect, useState } from "react";
+import { type MatchView, signInUrl } from "../lib/api";
+import { formatTimeRange, formatVnd } from "../lib/format";
 import {
   type MyPlace,
   type RosterView,
@@ -13,16 +14,18 @@ import {
 } from "../lib/slots";
 import { fill } from "../lib/text";
 import { HostPayments } from "./HostPayments";
+import { MatchCard } from "./MatchCard";
 import { PaymentPanel } from "./PaymentPanel";
+import { ShareButton } from "./ShareButton";
 import messages from "../messages/vi.json";
 
 const t = messages.slots;
 const MAX_GUESTS = 2;
+const JOIN_FORM = "join-form";
 const defaultClient = slotsClient();
 
 type Props = {
-  shareId: string;
-  startsAt: string;
+  match: MatchView;
   /** Server-rendered roster; refreshed from the API after every change. */
   initialRoster: RosterView;
   client?: SlotsClient;
@@ -35,16 +38,25 @@ function openPlaces(team: TeamView): number {
 function Avatar({ name, url }: { name: string; url: string | null }) {
   if (url) {
     // Google avatars refuse requests that carry a referrer from other sites.
-    return <img className="avatar" src={url} alt="" width={32} height={32} referrerPolicy="no-referrer" />;
+    return <img className="slot__circle" src={url} alt="" width={40} height={40} referrerPolicy="no-referrer" />;
   }
   return (
-    <span className="avatar avatar--initial" aria-hidden="true">
+    <span className="slot__circle slot__circle--initial" aria-hidden="true">
       {name.trim().charAt(0).toUpperCase()}
     </span>
   );
 }
 
-function TeamColumn({ team }: { team: TeamView }) {
+type Choice = {
+  /** The visitor may pick a team now. */
+  enabled: boolean;
+  /** Places the party would take in this team (0 when another team is chosen). */
+  chosenCount: number;
+  fits: boolean;
+  onChoose: () => void;
+};
+
+function TeamColumn({ team, choice }: { team: TeamView; choice: Choice }) {
   const label = t.team[team.team];
   const open = openPlaces(team);
   return (
@@ -53,34 +65,89 @@ function TeamColumn({ team }: { team: TeamView }) {
         <h3>{label}</h3>
         <span className="muted">{open > 0 ? fill(t.openPlaces, { count: open }) : t.full}</span>
       </header>
-      <ul className="team__players">
+      <ul className="slot-grid">
         {team.players.map((player, index) => {
           const name = player.name ?? messages.auth.anonymousName;
+          const host = player.guestOf ?? messages.auth.anonymousName;
           return (
-            <li key={`${name}-${index}`} className="player">
+            <li
+              key={`${name}-${index}`}
+              className="slot"
+              title={player.isGuest ? fill(t.guestOf, { name: host }) : name}
+            >
               <Avatar name={name} url={player.avatarUrl} />
-              <span className="player__name">
-                {name}
-                {player.isGuest ? (
-                  <small className="muted">
-                    {fill(t.guestOf, { name: player.guestOf ?? messages.auth.anonymousName })}
-                  </small>
-                ) : null}
-              </span>
+              <span className="slot__caption">{name}</span>
+              {player.isGuest ? <small className="visually-hidden">{fill(t.guestOf, { name: host })}</small> : null}
             </li>
           );
         })}
-        {Array.from({ length: open }, (_, index) => (
-          <li key={`open-${index}`} className="player player--open">
-            {t.emptyPlace}
-          </li>
-        ))}
+        {Array.from({ length: open }, (_, index) => {
+          const chosen = index < choice.chosenCount;
+          const caption = chosen ? (index === 0 ? t.you : t.guestShort) : t.openShort;
+          return (
+            <li key={`open-${index}`} className={chosen ? "slot slot--chosen" : "slot slot--open"}>
+              {choice.enabled ? (
+                <button
+                  type="button"
+                  className="slot__circle slot__button"
+                  aria-label={fill(t.takeSlot, { team: label })}
+                  aria-pressed={chosen}
+                  disabled={!choice.fits}
+                  onClick={choice.onChoose}
+                >
+                  {chosen ? <CheckIcon /> : <PlusIcon />}
+                </button>
+              ) : (
+                <span className="slot__circle slot__button" aria-hidden="true">
+                  <PlusIcon />
+                </span>
+              )}
+              <span className="slot__caption">{caption}</span>
+            </li>
+          );
+        })}
       </ul>
     </section>
   );
 }
 
-export function TeamSlots({ shareId, startsAt, initialRoster, client = defaultClient }: Props) {
+function CheckIcon() {
+  return (
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M5 12.5l4.5 4.5L19 7.5" />
+    </svg>
+  );
+}
+
+function PlusIcon() {
+  return (
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.4"
+      strokeLinecap="round"
+      aria-hidden="true"
+    >
+      <path d="M12 5v14M5 12h14" />
+    </svg>
+  );
+}
+
+export function TeamSlots({ match, initialRoster, client = defaultClient }: Props) {
+  const { shareId, startsAt } = match;
   const [roster, setRoster] = useState(initialRoster);
   const [mine, setMine] = useState<MyPlace | null>(null);
   // Decided after hydration so server and client render the same markup.
@@ -115,6 +182,23 @@ export function TeamSlots({ shareId, startsAt, initialRoster, client = defaultCl
   const fits = (candidate: TeamView) => openPlaces(candidate) >= partySize;
   const chosenView = roster.teams.find((candidate) => candidate.team === team && fits(candidate));
   const chosen = chosenView?.team ?? roster.teams.find(fits)?.team ?? null;
+
+  const canChoose = !roster.cancelled && !started && !loadFailed && mine?.status === "out";
+
+  function joinLabel(chosenTeam: Team): string {
+    const label = fill(t.join, { team: t.team[chosenTeam] });
+    const amount = match.pricePerPlayerVnd * partySize;
+    return amount > 0 ? `${label} · ${formatVnd(amount)}` : label;
+  }
+
+  function choiceFor(candidate: TeamView) {
+    return {
+      enabled: canChoose && !busy,
+      chosenCount: canChoose && chosen === candidate.team ? partySize : 0,
+      fits: fits(candidate),
+      onChoose: () => setTeam(candidate.team),
+    };
+  }
 
   function showError(code: SlotError) {
     setError(t.errors[code]);
@@ -217,22 +301,8 @@ export function TeamSlots({ shareId, startsAt, initialRoster, client = defaultCl
     if (started) {
       return <p className="muted">{t.started}</p>;
     }
-    if (loadFailed) {
-      return (
-        <button type="button" className="button-secondary" onClick={loadMine}>
-          {t.retry}
-        </button>
-      );
-    }
-    if (!mine) {
+    if (loadFailed || !mine || mine.status === "signedOut") {
       return null;
-    }
-    if (mine.status === "signedOut") {
-      return (
-        <a href={signInUrl(`/m/${shareId}`)} className="button-primary">
-          {t.signInToJoin}
-        </a>
-      );
     }
     if (mine.status === "in") {
       return (
@@ -240,7 +310,9 @@ export function TeamSlots({ shareId, startsAt, initialRoster, client = defaultCl
           <p>
             <strong>{fill(t.joined, { team: t.team[mine.team] })}</strong>
           </p>
-          {mine.guests.length > 0 ? <p className="muted">{fill(t.withGuests, { names: mine.guests.join(", ") })}</p> : null}
+          {mine.guests.length > 0 ? (
+            <p className="muted">{fill(t.withGuests, { names: mine.guests.join(", ") })}</p>
+          ) : null}
           <PaymentPanel place={mine} onReport={reportPayment} onExpired={reloadAfterExpiry} busy={busy} />
           <button type="button" className="button-secondary" onClick={leave} disabled={busy}>
             {busy ? t.leaving : t.leave}
@@ -249,25 +321,7 @@ export function TeamSlots({ shareId, startsAt, initialRoster, client = defaultCl
       );
     }
     return (
-      <form className="join-form" onSubmit={join} noValidate>
-        <fieldset className="field">
-          <legend>{t.chooseTeam}</legend>
-          <div className="segmented segmented--two">
-            {roster.teams.map((candidate) => (
-              <label key={candidate.team} className="segmented__option">
-                <input
-                  type="radio"
-                  name="team"
-                  value={candidate.team}
-                  checked={chosen === candidate.team}
-                  disabled={!fits(candidate)}
-                  onChange={() => setTeam(candidate.team)}
-                />
-                <span>{t.team[candidate.team]}</span>
-              </label>
-            ))}
-          </div>
-        </fieldset>
+      <form id={JOIN_FORM} className="join-form" onSubmit={join} noValidate>
         <fieldset className="field">
           <legend>{t.guestsLabel}</legend>
           {guests.map((name, index) => (
@@ -295,36 +349,82 @@ export function TeamSlots({ shareId, startsAt, initialRoster, client = defaultCl
             </button>
           ) : null}
         </fieldset>
-        <button type="submit" className="button-primary" disabled={!chosen || busy}>
-          {busy ? t.joining : chosen ? fill(t.join, { team: t.team[chosen] }) : t.full}
-        </button>
+        {match.pricePerPlayerVnd > 0 ? (
+          <div className="pay-info">
+            <strong>{t.payInfoTitle}</strong>
+            <p className="muted">{t.payInfoBody}</p>
+          </div>
+        ) : null}
       </form>
     );
   }
 
+  /** The main action in the bottom bar, next to sharing. */
+  function primaryAction(): ReactNode {
+    if (roster.cancelled || started) {
+      return null;
+    }
+    if (loadFailed) {
+      return (
+        <button type="button" className="button-primary" onClick={loadMine}>
+          {t.retry}
+        </button>
+      );
+    }
+    if (mine?.status === "signedOut") {
+      return (
+        <a href={signInUrl(`/m/${shareId}`)} className="button-primary">
+          {t.signInToJoin}
+        </a>
+      );
+    }
+    if (mine?.status === "out") {
+      return (
+        <button type="submit" form={JOIN_FORM} className="button-primary" disabled={!chosen || busy}>
+          {busy ? t.joining : chosen ? joinLabel(chosen) : t.full}
+        </button>
+      );
+    }
+    return null;
+  }
+
   return (
-    <section className="team-slots" aria-labelledby="team-slots-title">
-      <h2 id="team-slots-title" className="team-slots__title">
-        {t.title}
-      </h2>
-      <div className="team-slots__teams">
-        {roster.teams.map((candidate) => (
-          <TeamColumn key={candidate.team} team={candidate} />
-        ))}
-      </div>
-      {error ? (
-        <p className="form-error" role="alert">
-          {error}
-        </p>
-      ) : null}
-      {actions()}
-      <HostPayments
-        shareId={shareId}
-        startsAt={startsAt}
-        cancelled={roster.cancelled}
-        client={client}
-        onChange={refreshRoster}
-      />
-    </section>
+    <>
+      <MatchCard match={match} roster={roster} />
+      <section className="team-slots" aria-labelledby="team-slots-title">
+        <div className="roster-card">
+          <header className="roster-card__header">
+            <h2 id="team-slots-title" className="team-slots__title">
+              {t.title}
+            </h2>
+            {canChoose ? <span className="muted">{t.tapHint}</span> : null}
+          </header>
+          {roster.teams.map((candidate) => (
+            <TeamColumn key={candidate.team} team={candidate} choice={choiceFor(candidate)} />
+          ))}
+        </div>
+        {error ? (
+          <p className="form-error" role="alert">
+            {error}
+          </p>
+        ) : null}
+        {actions()}
+        <HostPayments
+          shareId={shareId}
+          startsAt={startsAt}
+          cancelled={roster.cancelled}
+          client={client}
+          onChange={refreshRoster}
+        />
+        {/* Rendered once, so the share button keeps its state while the rest changes. */}
+        <div className="action-bar">
+          <ShareButton
+            shareId={shareId}
+            title={`${match.venueName} · ${formatTimeRange(match.startsAt, match.endsAt)}`}
+          />
+          {primaryAction()}
+        </div>
+      </section>
+    </>
   );
 }
