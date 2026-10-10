@@ -17,7 +17,10 @@ type Props = {
   client: SlotsClient;
   /** Called after a change so the roster can refresh. */
   onChange: () => void;
-  /** Tells the page whether the visitor hosts this match, once known. */
+  /**
+   * Tells the page whether the visitor hosts this match, once known. Pass a stable
+   * function (such as a state setter): a new one each render would reload the list.
+   */
   onHostKnown?: (isHost: boolean) => void;
 };
 

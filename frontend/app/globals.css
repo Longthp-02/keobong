@@ -829,8 +829,13 @@ button.slot__button:focus-visible {
   margin: 0;
 }
 
+/* Empty, it takes no space but stays in the accessibility tree, so the next message is announced. */
 .action-bar__note:empty {
-  display: none;
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
 }
 
 .action-bar__note {
