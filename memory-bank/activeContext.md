@@ -3,7 +3,7 @@
 > Update after every meaningful AI session.
 
 ## Current Focus
-Production is live (2026-10-10): API on Cloud Run (`daghep-api`, asia-southeast1) with Neon (Singapore), web on Vercel proxying `/api`. Verified end to end with real Google sign-in: payout account, paid match, join from a second account, VietQR scan, report, confirm, cancel, sign-out. Match page redesigned to the Claude Design canvas (PR #11). Next: the match list (home) with filters, then Zalo login (PR 3f) once Long activates the Zalo app. Host card, per-player level and distance need backend data first.
+Production is live (2026-10-10): API on Cloud Run (`daghep-api`, asia-southeast1) with Neon (Singapore), web on Vercel proxying `/api`. Verified end to end with real Google sign-in: payout account, paid match, join from a second account, VietQR scan, report, confirm, cancel, sign-out. Match page redesigned to the Claude Design canvas (PR #11). Venues and the home match list (PR #12): fixed venue list (3 launch venues in District 2), GET /api/venues, GET /api/matches with day/type filters, distance and cursor paging; home page from the Main artboard. After merging, the API must be released (migrations add venues). Next: Zalo login (PR 3f) once Long activates the Zalo app; host card and per-player levels need profiles.
 
 ## Latest Decisions
 - Name: Daghep (UI: "Da Ghep" with Vietnamese diacritics in vi.json); domain daghep.vn owned by Long (active). Renamed from "Keo" because "keo bong" reads as football betting slang.
@@ -34,4 +34,4 @@ Production is live (2026-10-10): API on Cloud Run (`daghep-api`, asia-southeast1
 - Zalo for Developers: activate the app, verify the domain daghep.vn, set the callback `https://daghep.vn/api/auth/zalo/callback`.
 
 ## Next Safe Step
-The paginated match list (home page) with date, type and distance filters, following the Main artboard of the design canvas.
+Release the API after PR #12 merges (migrate job adds venues), then check the home list and create a match with a venue on production.

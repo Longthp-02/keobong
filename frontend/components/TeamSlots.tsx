@@ -51,6 +51,8 @@ function Avatar({ name, url }: { name: string; url: string | null }) {
 type Choice = {
   /** The visitor may pick a team now. */
   enabled: boolean;
+  /** Nobody can take a place any more (cancelled or started), so open places look unavailable. */
+  inactive: boolean;
   /** Places the party would take in this team (0 when another team is chosen). */
   chosenCount: number;
   fits: boolean;
@@ -90,7 +92,10 @@ function TeamColumn({ team, choice }: { team: TeamView; choice: Choice }) {
           // focusable, so assistive technology hears one choice per team.
           const first = index === 0;
           return (
-            <li key={`open-${index}`} className={chosen ? "slot slot--chosen" : "slot slot--open"}>
+            <li
+              key={`open-${index}`}
+              className={chosen ? "slot slot--chosen" : `slot slot--open${choice.inactive ? " slot--inactive" : ""}`}
+            >
               {choice.enabled ? (
                 <button
                   type="button"
@@ -205,6 +210,7 @@ export function TeamSlots({ match, initialRoster, client = defaultClient }: Prop
   function choiceFor(candidate: TeamView) {
     return {
       enabled: canChoose && !busy,
+      inactive: roster.cancelled || started,
       chosenCount: canChoose && chosen === candidate.team ? partySize : 0,
       fits: fits(candidate),
       onChoose: () => setTeam(candidate.team),

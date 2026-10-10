@@ -23,6 +23,7 @@ const MATCH: MatchView = {
   slotCount: 6,
   pricePerPlayerVnd: 0,
   cancelledAt: null,
+  venueAddress: null,
 };
 
 function roster(aPlayers: string[] = [], bPlayers: string[] = [], capacity = 3): RosterView {
@@ -465,5 +466,16 @@ describe("TeamSlots", () => {
 
     // jsdom has neither a share sheet nor a clipboard.
     expect(await screen.findByText(t.shareFailed)).toBeTruthy();
+  });
+
+  it("greys out open places that can no longer be taken", async () => {
+    const cancelled = { ...roster(["Long"]), cancelled: true };
+    const api = client({ status: "out" }, { roster: vi.fn().mockResolvedValue(cancelled) });
+    const { container } = render(<TeamSlots match={MATCH} initialRoster={cancelled} client={api} />);
+
+    await screen.findByText(t.cancelled);
+    const open = container.querySelectorAll(".slot--open");
+    expect(open.length).toBe(5);
+    open.forEach((slot) => expect(slot.classList.contains("slot--inactive")).toBe(true));
   });
 });

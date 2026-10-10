@@ -1,7 +1,7 @@
 "use client";
 
 import { type FormEvent, useState } from "react";
-import type { CreateMatchInput, MatchView } from "../lib/api";
+import type { CreateMatchInput, MatchView, Venue } from "../lib/api";
 import { formatVnd } from "../lib/format";
 import {
   MAX_DURATION_HOURS,
@@ -19,6 +19,8 @@ const MATCH_TYPES: MatchView["matchType"][] = ["casual", "competitive", "beginne
 const LEVELS = Array.from({ length: 9 }, (_, i) => 1 + i * 0.5);
 
 type Props = {
+  /** Venues the host can choose from. */
+  venues: Venue[];
   /** Resolves with the rejected field, or undefined when the match was created (the caller navigates). */
   onSubmit: (input: CreateMatchInput) => Promise<{ field: string } | undefined>;
   /** Whether the host saved a payout account; a paid match needs one. */
@@ -47,12 +49,14 @@ function parseWholeNumber(value: string): number | null {
 
 /** Client-side checks for what the browser form cannot express; the API re-validates everything. */
 function checkInputs(values: {
+  venueId: string;
   date: string;
   startTime: string;
   endTime: string;
   totalFee: string;
   slotCount: string;
 }): string | null {
+  if (!values.venueId) return "venueId";
   if (!values.date || !values.startTime) return "startsAt";
   // Same-day matches only: the end must be after the start, within the limit.
   const duration = values.endTime ? minutesOfDay(values.endTime) - minutesOfDay(values.startTime) : 0;
@@ -69,8 +73,9 @@ function errorMessage(field: string): string {
   return errors[field] ?? t.errors.unknown;
 }
 
-export function CreateMatchForm({ onSubmit, hasPayout = true }: Props) {
-  const [venueName, setVenueName] = useState("");
+export function CreateMatchForm({ venues, onSubmit, hasPayout = true }: Props) {
+  const [venueId, setVenueId] = useState("");
+  const venue = venues.find((candidate) => candidate.id === venueId) ?? null;
   const [date, setDate] = useState("");
   const [startTime, setStartTime] = useState("");
   const [endTime, setEndTime] = useState("");
@@ -105,7 +110,7 @@ export function CreateMatchForm({ onSubmit, hasPayout = true }: Props) {
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const invalid =
-      checkInputs({ date, startTime, endTime, totalFee, slotCount }) ?? (needsPayout ? "payout" : null);
+      checkInputs({ venueId, date, startTime, endTime, totalFee, slotCount }) ?? (needsPayout ? "payout" : null);
     if (invalid) {
       showError(invalid, errorMessage(invalid));
       return;
@@ -115,7 +120,8 @@ export function CreateMatchForm({ onSubmit, hasPayout = true }: Props) {
     setSubmitting(true);
     try {
       const rejected = await onSubmit({
-        venueName,
+        venueId,
+        venueName: venue?.name ?? "",
         startsAt: toUtcIso(date, startTime),
         endsAt: toUtcIso(date, endTime),
         format,
@@ -143,18 +149,25 @@ export function CreateMatchForm({ onSubmit, hasPayout = true }: Props) {
     <form className="create-form" onSubmit={handleSubmit} noValidate>
       <h1 className="create-form__title">{t.title}</h1>
 
-      <label className="field">
-        <span>{t.venue}</span>
-        <input
-          type="text"
-          value={venueName}
-          maxLength={120}
-          placeholder={t.venuePlaceholder}
-          onChange={(e) => setVenueName(e.target.value)}
-          {...invalidProps("venueName")}
+      <div className="field">
+        <label htmlFor="create-venue">{t.venue}</label>
+        <select
+          id="create-venue"
+          value={venueId}
+          onChange={(e) => setVenueId(e.target.value)}
+          {...invalidProps("venueId")}
           required
-        />
-      </label>
+        >
+          <option value="">{t.venuePlaceholder}</option>
+          {venues.map((option) => (
+            <option key={option.id} value={option.id}>
+              {option.name}
+            </option>
+          ))}
+        </select>
+        {venue ? <span className="field-hint">{venue.address}</span> : null}
+        <span className="field-hint">{t.venueMissing}</span>
+      </div>
 
       <label className="field">
         <span>{t.date}</span>

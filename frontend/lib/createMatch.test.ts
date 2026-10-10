@@ -2,7 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 import { type CreateMatchInput, createMatch } from "./api";
 
 const input: CreateMatchInput = {
-  venueName: "SSA Sports Center",
+  venueId: "ssa-amitie",
+  venueName: "SSA Sports Center (Amitie Thảo Điền)",
   startsAt: "2099-10-10T11:30:00.000Z",
   endsAt: "2099-10-10T13:00:00.000Z",
   format: "seven_a_side",
