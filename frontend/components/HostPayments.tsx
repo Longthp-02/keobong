@@ -19,7 +19,11 @@ type Props = {
   onChange: () => void;
 };
 
-function statusText(party: HostParty): string {
+function statusText(party: HostParty, cancelled: boolean): string {
+  if (party.paymentStatus === "awaiting_payment" && cancelled) {
+    // Holds are frozen at cancellation; the old deadline no longer means anything.
+    return t.status.awaiting_payment_frozen;
+  }
   if (party.paymentStatus === "awaiting_payment" && party.holdExpiresAt) {
     return fill(t.status.awaiting_payment, { time: formatClock(party.holdExpiresAt) });
   }
@@ -117,7 +121,7 @@ export function HostPayments({ shareId, startsAt, cancelled, client, onChange }:
             <div className="host-party__money">
               <strong>{formatVnd(party.amountVnd)}</strong>
               <span className={party.paymentStatus === "confirmed" ? "pay-status--done" : "muted"}>
-                {statusText(party)}
+                {statusText(party, cancelled)}
               </span>
             </div>
             {!canAct ? null : party.paymentStatus !== "confirmed" && confirmingReject === party.paymentCode ? (
@@ -131,7 +135,7 @@ export function HostPayments({ shareId, startsAt, cancelled, client, onChange }:
                 <button type="button" className="button-small" onClick={() => act(party, "reject")} disabled={busy}>
                   {t.rejectYes}
                 </button>
-                <button type="button" className="link-button" onClick={() => setConfirmingReject(null)}>
+                <button type="button" className="link-button" onClick={() => setConfirmingReject(null)} autoFocus>
                   {t.rejectNo}
                 </button>
               </div>
@@ -163,7 +167,8 @@ export function HostPayments({ shareId, startsAt, cancelled, client, onChange }:
             <button type="button" className="button-danger" onClick={cancelMatch} disabled={busy}>
               {t.cancelYes}
             </button>
-            <button type="button" className="link-button" onClick={() => setConfirmingCancel(false)}>
+            {/* Focus lands on the safe choice when the question appears. */}
+            <button type="button" className="link-button" onClick={() => setConfirmingCancel(false)} autoFocus>
               {t.cancelNo}
             </button>
           </div>

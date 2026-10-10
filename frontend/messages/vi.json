@@ -320,7 +320,8 @@
     "status": {
       "awaiting_payment": "Chờ chuyển khoản đến {time}",
       "payment_reported": "Đã báo chuyển khoản",
-      "confirmed": "Đã nhận tiền"
+      "confirmed": "Đã nhận tiền",
+      "awaiting_payment_frozen": "Chưa chuyển khoản"
     },
     "confirm": "Đã nhận",
     "reject": "Chưa nhận được tiền",

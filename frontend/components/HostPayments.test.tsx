@@ -139,4 +139,24 @@ describe("HostPayments", () => {
       expect(screen.queryByRole("button", { name })).toBeNull();
     }
   });
+
+  it("shows unpaid parties of a cancelled match without a deadline", async () => {
+    const api = client({
+      hostParties: vi.fn().mockResolvedValue({
+        status: "host",
+        parties: [party({ paymentStatus: "awaiting_payment", holdExpiresAt: "2099-10-10T03:42:00Z" })],
+      }),
+    });
+    render(<HostPayments shareId="k7Qm2xPa" startsAt={FUTURE} cancelled client={api} onChange={vi.fn()} />);
+
+    expect(await screen.findByText(t.status.awaiting_payment_frozen)).toBeTruthy();
+  });
+
+  it("moves focus to the safe choice when asking to cancel", async () => {
+    render(<HostPayments shareId="k7Qm2xPa" startsAt={FUTURE} cancelled={false} client={client({})} onChange={vi.fn()} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: t.cancel }));
+
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: t.cancelNo }));
+  });
 });
