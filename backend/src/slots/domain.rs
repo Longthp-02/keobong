@@ -329,6 +329,14 @@ pub trait SlotRepository: Send + Sync {
         now: DateTime<Utc>,
     ) -> impl Future<Output = Result<ReleaseOutcome, RepoError>> + Send;
 
+    /// Places held in each of these matches (expired holds excluded), keyed by
+    /// share id. Unknown matches are left out.
+    fn taken_places(
+        &self,
+        match_ids: &[ShareId],
+        now: DateTime<Utc>,
+    ) -> impl Future<Output = Result<std::collections::HashMap<String, i64>, RepoError>> + Send;
+
     /// `None` when the match does not exist.
     fn roster(
         &self,

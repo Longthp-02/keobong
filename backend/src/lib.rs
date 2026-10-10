@@ -3,6 +3,7 @@
 pub mod auth;
 pub mod clock;
 pub mod config;
+pub mod discovery;
 pub mod matches;
 pub mod payments;
 pub mod random;
@@ -61,6 +62,11 @@ pub fn app(deps: Deps) -> Router {
             payments::PgPayoutRepository::new(deps.pool.clone()),
             deps.clock.clone(),
             auth_state.clone(),
+        ))
+        .merge(discovery::router(
+            matches::PgMatchRepository::new(deps.pool.clone()),
+            slots::PgSlotRepository::new(deps.pool.clone()),
+            deps.clock.clone(),
         ))
         .merge(slots::router(
             slots::PgSlotRepository::new(deps.pool.clone()),

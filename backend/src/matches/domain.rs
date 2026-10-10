@@ -2,10 +2,9 @@
 
 use std::future::Future;
 
-use chrono::{DateTime, Duration, FixedOffset, Utc};
+use chrono::{DateTime, Duration, FixedOffset, NaiveDate, NaiveTime, TimeZone, Utc};
 
 use crate::auth::UserId;
-use crate::text::is_disallowed_in_names;
 
 /// Public, unguessable identifier used in share links. Internal ids never leave the database.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -24,6 +23,33 @@ impl ShareId {
     pub fn as_str(&self) -> &str {
         &self.0
     }
+}
+
+/// Public identifier of a venue, such as `ssa-amitie`. The numeric id stays in the database.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VenueSlug(String);
+
+impl VenueSlug {
+    /// Accepts 2–40 characters from `[a-z0-9-]`, matching the database constraint.
+    pub fn parse(raw: &str) -> Option<Self> {
+        let valid_len = (2..=40).contains(&raw.len());
+        let valid_chars = raw
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-');
+        (valid_len && valid_chars).then(|| Self(raw.to_owned()))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+/// A pitch hosts can choose. At launch the list is fixed (confirmed by Long 2026-10-10).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Venue {
+    pub slug: VenueSlug,
+    pub name: String,
+    pub address: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -58,6 +84,8 @@ impl Level {
 pub struct Match {
     pub share_id: ShareId,
     pub venue_name: String,
+    /// `None` for matches created before venues existed.
+    pub venue_address: Option<String>,
     pub starts_at: DateTime<Utc>,
     pub ends_at: DateTime<Utc>,
     pub format: Format,
@@ -126,7 +154,6 @@ pub fn price_per_player_vnd(total_fee_vnd: i64, slot_count: i16) -> i64 {
 // SLOT_COUNT_RANGE, MAX_TOTAL_FEE_VND and MAX_DURATION_HOURS are mirrored in
 // frontend/lib/pricing.ts for the form; change both sides together.
 pub const SLOT_COUNT_RANGE: std::ops::RangeInclusive<i16> = 2..=30;
-pub const VENUE_NAME_MAX_CHARS: usize = 120;
 /// Largest total fee (confirmed by Long 2026-10-04); also enforced by a DB constraint.
 pub const MAX_TOTAL_FEE_VND: i64 = 100_000_000;
 /// How far ahead a match can be created.
@@ -146,7 +173,8 @@ fn same_local_day(start: DateTime<Utc>, end: DateTime<Utc>) -> bool {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Field {
-    VenueName,
+    /// The chosen venue is malformed, unknown or no longer offered.
+    Venue,
     StartsAt,
     EndsAt,
     Format,
@@ -161,7 +189,8 @@ pub enum Field {
 
 #[derive(Debug, Clone)]
 pub struct NewMatchInput {
-    pub venue_name: String,
+    /// Slug of the chosen venue.
+    pub venue: String,
     pub starts_at: DateTime<Utc>,
     pub ends_at: DateTime<Utc>,
     pub format: Format,
@@ -174,7 +203,7 @@ pub struct NewMatchInput {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct NewMatch {
-    pub venue_name: String,
+    pub venue: VenueSlug,
     pub starts_at: DateTime<Utc>,
     pub ends_at: DateTime<Utc>,
     pub format: Format,
@@ -188,14 +217,8 @@ pub struct NewMatch {
 impl NewMatch {
     /// Checks every rule in field order and returns the first offending field.
     pub fn validate(input: NewMatchInput, now: DateTime<Utc>) -> Result<Self, Field> {
-        let venue_name = input.venue_name.trim().to_owned();
-        let venue_len = venue_name.chars().count();
-        if venue_len == 0
-            || venue_len > VENUE_NAME_MAX_CHARS
-            || venue_name.chars().any(is_disallowed_in_names)
-        {
-            return Err(Field::VenueName);
-        }
+        // Whether the venue exists and is offered is checked when storing.
+        let venue = VenueSlug::parse(&input.venue).ok_or(Field::Venue)?;
         if input.starts_at <= now || input.starts_at > now + Duration::days(MAX_DAYS_AHEAD) {
             return Err(Field::StartsAt);
         }
@@ -220,7 +243,7 @@ impl NewMatch {
                 .ok_or(Field::SlotCount)?,
         };
         Ok(Self {
-            venue_name,
+            venue,
             starts_at: input.starts_at,
             ends_at: input.ends_at,
             format: input.format,
@@ -242,10 +265,12 @@ pub enum RepoError {
 }
 
 impl Match {
-    pub fn from_new(share_id: ShareId, new: NewMatch) -> Self {
+    /// The stored match: name and address come from the venue at creation time.
+    pub fn from_new(share_id: ShareId, new: NewMatch, venue: Venue) -> Self {
         Self {
             share_id,
-            venue_name: new.venue_name,
+            venue_name: venue.name,
+            venue_address: Some(venue.address),
             starts_at: new.starts_at,
             ends_at: new.ends_at,
             format: new.format,
@@ -309,6 +334,8 @@ impl MatchType {
 pub enum InsertError {
     #[error("share id already taken")]
     DuplicateShareId,
+    #[error("venue unknown or no longer offered")]
+    UnknownVenue,
     #[error(transparent)]
     Repo(#[from] RepoError),
 }
@@ -320,12 +347,22 @@ pub trait MatchRepository: Send + Sync {
         id: &ShareId,
     ) -> impl Future<Output = Result<Option<Match>, RepoError>> + Send;
 
+    /// Stores the match at its venue (copying the venue's location) and returns the venue.
     fn insert(
         &self,
         share_id: &ShareId,
         new: &NewMatch,
         host: UserId,
-    ) -> impl Future<Output = Result<(), InsertError>> + Send;
+    ) -> impl Future<Output = Result<Venue, InsertError>> + Send;
+
+    /// Venues hosts can choose from, in a stable order.
+    fn active_venues(&self) -> impl Future<Output = Result<Vec<Venue>, RepoError>> + Send;
+
+    /// Matches that are not cancelled and start in `query`'s window, by kickoff then share id.
+    fn upcoming(
+        &self,
+        query: &UpcomingQuery,
+    ) -> impl Future<Output = Result<Vec<ListedMatch>, RepoError>> + Send;
 
     /// Cancels the match if [`decide_cancel`] allows it, atomically.
     fn cancel(
@@ -366,6 +403,98 @@ pub fn decide_cancel(
     }
 }
 
+/// Matches are listed for today and the next six days (confirmed by Long 2026-10-10).
+pub const LIST_DAYS: i64 = 7;
+/// Candidates per page of the match list.
+pub const LIST_PAGE_SIZE: i64 = 20;
+
+/// Start of a local calendar day in Ho Chi Minh City, as an instant.
+fn local_midnight(day: NaiveDate) -> DateTime<Utc> {
+    LOCAL_OFFSET
+        .from_local_datetime(&day.and_time(NaiveTime::MIN))
+        .single()
+        .map(|t| t.with_timezone(&Utc))
+        // A fixed offset has no gaps or overlaps, so this is never reached.
+        .unwrap_or_else(|| day.and_time(NaiveTime::MIN).and_utc())
+}
+
+/// The kickoff window `[from, until)` for the list: one local day if `day` is
+/// given (it must be one of the listed days), else all of them. Matches that
+/// have started are never included.
+pub fn list_window(
+    now: DateTime<Utc>,
+    day: Option<NaiveDate>,
+) -> Option<(DateTime<Utc>, DateTime<Utc>)> {
+    let today = now.with_timezone(&LOCAL_OFFSET).date_naive();
+    let last = today + Duration::days(LIST_DAYS - 1);
+    let (first_day, last_day) = match day {
+        Some(day) if day < today || day > last => return None,
+        Some(day) => (day, day),
+        None => (today, last),
+    };
+    let from = local_midnight(first_day).max(now);
+    Some((from, local_midnight(last_day + Duration::days(1))))
+}
+
+/// Where the visitor is, to show distances. Never stored.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct GeoPoint {
+    pub lat: f64,
+    pub lng: f64,
+}
+
+impl GeoPoint {
+    pub fn new(lat: f64, lng: f64) -> Option<Self> {
+        let valid = lat.is_finite() && lng.is_finite() && lat.abs() <= 90.0 && lng.abs() <= 180.0;
+        valid.then_some(Self { lat, lng })
+    }
+}
+
+/// Position in the match list: the last match of the previous page.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ListCursor {
+    pub starts_at: DateTime<Utc>,
+    pub share_id: ShareId,
+}
+
+impl ListCursor {
+    /// `<kickoff in Unix milliseconds>.<share id>`; `.` never appears in share ids.
+    pub fn encode(&self) -> String {
+        format!(
+            "{}.{}",
+            self.starts_at.timestamp_millis(),
+            self.share_id.as_str()
+        )
+    }
+
+    pub fn decode(raw: &str) -> Option<Self> {
+        let (millis, share_id) = raw.split_once('.')?;
+        Some(Self {
+            starts_at: DateTime::from_timestamp_millis(millis.parse().ok()?)?,
+            share_id: ShareId::parse(share_id)?,
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct UpcomingQuery {
+    /// Matches starting at or before this have started and are left out.
+    pub now: DateTime<Utc>,
+    pub from: DateTime<Utc>,
+    pub until: DateTime<Utc>,
+    pub match_type: Option<MatchType>,
+    pub near: Option<GeoPoint>,
+    pub after: Option<ListCursor>,
+    pub limit: i64,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ListedMatch {
+    pub found: Match,
+    /// Metres from the visitor, when they shared where they are and the match has a location.
+    pub distance_m: Option<f64>,
+}
+
 pub use crate::clock::{Clock, SystemClock};
 
 #[cfg(test)]
@@ -387,22 +516,76 @@ mod tests {
     }
 
     #[test]
-    fn venue_name_rejects_control_and_bidi_characters() {
-        for bad in ["SSA\u{0}x", "SSA\nCenter", "SSA\u{202E}x", "SSA\u{2066}x"] {
-            let mut i = input();
-            i.venue_name = bad.to_owned();
-            assert_eq!(
-                NewMatch::validate(i, now()).unwrap_err(),
-                Field::VenueName,
-                "{bad:?}"
-            );
+    fn venue_slug_accepts_only_lowercase_letters_digits_and_dashes() {
+        assert!(VenueSlug::parse("ssa-amitie").is_some());
+        assert!(VenueSlug::parse("an-phu-2").is_some());
+        for bad in [
+            "",
+            "a",
+            "SSA",
+            "ssa amitie",
+            "ssa_amitie",
+            "sân",
+            &"x".repeat(41),
+        ] {
+            assert!(VenueSlug::parse(bad).is_none(), "{bad:?}");
         }
+    }
+
+    #[test]
+    fn list_window_covers_today_and_the_next_six_local_days() {
+        // 07:00 on 1 October in Ho Chi Minh City.
+        let now: DateTime<Utc> = "2099-10-01T00:00:00Z".parse().unwrap();
+        let day = |d: &str| NaiveDate::parse_from_str(d, "%Y-%m-%d").unwrap();
+        let at = |t: &str| t.parse::<DateTime<Utc>>().unwrap();
+
+        assert_eq!(
+            list_window(now, None),
+            Some((now, at("2099-10-07T17:00:00Z")))
+        );
+        // Today starts now, not at midnight: started matches are left out.
+        assert_eq!(
+            list_window(now, Some(day("2099-10-01"))),
+            Some((now, at("2099-09-30T17:00:00Z") + Duration::days(1)))
+        );
+        assert_eq!(
+            list_window(now, Some(day("2099-10-07"))),
+            Some((at("2099-10-06T17:00:00Z"), at("2099-10-07T17:00:00Z")))
+        );
+        assert_eq!(list_window(now, Some(day("2099-10-08"))), None);
+        assert_eq!(list_window(now, Some(day("2099-09-30"))), None);
+    }
+
+    #[test]
+    fn list_cursor_round_trips_and_rejects_garbage() {
+        let cursor = ListCursor {
+            starts_at: "2099-10-02T11:00:00.123Z".parse().unwrap(),
+            share_id: ShareId::parse("k7Qm-x_Pa").unwrap(),
+        };
+        assert_eq!(ListCursor::decode(&cursor.encode()), Some(cursor));
+        for bad in [
+            "",
+            "abc",
+            "123",
+            "x.k7Qm2xPa",
+            "123.bad!id12",
+            "9999999999999999999.k7Qm2xPa",
+        ] {
+            assert!(ListCursor::decode(bad).is_none(), "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn geo_point_must_be_on_earth() {
+        assert!(GeoPoint::new(10.8, 106.7).is_some());
+        assert!(GeoPoint::new(91.0, 106.7).is_none());
+        assert!(GeoPoint::new(10.8, -181.0).is_none());
+        assert!(GeoPoint::new(f64::NAN, 106.7).is_none());
     }
 
     #[test]
     fn boundaries_are_inclusive() {
         let mut i = input();
-        i.venue_name = "Đ".repeat(120);
         i.slot_count = Some(2);
         i.total_fee_vnd = MAX_TOTAL_FEE_VND;
         assert!(NewMatch::validate(i, now()).is_ok());
@@ -450,7 +633,7 @@ mod tests {
 
     fn input() -> NewMatchInput {
         NewMatchInput {
-            venue_name: "  SSA Sports Center ".to_owned(),
+            venue: "ssa-amitie".to_owned(),
             starts_at: "2026-10-10T11:30:00Z".parse().unwrap(),
             ends_at: "2026-10-10T13:00:00Z".parse().unwrap(),
             format: Format::SevenASide,
@@ -463,10 +646,10 @@ mod tests {
     }
 
     #[test]
-    fn valid_input_is_trimmed_and_gets_default_slots() {
+    fn valid_input_gets_default_slots() {
         let new = NewMatch::validate(input(), now()).unwrap();
 
-        assert_eq!(new.venue_name, "SSA Sports Center");
+        assert_eq!(new.venue.as_str(), "ssa-amitie");
         assert_eq!(new.slot_count, 18);
     }
 
@@ -474,8 +657,8 @@ mod tests {
     fn invalid_input_reports_the_first_bad_field() {
         type Case = (fn(&mut NewMatchInput), Field);
         let cases: [Case; 12] = [
-            (|i| i.venue_name = " ".into(), Field::VenueName),
-            (|i| i.venue_name = "x".repeat(121), Field::VenueName),
+            (|i| i.venue = " ".into(), Field::Venue),
+            (|i| i.venue = "SSA Sports Center".into(), Field::Venue),
             (
                 |i| i.starts_at = "2026-10-03T00:00:00Z".parse().unwrap(),
                 Field::StartsAt,

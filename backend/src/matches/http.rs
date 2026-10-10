@@ -19,7 +19,7 @@ use crate::payments::service::has_payout_account;
 use super::domain::{CancelOutcome, Clock, Field, Format, Match, MatchType, NewMatchInput};
 use super::repo::PgMatchRepository;
 use super::service::{
-    CreateMatchError, GetMatchError, cancel_match, create_match, get_public_match,
+    CreateMatchError, GetMatchError, cancel_match, create_match, get_public_match, venues,
 };
 
 #[derive(Clone)]
@@ -44,6 +44,7 @@ pub fn router(
 ) -> Router {
     Router::new()
         .route("/api/matches", post(post_match))
+        .route("/api/venues", get(get_venues))
         .route("/api/matches/{share_id}", get(get_match))
         .route("/api/matches/{share_id}/cancel", post(post_cancel))
         .with_state(MatchState {
@@ -55,12 +56,13 @@ pub fn router(
 }
 
 /// Public view of a match. Deliberately excludes internal ids and any host
-/// payment details (those are only for slot holders).
+/// payment details (those are only for slot holders). Also used by the match list.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct MatchView {
+pub struct MatchView {
     share_id: String,
     venue_name: String,
+    venue_address: Option<String>,
     starts_at: DateTime<Utc>,
     ends_at: DateTime<Utc>,
     format: &'static str,
@@ -79,6 +81,7 @@ impl From<Match> for MatchView {
         Self {
             share_id: m.share_id.as_str().to_owned(),
             venue_name: m.venue_name,
+            venue_address: m.venue_address,
             starts_at: m.starts_at,
             ends_at: m.ends_at,
             format: m.format.as_str(),
@@ -98,7 +101,8 @@ impl From<Match> for MatchView {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct CreateMatchRequest {
-    venue_name: String,
+    /// Slug of a venue from `GET /api/venues`. Any `venueName` sent is ignored.
+    venue_id: String,
     starts_at: DateTime<Utc>,
     ends_at: DateTime<Utc>,
     format: String,
@@ -114,7 +118,7 @@ impl CreateMatchRequest {
         Ok(NewMatchInput {
             format: Format::parse(&self.format).ok_or(Field::Format)?,
             match_type: MatchType::parse(&self.match_type).ok_or(Field::MatchType)?,
-            venue_name: self.venue_name,
+            venue: self.venue_id,
             starts_at: self.starts_at,
             ends_at: self.ends_at,
             level_min: self.level_min,
@@ -138,6 +142,37 @@ async fn get_match(
         [(header::CACHE_CONTROL, PUBLIC_MATCH_CACHE)],
         Json(MatchView::from(found)),
     ))
+}
+
+#[derive(Serialize)]
+struct VenueView {
+    id: String,
+    name: String,
+    address: String,
+}
+
+/// The venue list changes rarely; a few minutes of caching is fine.
+const VENUES_CACHE: &str = "public, max-age=300";
+
+async fn get_venues(State(state): State<MatchState>) -> Response {
+    match venues(&state.repo).await {
+        Ok(list) => {
+            let views: Vec<VenueView> = list
+                .into_iter()
+                .map(|v| VenueView {
+                    id: v.slug.as_str().to_owned(),
+                    name: v.name,
+                    address: v.address,
+                })
+                .collect();
+            (
+                [(header::CACHE_CONTROL, VENUES_CACHE)],
+                Json(json!({ "venues": views })),
+            )
+                .into_response()
+        }
+        Err(err) => internal_error("failed to list venues", &err),
+    }
 }
 
 async fn post_match(
@@ -171,7 +206,7 @@ async fn post_match(
 
 fn field_name(field: Field) -> &'static str {
     match field {
-        Field::VenueName => "venueName",
+        Field::Venue => "venueId",
         Field::StartsAt => "startsAt",
         Field::EndsAt => "endsAt",
         Field::Format => "format",

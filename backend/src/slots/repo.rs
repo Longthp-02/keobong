@@ -243,6 +243,30 @@ impl SlotRepository for PgSlotRepository {
         })
     }
 
+    async fn taken_places(
+        &self,
+        match_ids: &[ShareId],
+        now: DateTime<Utc>,
+    ) -> Result<std::collections::HashMap<String, i64>, RepoError> {
+        let ids: Vec<&str> = match_ids.iter().map(ShareId::as_str).collect();
+        // Same rule as the roster: holds are measured against the cancel time if any.
+        let rows: Vec<(String, i64)> = sqlx::query_as(
+            "SELECT m.share_id, count(s.id)
+             FROM matches m
+             LEFT JOIN slots s ON s.match_id = m.id AND s.released_at IS NULL
+                  AND (s.hold_expires_at IS NULL
+                       OR s.hold_expires_at > LEAST($2, COALESCE(m.cancelled_at, $2)))
+             WHERE m.share_id = ANY($1)
+             GROUP BY m.share_id",
+        )
+        .bind(&ids)
+        .bind(now)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(unavailable)?;
+        Ok(rows.into_iter().collect())
+    }
+
     async fn roster(
         &self,
         share_id: &ShareId,

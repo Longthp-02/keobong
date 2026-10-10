@@ -65,6 +65,8 @@ async fn get_match_by_share_id_returns_public_view(pool: PgPool) {
         json!({
             "shareId": "k7Qm2xPa",
             "venueName": "SSA Sports Center",
+            // Matches from before venues existed have no address.
+            "venueAddress": null,
             "startsAt": "2026-10-10T11:30:00Z",
             "endsAt": "2026-10-10T13:00:00Z",
             "format": "seven_a_side",
