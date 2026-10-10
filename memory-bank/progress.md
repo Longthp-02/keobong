@@ -6,7 +6,7 @@
 - UI design prototype (external Claude Design canvas).
 - Backend (`backend/`): Axum app with `GET /health` and `GET /api/matches/{shareId}`; `matches` feature split into domain / service / repo / http; first migration (`matches` table, PostGIS, GiST index); `daghep-api migrate` subcommand; lazy DB pool for fast cold starts; multi-stage Dockerfile.
 - Frontend (`frontend/`): Next.js 16 PWA with home page, `/m/[shareId]` match page (server-rendered, Open Graph tags without payment details), not-found page, web manifest, `messages/vi.json`.
-- Tests: backend 60 unit + 85 acceptance/integration; frontend 131.
+- Tests: backend 60 unit + 85 acceptance/integration; frontend 147.
 - Production web: https://daghep.vn on Vercel (www redirects to apex); DNS at iNET.
 - Legal pages: `/privacy`, `/terms`, footer links, `LegalPage` tests.
 - Create match (PR 3a): `POST /api/matches` (validation, share id generation with retry, Clock port), `pricePerPlayerVnd` in the public view, `/create` form with live price preview. Limits: fee 0–100M VND, 2–30 slots, start within 30 days, max 4 hours, same HCMC day. `/create` hidden in production until `API_BASE_URL` is set.
@@ -16,6 +16,7 @@
 - Cancel (PR 3d-2): host-only `POST /api/matches/{id}/cancel` before kickoff; `cancelledAt` in the public view and `cancelled` in the roster; joins, reports and host payment actions refused afterwards; banner, link-preview prefix, refund note, host cancel button with confirmation.
 - Deploy (2026-10-10): Cloud Run service `daghep-api` + migrate job, Neon, Secret Manager, Vercel `API_BASE_URL`; runbook in `docs/deploy.md`. Production verified end to end.
 - Generic 404 page (match pages keep their own); account bar with sign-out on the cached match page, loaded in the browser.
+- Match page redesign (2026-10-10, PR #11): green header with live counts, round team slots chosen by tapping, sticky share + join bar with the party price, VietQR note for paid matches.
 - CI: `.github/workflows/ci.yml` (backend fmt/clippy/test with PostGIS service; frontend typecheck/test/build).
 - Local dev: `docker-compose.yml` with PostGIS.
 
@@ -35,5 +36,5 @@ Cold-start user acquisition, Zalo login approval time, slot race conditions, no-
 ## Next Steps
 1. Step 3 plan: create match (API + form), Google sign-in, take a slot with race-safe claiming.
 2. Add Playwright E2E for the create → share → view flow.
-3. Redesign the match page and build the match list (home).
+3. Build the match list (home) from the design; then host card, levels and "my matches".
 4. Zalo login once the Zalo app is active.

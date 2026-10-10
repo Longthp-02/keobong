@@ -17,6 +17,11 @@ type Props = {
   client: SlotsClient;
   /** Called after a change so the roster can refresh. */
   onChange: () => void;
+  /**
+   * Tells the page whether the visitor hosts this match, once known. Pass a stable
+   * function (such as a state setter): a new one each render would reload the list.
+   */
+  onHostKnown?: (isHost: boolean) => void;
 };
 
 function statusText(party: HostParty, cancelled: boolean): string {
@@ -31,7 +36,7 @@ function statusText(party: HostParty, cancelled: boolean): string {
 }
 
 /** The host's list of parties to check transfers against. Hidden for everyone else. */
-export function HostPayments({ shareId, startsAt, cancelled, client, onChange }: Props) {
+export function HostPayments({ shareId, startsAt, cancelled, client, onChange, onHostKnown }: Props) {
   const [parties, setParties] = useState<HostParty[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -46,10 +51,11 @@ export function HostPayments({ shareId, startsAt, cancelled, client, onChange }:
     try {
       const view = await client.hostParties(shareId);
       setParties(view.status === "host" ? view.parties : null);
+      onHostKnown?.(view.status === "host");
     } catch {
       setError(t.errors.unexpected);
     }
-  }, [client, shareId]);
+  }, [client, shareId, onHostKnown]);
 
   useEffect(() => {
     void load();

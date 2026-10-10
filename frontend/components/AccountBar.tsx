@@ -7,7 +7,9 @@ const t = messages.auth;
 export function AccountBar({ me }: { me: MeView }) {
   return (
     <div className="account-bar">
-      <span className="muted">{t.signedInAs}</span> <strong>{me.displayName ?? t.anonymousName}</strong>
+      <span className="account-bar__who">
+        <span className="muted">{t.signedInAs}</span> <strong>{me.displayName ?? t.anonymousName}</strong>
+      </span>
       <a href="/account/payout" className="account-bar__link">
         {t.payoutLink}
       </a>
