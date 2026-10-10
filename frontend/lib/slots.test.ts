@@ -42,12 +42,17 @@ const joinedPlace = {
 const roster = { teams: [{ team: "a", capacity: 9, players: [] }, { team: "b", capacity: 9, players: [] }] };
 
 describe("emptyRoster", () => {
+  it("can start out cancelled when the match says so", () => {
+    expect(emptyRoster(4, true).cancelled).toBe(true);
+  });
+
   it("splits places like the API, with team A taking the odd one", () => {
     expect(emptyRoster(15)).toEqual({
       teams: [
         { team: "a", capacity: 8, players: [] },
         { team: "b", capacity: 7, players: [] },
       ],
+      cancelled: false,
     });
   });
 });
@@ -145,6 +150,18 @@ describe("slotsClient", () => {
     expect(await slotsClient(respond(409, { error: "already_confirmed" })).hostAction("x", 7, "reject")).toEqual({
       ok: false,
       error: "already_confirmed",
+    });
+  });
+
+  it("cancels a match as the host", async () => {
+    const fetchImpl = respond(204);
+
+    expect(await slotsClient(fetchImpl).cancelMatch("k7Qm2xPa")).toEqual({ ok: true });
+    expect(fetchImpl.mock.calls[0][0]).toBe("/api/matches/k7Qm2xPa/cancel");
+    expect(fetchImpl.mock.calls[0][1].method).toBe("POST");
+    expect(await slotsClient(respond(409, { error: "match_started" })).cancelMatch("x")).toEqual({
+      ok: false,
+      error: "match_started",
     });
   });
 });

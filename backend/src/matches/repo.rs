@@ -6,7 +6,8 @@ use sqlx::PgPool;
 use crate::auth::UserId;
 
 use super::domain::{
-    Format, InsertError, Level, Match, MatchRepository, MatchType, NewMatch, RepoError, ShareId,
+    CancelOutcome, Format, InsertError, Level, Match, MatchRepository, MatchType, NewMatch,
+    RepoError, ShareId, decide_cancel,
 };
 
 #[derive(Clone)]
@@ -32,6 +33,7 @@ struct MatchRow {
     level_max_tenths: i16,
     total_fee_vnd: i64,
     slot_count: i16,
+    cancelled_at: Option<DateTime<Utc>>,
 }
 
 impl TryFrom<MatchRow> for Match {
@@ -52,6 +54,7 @@ impl TryFrom<MatchRow> for Match {
             ends_at: row.ends_at,
             total_fee_vnd: row.total_fee_vnd,
             slot_count: row.slot_count,
+            cancelled_at: row.cancelled_at,
         })
     }
 }
@@ -60,7 +63,7 @@ impl MatchRepository for PgMatchRepository {
     async fn find_by_share_id(&self, id: &ShareId) -> Result<Option<Match>, RepoError> {
         let row = sqlx::query_as::<_, MatchRow>(
             "SELECT share_id, venue_name, starts_at, ends_at, format, match_type,
-                    level_min_tenths, level_max_tenths, total_fee_vnd, slot_count
+                    level_min_tenths, level_max_tenths, total_fee_vnd, slot_count, cancelled_at
              FROM matches
              WHERE share_id = $1",
         )
@@ -105,5 +108,42 @@ impl MatchRepository for PgMatchRepository {
             }
             Err(err) => Err(RepoError::Unavailable(err.to_string()).into()),
         }
+    }
+
+    async fn cancel(
+        &self,
+        share_id: &ShareId,
+        caller: UserId,
+        now: DateTime<Utc>,
+    ) -> Result<CancelOutcome, RepoError> {
+        let unavailable = |e: sqlx::Error| RepoError::Unavailable(e.to_string());
+        let mut tx = self.pool.begin().await.map_err(unavailable)?;
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL READ COMMITTED")
+            .execute(&mut *tx)
+            .await
+            .map_err(unavailable)?;
+        // Same lock as slot claims, so no one joins while the match is being cancelled.
+        let row: Option<(i64, DateTime<Utc>, Option<DateTime<Utc>>)> = sqlx::query_as(
+            "SELECT host_user_id, starts_at, cancelled_at FROM matches
+             WHERE share_id = $1 FOR NO KEY UPDATE",
+        )
+        .bind(share_id.as_str())
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(unavailable)?;
+        let Some((host, starts_at, cancelled_at)) = row else {
+            return Ok(CancelOutcome::MatchNotFound);
+        };
+        let outcome = decide_cancel(caller, UserId(host), starts_at, cancelled_at, now);
+        if outcome == CancelOutcome::Cancelled {
+            sqlx::query("UPDATE matches SET cancelled_at = $2 WHERE share_id = $1")
+                .bind(share_id.as_str())
+                .bind(now)
+                .execute(&mut *tx)
+                .await
+                .map_err(unavailable)?;
+            tx.commit().await.map_err(unavailable)?;
+        }
+        Ok(outcome)
     }
 }

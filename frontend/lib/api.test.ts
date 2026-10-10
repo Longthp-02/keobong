@@ -13,6 +13,7 @@ const sample: MatchView = {
   totalFeeVnd: 900000,
   slotCount: 14,
   pricePerPlayerVnd: 65000,
+  cancelledAt: null,
 };
 
 function respond(status: number, body: unknown) {

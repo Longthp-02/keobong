@@ -66,6 +66,8 @@ pub struct Match {
     pub level_max: Level,
     pub total_fee_vnd: i64,
     pub slot_count: i16,
+    /// Set when the host cancelled the match.
+    pub cancelled_at: Option<DateTime<Utc>>,
 }
 
 impl Format {
@@ -252,6 +254,7 @@ impl Match {
             level_max: new.level_max,
             total_fee_vnd: new.total_fee_vnd,
             slot_count: new.slot_count,
+            cancelled_at: None,
         }
     }
 
@@ -323,6 +326,44 @@ pub trait MatchRepository: Send + Sync {
         new: &NewMatch,
         host: UserId,
     ) -> impl Future<Output = Result<(), InsertError>> + Send;
+
+    /// Cancels the match if [`decide_cancel`] allows it, atomically.
+    fn cancel(
+        &self,
+        share_id: &ShareId,
+        caller: UserId,
+        now: DateTime<Utc>,
+    ) -> impl Future<Output = Result<CancelOutcome, RepoError>> + Send;
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CancelOutcome {
+    Cancelled,
+    /// Already cancelled earlier; cancelling again changes nothing.
+    AlreadyCancelled,
+    MatchNotFound,
+    NotHost,
+    /// Cancelling closes at kickoff.
+    MatchStarted,
+}
+
+/// Who may cancel and when: only the host, and only before kickoff.
+pub fn decide_cancel(
+    caller: UserId,
+    host: UserId,
+    starts_at: DateTime<Utc>,
+    cancelled_at: Option<DateTime<Utc>>,
+    now: DateTime<Utc>,
+) -> CancelOutcome {
+    if caller != host {
+        CancelOutcome::NotHost
+    } else if cancelled_at.is_some() {
+        CancelOutcome::AlreadyCancelled
+    } else if now >= starts_at {
+        CancelOutcome::MatchStarted
+    } else {
+        CancelOutcome::Cancelled
+    }
 }
 
 pub use crate::clock::{Clock, SystemClock};
@@ -531,5 +572,29 @@ mod tests {
         assert_eq!(Level::from_tenths(35).map(Level::as_f64), Some(3.5));
         assert!(Level::from_tenths(9).is_none());
         assert!(Level::from_tenths(51).is_none());
+    }
+
+    #[test]
+    fn only_the_host_cancels_and_only_before_kickoff() {
+        let starts_at: DateTime<Utc> = "2099-10-10T11:30:00Z".parse().unwrap();
+        let before = starts_at - Duration::seconds(1);
+        let (host, other) = (UserId(1), UserId(2));
+
+        assert_eq!(
+            decide_cancel(host, host, starts_at, None, before),
+            CancelOutcome::Cancelled
+        );
+        assert_eq!(
+            decide_cancel(other, host, starts_at, None, before),
+            CancelOutcome::NotHost
+        );
+        assert_eq!(
+            decide_cancel(host, host, starts_at, None, starts_at),
+            CancelOutcome::MatchStarted
+        );
+        assert_eq!(
+            decide_cancel(host, host, starts_at, Some(before), starts_at),
+            CancelOutcome::AlreadyCancelled
+        );
     }
 }

@@ -24,7 +24,8 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   if (!match) {
     return { title: messages.match.notFoundTitle };
   }
-  const title = `${match.venueName} · ${formatTimeRange(match.startsAt, match.endsAt)}`;
+  const prefix = match.cancelledAt ? `${messages.match.cancelledTitlePrefix} ` : "";
+  const title = `${prefix}${match.venueName} · ${formatTimeRange(match.startsAt, match.endsAt)}`;
   const description = `${formatMatchDate(match.startsAt)} · ${messages.match.format[match.format]} · ${messages.match.matchType[match.matchType]}`;
   return { title, description, openGraph: { title, description, siteName: messages.app.name } };
 }
@@ -46,7 +47,7 @@ export default async function MatchPage({ params }: Props) {
   return (
     <>
       <MatchCard match={match} />
-      <TeamSlots shareId={match.shareId} startsAt={match.startsAt} initialRoster={roster ?? emptyRoster(match.slotCount)} />
+      <TeamSlots shareId={match.shareId} startsAt={match.startsAt} initialRoster={roster ?? emptyRoster(match.slotCount, match.cancelledAt !== null)} />
     </>
   );
 }

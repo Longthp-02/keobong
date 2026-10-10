@@ -100,6 +100,7 @@ struct TeamView {
 #[derive(Serialize)]
 struct RosterView {
     teams: Vec<TeamView>,
+    cancelled: bool,
 }
 
 impl From<Roster> for RosterView {
@@ -122,7 +123,10 @@ impl From<Roster> for RosterView {
                     .collect(),
             })
             .collect();
-        Self { teams }
+        Self {
+            teams,
+            cancelled: roster.cancelled,
+        }
     }
 }
 
@@ -188,15 +192,17 @@ async fn place_response(
         hold_expires_at,
         amount_vnd,
         host,
+        match_cancelled,
     } = place;
-    let payment = if payment_status != PaymentStatus::Confirmed && amount_vnd > 0 {
-        match payment_instructions(&state.payouts, host, amount_vnd, payment_code).await {
-            Ok(instructions) => instructions.map(PaymentView::from),
-            Err(err) => return internal_error("failed to load payout account", &err),
-        }
-    } else {
-        None
-    };
+    let payment =
+        if payment_status != PaymentStatus::Confirmed && amount_vnd > 0 && !match_cancelled {
+            match payment_instructions(&state.payouts, host, amount_vnd, payment_code).await {
+                Ok(instructions) => instructions.map(PaymentView::from),
+                Err(err) => return internal_error("failed to load payout account", &err),
+            }
+        } else {
+            None
+        };
     let view = JoinedView {
         joined: true,
         team: team.as_str(),
@@ -324,6 +330,7 @@ async fn post_join(
         Err(JoinError::Rejected(reason)) => error(
             StatusCode::CONFLICT,
             match reason {
+                ClaimRejected::MatchCancelled => "match_cancelled",
                 ClaimRejected::MatchStarted => "match_started",
                 ClaimRejected::AlreadyJoined => "already_joined",
                 ClaimRejected::TeamFull => "team_full",
@@ -341,6 +348,9 @@ async fn delete_mine(
     match service::leave(&state.repo, state.clock.as_ref(), user.id, &share_id).await {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(LeaveError::MatchNotFound) => not_found(),
+        Err(LeaveError::Rejected(LeaveRejected::MatchCancelled)) => {
+            error(StatusCode::CONFLICT, "match_cancelled")
+        }
         Err(LeaveError::Rejected(LeaveRejected::MatchStarted)) => {
             error(StatusCode::CONFLICT, "match_started")
         }
@@ -358,6 +368,7 @@ async fn post_report_payment(
             place_response(&state, user.id, &share_id, StatusCode::OK).await
         }
         Ok(ReportOutcome::NotJoined) => error(StatusCode::CONFLICT, "not_joined"),
+        Ok(ReportOutcome::MatchCancelled) => error(StatusCode::CONFLICT, "match_cancelled"),
         Ok(ReportOutcome::MatchNotFound) => not_found(),
         Err(err) => internal_error("failed to report payment", &err),
     }
@@ -409,6 +420,7 @@ async fn host_action_response(
         Ok(HostActionOutcome::PartyNotFound) => error(StatusCode::NOT_FOUND, "party_not_found"),
         Ok(HostActionOutcome::AlreadyConfirmed) => error(StatusCode::CONFLICT, "already_confirmed"),
         Ok(HostActionOutcome::NotReported) => error(StatusCode::CONFLICT, "not_reported"),
+        Ok(HostActionOutcome::MatchCancelled) => error(StatusCode::CONFLICT, "match_cancelled"),
         Ok(HostActionOutcome::MatchStarted) => error(StatusCode::CONFLICT, "match_started"),
         Err(err) => internal_error("failed to update payment", &err),
     }

@@ -16,7 +16,7 @@ export type PlayerView = {
 export type TeamView = { team: Team; capacity: number; players: PlayerView[] };
 
 /** Public roster from `GET /api/matches/{shareId}/slots`. */
-export type RosterView = { teams: TeamView[] };
+export type RosterView = { teams: TeamView[]; cancelled: boolean };
 
 export type PaymentStatus = "awaiting_payment" | "payment_reported" | "confirmed";
 
@@ -62,6 +62,8 @@ export type HostActionError =
   | "party_not_found"
   | "not_reported"
   | "match_started"
+  | "match_cancelled"
+  | "not_host"
   | "unexpected";
 
 export type SlotError =
@@ -70,6 +72,7 @@ export type SlotError =
   | "match_started"
   | "guests"
   | "not_joined"
+  | "match_cancelled"
   | "unauthenticated"
   | "unexpected";
 
@@ -88,15 +91,17 @@ export type SlotsClient = {
     paymentCode: number,
     action: "confirm" | "reject",
   ): Promise<{ ok: true } | { ok: false; error: HostActionError }>;
+  cancelMatch(shareId: string): Promise<{ ok: true } | { ok: false; error: HostActionError }>;
 };
 
 /** A roster with nobody in it, split like the API: team A takes the odd place. */
-export function emptyRoster(slotCount: number): RosterView {
+export function emptyRoster(slotCount: number, cancelled = false): RosterView {
   return {
     teams: [
       { team: "a", capacity: Math.ceil(slotCount / 2), players: [] },
       { team: "b", capacity: Math.floor(slotCount / 2), players: [] },
     ],
+    cancelled,
   };
 }
 
@@ -110,7 +115,16 @@ function toPlace(body: PlaceBody): MyPlace {
   return { status: "in", ...place };
 }
 
-const KNOWN_CONFLICTS: SlotError[] = ["team_full", "already_joined", "match_started", "not_joined"];
+const KNOWN_HOST_ERRORS: HostActionError[] = [
+  "already_confirmed",
+  "party_not_found",
+  "not_reported",
+  "match_started",
+  "match_cancelled",
+  "not_host",
+];
+
+const KNOWN_CONFLICTS: SlotError[] = ["team_full", "already_joined", "match_started", "not_joined", "match_cancelled"];
 
 async function errorOf(response: Response): Promise<SlotError> {
   if (response.status === 401) {
@@ -186,10 +200,21 @@ export function slotsClient(fetchImpl: typeof fetch = (...args) => fetch(...args
         return { ok: true };
       }
       const body = (await response.json().catch(() => ({}))) as { error?: string };
-      const known: HostActionError[] = ["already_confirmed", "party_not_found", "not_reported", "match_started"];
+      const known: HostActionError[] = KNOWN_HOST_ERRORS;
       return {
         ok: false,
         error: known.includes(body.error as HostActionError) ? (body.error as HostActionError) : "unexpected",
+      };
+    },
+    async cancelMatch(shareId) {
+      const response = await fetchImpl(`/api/matches/${encodeURIComponent(shareId)}/cancel`, { method: "POST" });
+      if (response.ok) {
+        return { ok: true };
+      }
+      const body = (await response.json().catch(() => ({}))) as { error?: string };
+      return {
+        ok: false,
+        error: KNOWN_HOST_ERRORS.includes(body.error as HostActionError) ? (body.error as HostActionError) : "unexpected",
       };
     },
     async leave(shareId) {

@@ -89,10 +89,13 @@ pub struct ClaimContext {
     /// Active places already taken in the requested team.
     pub taken_in_team: i64,
     pub already_joined: bool,
+    pub cancelled: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum ClaimRejected {
+    #[error("the host cancelled the match")]
+    MatchCancelled,
     #[error("the match has already started")]
     MatchStarted,
     #[error("the user already holds a place in this match")]
@@ -103,6 +106,9 @@ pub enum ClaimRejected {
 
 /// The whole party (holder plus guests) joins one team, or nobody does.
 pub fn check_claim(ctx: &ClaimContext, request: &JoinRequest) -> Result<(), ClaimRejected> {
+    if ctx.cancelled {
+        return Err(ClaimRejected::MatchCancelled);
+    }
     if ctx.now >= ctx.starts_at {
         return Err(ClaimRejected::MatchStarted);
     }
@@ -119,11 +125,21 @@ pub fn check_claim(ctx: &ClaimContext, request: &JoinRequest) -> Result<(), Clai
 pub enum LeaveRejected {
     #[error("the match has already started")]
     MatchStarted,
+    /// Places of a cancelled match stay as they were, for refunds.
+    #[error("the host cancelled the match")]
+    MatchCancelled,
 }
 
 /// Players can leave until kickoff. Leaving within 2 hours of kickoff will let
 /// the host mark a no-show (spec.md); that marking comes in a later step.
-pub fn check_leave(now: DateTime<Utc>, starts_at: DateTime<Utc>) -> Result<(), LeaveRejected> {
+pub fn check_leave(
+    now: DateTime<Utc>,
+    starts_at: DateTime<Utc>,
+    cancelled: bool,
+) -> Result<(), LeaveRejected> {
+    if cancelled {
+        return Err(LeaveRejected::MatchCancelled);
+    }
     if now >= starts_at {
         return Err(LeaveRejected::MatchStarted);
     }
@@ -145,6 +161,7 @@ pub struct RosterEntry {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Roster {
     pub slot_count: i16,
+    pub cancelled: bool,
     /// In the order places were taken.
     pub entries: Vec<RosterEntry>,
 }
@@ -214,6 +231,8 @@ pub struct MyPlace {
     pub hold_expires_at: Option<DateTime<Utc>>,
     pub amount_vnd: i64,
     pub host: UserId,
+    /// Nothing is owed for a cancelled match.
+    pub match_cancelled: bool,
 }
 
 /// One party as the host sees it when checking transfers.
@@ -242,6 +261,7 @@ pub enum ReportOutcome {
     AlreadyDone,
     NotJoined,
     MatchNotFound,
+    MatchCancelled,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -264,6 +284,8 @@ pub enum HostActionOutcome {
     NotReported,
     /// Rejecting closes at kickoff; no-show marking covers later cases.
     MatchStarted,
+    /// Payments of a cancelled match are settled between players and host.
+    MatchCancelled,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -388,6 +410,7 @@ mod tests {
             slot_count: 18,
             taken_in_team,
             already_joined: false,
+            cancelled: false,
         }
     }
 
@@ -412,6 +435,19 @@ mod tests {
         assert_eq!(
             check_claim(&ctx(9), &join(Team::B, &[])),
             Err(ClaimRejected::TeamFull)
+        );
+    }
+
+    #[test]
+    fn nobody_joins_a_cancelled_match() {
+        let cancelled = ClaimContext {
+            cancelled: true,
+            ..ctx(0)
+        };
+
+        assert_eq!(
+            check_claim(&cancelled, &join(Team::A, &[])),
+            Err(ClaimRejected::MatchCancelled)
         );
     }
 
@@ -480,11 +516,11 @@ mod tests {
         let starts_at: DateTime<Utc> = "2099-10-10T11:30:00Z".parse().unwrap();
 
         assert_eq!(
-            check_leave(starts_at - Duration::seconds(1), starts_at),
+            check_leave(starts_at - Duration::seconds(1), starts_at, false),
             Ok(())
         );
         assert_eq!(
-            check_leave(starts_at, starts_at),
+            check_leave(starts_at, starts_at, false),
             Err(LeaveRejected::MatchStarted)
         );
     }

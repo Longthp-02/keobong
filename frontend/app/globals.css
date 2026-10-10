@@ -710,3 +710,25 @@ main {
 .button-small:disabled {
   opacity: 0.6;
 }
+
+.match-card__cancelled {
+  align-self: flex-start;
+  margin: 0 0 8px;
+  padding: 4px 10px;
+  border-radius: 8px;
+  background: #8a2c12;
+  color: #ffffff;
+  font-weight: 700;
+  font-size: 13px;
+}
+
+.button-danger {
+  min-height: 40px;
+  padding: 0 16px;
+  border: none;
+  border-radius: 10px;
+  background: #8a2c12;
+  color: #ffffff;
+  font: 700 14px var(--font-body);
+  cursor: pointer;
+}

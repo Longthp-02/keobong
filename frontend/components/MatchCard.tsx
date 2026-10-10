@@ -8,6 +8,7 @@ export function MatchCard({ match }: { match: MatchView }) {
   return (
     <article className="match-card">
       <header className="match-card__hero">
+        {match.cancelledAt ? <p className="match-card__cancelled">{t.cancelled}</p> : null}
         <div className="match-card__tags">
           <span className="tag tag--dark">{t.matchType[match.matchType]}</span>
           <span className="tag">{t.format[match.format]}</span>

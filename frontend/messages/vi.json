@@ -26,7 +26,9 @@
     "slotsUnit": "người",
     "notFoundTitle": "Không tìm thấy kèo",
     "notFoundBody": "Kèo này không tồn tại hoặc đã bị xoá.",
-    "pricePerPlayer": "Mỗi người"
+    "pricePerPlayer": "Mỗi người",
+    "cancelled": "Kèo đã huỷ",
+    "cancelledTitlePrefix": "[Đã huỷ]"
   },
   "legal": {
     "contactEmail": "lienhe@daghep.vn",
@@ -262,9 +264,12 @@
       "guests": "Tên bạn đi cùng phải có từ 1 đến 40 ký tự.",
       "unauthenticated": "Phiên đăng nhập đã hết hạn. Hãy đăng nhập lại.",
       "unexpected": "Có lỗi xảy ra. Hãy thử lại.",
-      "not_joined": "Bạn không còn giữ chỗ trong kèo này."
+      "not_joined": "Bạn không còn giữ chỗ trong kèo này.",
+      "match_cancelled": "Chủ kèo đã huỷ kèo này."
     },
-    "retry": "Thử lại"
+    "retry": "Thử lại",
+    "cancelled": "Chủ kèo đã huỷ kèo này.",
+    "cancelledRefund": "Nếu bạn đã chuyển khoản, hãy liên hệ chủ kèo để được hoàn tiền."
   },
   "payout": {
     "title": "Tài khoản nhận tiền",
@@ -315,7 +320,8 @@
     "status": {
       "awaiting_payment": "Chờ chuyển khoản đến {time}",
       "payment_reported": "Đã báo chuyển khoản",
-      "confirmed": "Đã nhận tiền"
+      "confirmed": "Đã nhận tiền",
+      "awaiting_payment_frozen": "Chưa chuyển khoản"
     },
     "confirm": "Đã nhận",
     "reject": "Chưa nhận được tiền",
@@ -324,10 +330,17 @@
       "party_not_found": "Người này không còn giữ chỗ.",
       "unexpected": "Có lỗi xảy ra. Hãy thử lại.",
       "not_reported": "Chỉ báo chưa nhận được tiền sau khi người chơi đã báo chuyển khoản.",
-      "match_started": "Kèo đã bắt đầu, không thể trả chỗ nữa."
+      "match_started": "Kèo đã bắt đầu, không thể trả chỗ nữa.",
+      "match_cancelled": "Kèo đã huỷ.",
+      "not_host": "Chỉ chủ kèo mới làm được việc này."
     },
     "rejectConfirm": "Trả lại {count} chỗ của {name}? Không thể hoàn tác.",
     "rejectYes": "Trả chỗ",
-    "rejectNo": "Không"
+    "rejectNo": "Không",
+    "cancel": "Huỷ kèo",
+    "cancelConfirm": "Huỷ kèo này? Mọi người sẽ thấy kèo đã huỷ và không ai giữ chỗ được nữa. Không thể hoàn tác.",
+    "cancelYes": "Xác nhận huỷ",
+    "cancelNo": "Không huỷ",
+    "cancelledNote": "Kèo đã huỷ. Danh sách dưới đây giúp bạn hoàn tiền cho người đã chuyển khoản."
   }
 }

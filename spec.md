@@ -72,6 +72,7 @@ Confirmed:
 - Price per player (2026-10-04): total fee ÷ slot count, rounded up to the nearest 1,000 VND; the host keeps the small remainder.
 - Who can host (2026-10-04): any signed-in user. Venues use the same flow; a "verified venue" badge comes later.
 - Cancellation (2026-10-04): the host can cancel a match and slot holders see "match cancelled" on the page; refunds are between players and host (the app holds no money). A player can leave before kickoff; leaving within 2 hours of kickoff lets the host mark a no-show.
+- Cancellation details (built in PR 3d-2; confirmed by Long 2026-10-10): only before kickoff, cannot be undone; "[Đã huỷ]" in link previews; afterwards nothing changes any more: no joining, leaving, reporting a transfer or confirming/rejecting payments, holds stop expiring, and no QR is shown, so the host's list stays complete for refunds.
 
 - Joining (confirmed by Long 2026-10-05): the host does not get a place automatically and joins like anyone else. A player may bring up to 2 named guests in the same team, in one request; the whole group fits or nobody is added. To change guests, leave and join again. A player can leave until kickoff; joining and leaving close at kickoff. A player outside the match's level range is warned but not blocked (needs self-assessed levels on profiles, not built yet).
 - Sign-in (PR 3b): Google sign-in is required to create a match; anyone can view matches without signing in. A sign-in lasts 30 days (confirmed by Long 2026-10-05).

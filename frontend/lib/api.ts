@@ -14,6 +14,8 @@ export type MatchView = {
   totalFeeVnd: number;
   slotCount: number;
   pricePerPlayerVnd: number;
+  /** Set when the host cancelled the match. */
+  cancelledAt: string | null;
 };
 
 type Options = {
@@ -156,7 +158,7 @@ export async function getBanks(options: Options = {}): Promise<Bank[]> {
   return ((await response.json()) as { banks: Bank[] }).banks;
 }
 
-export type CreateMatchInput = Omit<MatchView, "shareId" | "pricePerPlayerVnd">;
+export type CreateMatchInput = Omit<MatchView, "shareId" | "pricePerPlayerVnd" | "cancelledAt">;
 
 export type CreateMatchResult = { ok: true; match: MatchView } | { ok: false; field: string };
 
