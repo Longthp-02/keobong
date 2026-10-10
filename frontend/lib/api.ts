@@ -65,6 +65,21 @@ export async function getMe(cookie: string, options: Options = {}): Promise<MeVi
   return (await response.json()) as MeView;
 }
 
+/**
+ * The signed-in user as seen from the browser, through the site's own `/api` proxy.
+ * Used on cached pages, which must not render anything per user on the server.
+ */
+export async function browserMe(fetchImpl: typeof fetch = (...args) => fetch(...args)): Promise<MeView | null> {
+  const response = await fetchImpl("/api/me", { headers: { accept: "application/json" }, cache: "no-store" });
+  if (response.status === 401) {
+    return null;
+  }
+  if (!response.ok) {
+    throw new Error(`Me API failed with status ${response.status}`);
+  }
+  return (await response.json()) as MeView;
+}
+
 /** Server-side API location. Falls back to localhost only outside production. */
 export function apiBaseUrl(): string {
   const configured = process.env.API_BASE_URL;

@@ -24,7 +24,7 @@ cd ~
 
 ### 2. Google Cloud project
 1. Create the project and link billing.
-2. Add a budget alert, for example USD 5 per month with alerts at 50/90/100%.
+2. Add a budget alert (Billing → Budgets & alerts), for example about USD 5 per month with email alerts at 50/90/100% of actual spend. A budget only alerts; it does not stop spending.
 
 ### 3. Services, service account and secrets (Cloud Shell)
 ```bash
@@ -35,7 +35,7 @@ gcloud services enable run.googleapis.com cloudbuild.googleapis.com \
 PROJECT_NUMBER=$(gcloud projects describe "$PROJECT_ID" --format='value(projectNumber)')
 gcloud projects add-iam-policy-binding "$PROJECT_ID" \
   --member="serviceAccount:$PROJECT_NUMBER-compute@developer.gserviceaccount.com" \
-  --role=roles/run.builder
+  --role=roles/run.builder --condition=None
 
 # The API runs as its own account that can read only its two secrets.
 gcloud iam service-accounts create daghep-api --display-name="Daghep API"
@@ -50,10 +50,12 @@ for SECRET in daghep-database-url daghep-google-client-secret; do
     --member="serviceAccount:$API_SA" --role=roles/secretmanager.secretAccessor
 done
 ```
+The Google client secret can be viewed only once, when it is created. If it was not saved, add a new secret on the client page and store that one.
+
 To rotate a secret, add a version with `read -rsp ... | gcloud secrets versions add <name> --data-file=-`, then deploy again. `:latest` is read when an instance starts.
 
 ### 4. Google sign-in (Google Cloud console → Google Auth Platform)
-- **Clients → the web client:** the authorized redirect URIs include `https://daghep.vn/api/auth/google/callback`. Keep `http://localhost:8080/...` for development.
+- **Clients → the web client** (in the same project): the authorized JavaScript origins include `https://daghep.vn`, and the authorized redirect URIs include `https://daghep.vn/api/auth/google/callback`. Keep the localhost entries for development. The client ID goes into `GOOGLE_CLIENT_ID` below; it is not a secret.
 - **Branding:**
   - Set the home page to `https://daghep.vn`, the privacy policy to `https://daghep.vn/privacy`, and the terms to `https://daghep.vn/terms`.
   - Add `daghep.vn` as an authorized domain. Google may ask to verify it in Search Console with a DNS TXT record at iNET.
@@ -92,14 +94,17 @@ Environment variables and secrets carry over from the previous revision. Migrati
 
 ## Connect the web app (once)
 1. Vercel → project `keobong` → Settings → Domains: check that `daghep.vn` is the production domain.
-2. Settings → Environment Variables: set `API_BASE_URL` to the Cloud Run service URL, with no trailing path, for Production.
+2. Settings → Environment Variables: set `API_BASE_URL` to the Cloud Run service URL, with no trailing path, for Production. Use the type **Config**, not Secret: the URL is public and stays readable for debugging.
 3. Redeploy. The `/api` rewrite is built at build time.
 
 ## Check
-- `curl https://<service-url>/health` returns `{"status":"ok"}`.
+- `curl https://<service-url>/health` returns `{"status":"ok"}`, and `curl https://<service-url>/api/me` returns `401`.
 - `https://daghep.vn/api/me` returns `401`, which shows the proxy works.
 - Sign in at `https://daghep.vn/create`. Save a payout account, create a match, and join it from a second account.
 - Sign out works, with no 403. This confirms the Vercel rewrite passes `Set-Cookie` and `Origin` through.
+- Optional: scan the VietQR code with a banking app (without paying) and check the name, account, amount and memo. Cancel the test match afterwards.
+
+First production deploy done on 2026-10-10: service `daghep-api` at `https://daghep-api-669288809087.asia-southeast1.run.app`, all checks above passed.
 
 ## Rollback
 ```bash

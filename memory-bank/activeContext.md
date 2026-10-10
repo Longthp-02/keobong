@@ -3,7 +3,7 @@
 > Update after every meaningful AI session.
 
 ## Current Focus
-Step 3 in progress: 3a create match (PR #4) and 3b Google sign-in (PR #5) merged; 3c slots (PR #6) merged; 3d payments (PR #7) merged; 3d-2 cancel (PR open). Next: 3e Zalo login + deploy (Cloud Run + Neon).
+Production is live (2026-10-10): API on Cloud Run (`daghep-api`, asia-southeast1) with Neon (Singapore), web on Vercel proxying `/api`. Verified end to end with real Google sign-in: payout account, paid match, join from a second account, VietQR scan, report, confirm, cancel, sign-out. Next: match page and create page redesign to match the Claude Design canvas, then the match list (home), then Zalo login (PR 3f) once Long activates the Zalo app.
 
 ## Latest Decisions
 - Name: Daghep (UI: "Da Ghep" with Vietnamese diacritics in vi.json); domain daghep.vn owned by Long (active). Renamed from "Keo" because "keo bong" reads as football betting slang.
@@ -31,9 +31,8 @@ Step 3 in progress: 3a create match (PR #4) and 3b Google sign-in (PR #5) merged
 
 ## Pending on Long
 - Check whether the iNET mailbox lienhe@daghep.vn is a time-limited trial (it is the contact in the legal pages).
-- Register the Zalo for Developers login app and the Google OAuth client using https://daghep.vn/privacy and /terms.
-- Google OAuth client (localhost redirect first).
-- Before deploy: GCP project with billing + budget alert, Neon project (Singapore), Vercel account.
+- Zalo for Developers: activate the app, verify the domain daghep.vn, set the callback `https://daghep.vn/api/auth/zalo/callback`.
+- Choose the order: redesign the match page first, or build the match list first.
 
 ## Next Safe Step
-PR 3e: deploy the API (Cloud Run, Neon in Singapore, secrets in Secret Manager), point Vercel API_BASE_URL at it, verify real Google sign-in; then Zalo login.
+UI pass on the match page to match the design (green header, round team slots that join on tap, share button, sticky join button), no backend change. Then the paginated match list with date, type and distance filters.

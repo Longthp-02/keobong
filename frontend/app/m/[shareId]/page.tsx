@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
+import { BrowserAccountBar } from "../../../components/BrowserAccountBar";
 import { MatchCard } from "../../../components/MatchCard";
 import { TeamSlots } from "../../../components/TeamSlots";
 import { getMatch, getRoster } from "../../../lib/api";
@@ -46,6 +47,7 @@ export default async function MatchPage({ params }: Props) {
   }
   return (
     <>
+      <BrowserAccountBar />
       <MatchCard match={match} />
       <TeamSlots shareId={match.shareId} startsAt={match.startsAt} initialRoster={roster ?? emptyRoster(match.slotCount, match.cancelledAt !== null)} />
     </>
