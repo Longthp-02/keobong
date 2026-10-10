@@ -53,6 +53,25 @@ jobs:
       - name: Test
         run: cargo test --locked
 
+  image:
+    name: Backend image (Docker)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the production image
+        run: docker build --tag daghep-api:ci backend
+      - name: Smoke test (starts and answers /health without a database)
+        run: |
+          # The pool is lazy, so the API starts without reaching this fake database.
+          docker run --detach --name api --publish 8080:8080 \
+            --env DATABASE_URL=postgres://nobody@127.0.0.1:1/none daghep-api:ci
+          for _ in $(seq 1 20); do
+            if curl --silent --fail http://localhost:8080/health; then exit 0; fi
+            sleep 1
+          done
+          docker logs api
+          exit 1
+
   frontend:
     name: Frontend (Next.js)
     runs-on: ubuntu-latest
