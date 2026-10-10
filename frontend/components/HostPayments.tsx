@@ -122,7 +122,7 @@ export function HostPayments({ shareId, startsAt, cancelled, client, onChange }:
             </div>
             {!canAct ? null : party.paymentStatus !== "confirmed" && confirmingReject === party.paymentCode ? (
               <div className="host-party__actions">
-                <span>
+                <span aria-live="polite">
                   {fill(t.rejectConfirm, {
                     count: 1 + party.guests.length,
                     name: party.holderName ?? messages.auth.anonymousName,
@@ -159,7 +159,7 @@ export function HostPayments({ shareId, startsAt, cancelled, client, onChange }:
       {canAct && !started ? (
         confirmingCancel ? (
           <div className="host-party__actions">
-            <span>{t.cancelConfirm}</span>
+            <span aria-live="polite">{t.cancelConfirm}</span>
             <button type="button" className="button-danger" onClick={cancelMatch} disabled={busy}>
               {t.cancelYes}
             </button>

@@ -348,6 +348,9 @@ async fn delete_mine(
     match service::leave(&state.repo, state.clock.as_ref(), user.id, &share_id).await {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(LeaveError::MatchNotFound) => not_found(),
+        Err(LeaveError::Rejected(LeaveRejected::MatchCancelled)) => {
+            error(StatusCode::CONFLICT, "match_cancelled")
+        }
         Err(LeaveError::Rejected(LeaveRejected::MatchStarted)) => {
             error(StatusCode::CONFLICT, "match_started")
         }

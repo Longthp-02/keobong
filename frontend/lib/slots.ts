@@ -95,13 +95,13 @@ export type SlotsClient = {
 };
 
 /** A roster with nobody in it, split like the API: team A takes the odd place. */
-export function emptyRoster(slotCount: number): RosterView {
+export function emptyRoster(slotCount: number, cancelled = false): RosterView {
   return {
     teams: [
       { team: "a", capacity: Math.ceil(slotCount / 2), players: [] },
       { team: "b", capacity: Math.floor(slotCount / 2), players: [] },
     ],
-    cancelled: false,
+    cancelled,
   };
 }
 

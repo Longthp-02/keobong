@@ -125,6 +125,9 @@ export function TeamSlots({ shareId, startsAt, initialRoster, client = defaultCl
     if (code === "match_started") {
       setStarted(true);
     }
+    if (code === "match_cancelled") {
+      void refreshRoster();
+    }
   }
 
   async function join(event: FormEvent<HTMLFormElement>) {

@@ -54,6 +54,13 @@ impl MatchFacts {
     fn price_per_player_vnd(&self) -> i64 {
         price_per_player_vnd(self.total_fee_vnd, self.slot_count)
     }
+
+    /// The time holds are measured against. Cancelling freezes every place as
+    /// it was, so nobody drops off the host's list while refunds are sorted out.
+    fn hold_clock(&self, now: DateTime<Utc>) -> DateTime<Utc> {
+        self.cancelled_at
+            .map_or(now, |cancelled| cancelled.min(now))
+    }
 }
 
 const MATCH_FACTS: &str =
@@ -81,7 +88,7 @@ async fn lock_match(
              WHERE match_id = $1 AND released_at IS NULL AND hold_expires_at <= $2",
         )
         .bind(facts.id)
-        .bind(now)
+        .bind(facts.hold_clock(now))
         .execute(&mut **tx)
         .await
         .map_err(unavailable)?;
@@ -213,7 +220,7 @@ impl SlotRepository for PgSlotRepository {
         let Some(facts) = lock_match(&mut tx, share_id, now).await? else {
             return Ok(ReleaseOutcome::MatchNotFound);
         };
-        if let Err(reason) = check_leave(now, facts.starts_at) {
+        if let Err(reason) = check_leave(now, facts.starts_at, facts.cancelled_at.is_some()) {
             return Ok(ReleaseOutcome::Rejected(reason));
         }
         let released = sqlx::query(
@@ -252,7 +259,7 @@ impl SlotRepository for PgSlotRepository {
              ORDER BY s.claimed_at, s.id",
         )
         .bind(facts.id)
-        .bind(now)
+        .bind(facts.hold_clock(now))
         .fetch_all(&self.pool)
         .await
         .map_err(unavailable)?;
@@ -296,7 +303,7 @@ impl SlotRepository for PgSlotRepository {
         };
         let party: Option<PartyRow> = sqlx::query_as(PARTIES)
             .bind(facts.id)
-            .bind(now)
+            .bind(facts.hold_clock(now))
             .bind(Some(holder.0))
             .fetch_optional(&self.pool)
             .await
@@ -377,7 +384,7 @@ impl SlotRepository for PgSlotRepository {
         }
         let rows: Vec<PartyRow> = sqlx::query_as(PARTIES)
             .bind(facts.id)
-            .bind(now)
+            .bind(facts.hold_clock(now))
             .bind(None::<i64>)
             .fetch_all(&self.pool)
             .await

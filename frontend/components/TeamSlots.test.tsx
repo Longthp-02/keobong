@@ -276,4 +276,33 @@ describe("TeamSlots", () => {
     expect(screen.queryByRole("button", { name: messages.payment.reportPaid })).toBeNull();
     expect(screen.queryByRole("button", { name: t.leave })).toBeNull();
   });
+
+  it("switches to the cancelled view when the server refuses a report because of a cancel", async () => {
+    const place = joined("a", [], {
+      paymentStatus: "awaiting_payment",
+      holdExpiresAt: "2099-10-10T11:00:00Z",
+      amountVnd: 50000,
+      payment: {
+        bankName: "ACB",
+        accountNumber: "257678859",
+        accountName: "PHAM LONG",
+        amountVnd: 50000,
+        memo: "DAGHEP 7",
+        qrPayload: "000201",
+      },
+    });
+    const api = client(place, {
+      roster: vi
+        .fn()
+        .mockResolvedValueOnce(roster(["Long"]))
+        .mockResolvedValue({ ...roster(["Long"]), cancelled: true }),
+      reportPayment: vi.fn().mockResolvedValue({ ok: false, error: "match_cancelled" }),
+    });
+    render(<TeamSlots shareId={SHARE_ID} startsAt={FUTURE} initialRoster={roster(["Long"])} client={api} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: messages.payment.reportPaid }));
+
+    expect(await screen.findByText(t.cancelledRefund)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: messages.payment.reportPaid })).toBeNull();
+  });
 });

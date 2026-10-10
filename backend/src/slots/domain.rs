@@ -125,11 +125,21 @@ pub fn check_claim(ctx: &ClaimContext, request: &JoinRequest) -> Result<(), Clai
 pub enum LeaveRejected {
     #[error("the match has already started")]
     MatchStarted,
+    /// Places of a cancelled match stay as they were, for refunds.
+    #[error("the host cancelled the match")]
+    MatchCancelled,
 }
 
 /// Players can leave until kickoff. Leaving within 2 hours of kickoff will let
 /// the host mark a no-show (spec.md); that marking comes in a later step.
-pub fn check_leave(now: DateTime<Utc>, starts_at: DateTime<Utc>) -> Result<(), LeaveRejected> {
+pub fn check_leave(
+    now: DateTime<Utc>,
+    starts_at: DateTime<Utc>,
+    cancelled: bool,
+) -> Result<(), LeaveRejected> {
+    if cancelled {
+        return Err(LeaveRejected::MatchCancelled);
+    }
     if now >= starts_at {
         return Err(LeaveRejected::MatchStarted);
     }
@@ -506,11 +516,11 @@ mod tests {
         let starts_at: DateTime<Utc> = "2099-10-10T11:30:00Z".parse().unwrap();
 
         assert_eq!(
-            check_leave(starts_at - Duration::seconds(1), starts_at),
+            check_leave(starts_at - Duration::seconds(1), starts_at, false),
             Ok(())
         );
         assert_eq!(
-            check_leave(starts_at, starts_at),
+            check_leave(starts_at, starts_at, false),
             Err(LeaveRejected::MatchStarted)
         );
     }

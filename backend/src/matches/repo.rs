@@ -118,6 +118,10 @@ impl MatchRepository for PgMatchRepository {
     ) -> Result<CancelOutcome, RepoError> {
         let unavailable = |e: sqlx::Error| RepoError::Unavailable(e.to_string());
         let mut tx = self.pool.begin().await.map_err(unavailable)?;
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL READ COMMITTED")
+            .execute(&mut *tx)
+            .await
+            .map_err(unavailable)?;
         // Same lock as slot claims, so no one joins while the match is being cancelled.
         let row: Option<(i64, DateTime<Utc>, Option<DateTime<Utc>>)> = sqlx::query_as(
             "SELECT host_user_id, starts_at, cancelled_at FROM matches

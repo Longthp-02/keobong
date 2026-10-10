@@ -221,3 +221,59 @@ async fn a_cancelled_match_takes_no_places_and_no_payments(pool: PgPool) {
     .await;
     assert_eq!(list["parties"].as_array().unwrap().len(), 1);
 }
+
+#[sqlx::test]
+async fn cancelling_freezes_places_so_the_host_can_refund_everyone(pool: PgPool) {
+    let clock = TestClock::at(NOW);
+    let app = app_with(pool, clock.clone(), FRONTEND);
+    let m = create_match(&app).await;
+    let p1 = sign_in(&app, "p1").await;
+    join(&app, &m, &p1).await;
+    cancel(&app, &m, Some(&m.host)).await;
+
+    // Past the 30-minute hold: the party must not disappear from the refund list.
+    clock.advance(Duration::minutes(31));
+
+    let list_uri = format!("/api/matches/{}/payments", m.share_id);
+    let list = json_body(
+        call(
+            &app,
+            get_with_cookie(&list_uri, &format!("daghep_session={}", m.host)),
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(list["parties"].as_array().unwrap().len(), 1);
+    let mine_uri = format!("/api/matches/{}/slots/mine", m.share_id);
+    let own = json_body(
+        call(
+            &app,
+            get_with_cookie(&mine_uri, &format!("daghep_session={p1}")),
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(own["joined"], json!(true));
+    let roster =
+        json_body(call(&app, get(&format!("/api/matches/{}/slots", m.share_id))).await).await;
+    assert_eq!(roster["teams"][0]["players"].as_array().unwrap().len(), 1);
+}
+
+#[sqlx::test]
+async fn nobody_leaves_a_cancelled_match(pool: PgPool) {
+    let app = app(pool);
+    let m = create_match(&app).await;
+    let p1 = sign_in(&app, "p1").await;
+    join(&app, &m, &p1).await;
+    cancel(&app, &m, Some(&m.host)).await;
+
+    let leave = Request::delete(format!("/api/matches/{}/slots/mine", m.share_id))
+        .header(COOKIE, format!("daghep_session={p1}"))
+        .body(Body::empty())
+        .unwrap();
+
+    assert_eq!(
+        send(&app, leave).await,
+        (StatusCode::CONFLICT, json!({ "error": "match_cancelled" }))
+    );
+}

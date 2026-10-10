@@ -42,6 +42,10 @@ const joinedPlace = {
 const roster = { teams: [{ team: "a", capacity: 9, players: [] }, { team: "b", capacity: 9, players: [] }] };
 
 describe("emptyRoster", () => {
+  it("can start out cancelled when the match says so", () => {
+    expect(emptyRoster(4, true).cancelled).toBe(true);
+  });
+
   it("splits places like the API, with team A taking the odd one", () => {
     expect(emptyRoster(15)).toEqual({
       teams: [

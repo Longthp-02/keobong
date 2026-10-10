@@ -47,7 +47,7 @@ export default async function MatchPage({ params }: Props) {
   return (
     <>
       <MatchCard match={match} />
-      <TeamSlots shareId={match.shareId} startsAt={match.startsAt} initialRoster={roster ?? emptyRoster(match.slotCount)} />
+      <TeamSlots shareId={match.shareId} startsAt={match.startsAt} initialRoster={roster ?? emptyRoster(match.slotCount, match.cancelledAt !== null)} />
     </>
   );
 }
