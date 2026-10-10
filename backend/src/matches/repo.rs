@@ -172,7 +172,7 @@ impl MatchRepository for PgMatchRepository {
             .as_ref()
             .map(|c| (c.starts_at, c.share_id.as_str().to_owned()))
             .unzip();
-        // Served by matches_open_by_start_idx: not cancelled, ordered by (starts_at, share_id).
+        // Served by matches_starts_at_idx; the cursor's kickoff bounds the index scan.
         let rows = sqlx::query_as::<_, ListedRow>(&format!(
             "SELECT {MATCH_COLUMNS},
                     CASE WHEN $5::float8 IS NULL OR m.location IS NULL THEN NULL
@@ -183,6 +183,8 @@ impl MatchRepository for PgMatchRepository {
              WHERE m.cancelled_at IS NULL
                AND m.starts_at >= $1 AND m.starts_at > $2 AND m.starts_at < $3
                AND ($4::text IS NULL OR m.match_type = $4)
+               -- Repeating the cursor's kickoff as a plain bound lets the index skip earlier rows.
+               AND m.starts_at >= COALESCE($7::timestamptz, $1)
                AND ($7::timestamptz IS NULL OR (m.starts_at, m.share_id) > ($7, $8::text))
              ORDER BY m.starts_at, m.share_id
              LIMIT $9"

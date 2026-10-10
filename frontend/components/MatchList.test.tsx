@@ -152,4 +152,35 @@ describe("MatchList", () => {
     expect(within(card).getByText(t.free)).toBeTruthy();
     expect(within(card).queryByText(formatVnd(0))).toBeNull();
   });
+
+  it("keeps looking when a page only had full matches", async () => {
+    const load = vi
+      .fn()
+      .mockResolvedValueOnce(page([], "c1"))
+      .mockResolvedValue(page([open("later111")]));
+    render(<MatchList load={load} now={NOW} />);
+
+    expect(await screen.findByRole("link", { name: /SSA Sports Center/ })).toBeTruthy();
+    expect(screen.queryByText(t.empty)).toBeNull();
+    expect(load).toHaveBeenLastCalledWith({ date: "2099-10-03", cursor: "c1" });
+  });
+
+  it("drops a load-more answer for filters the visitor has left", async () => {
+    let finishMore: (value: OpenMatchPage) => void = () => {};
+    const load = vi
+      .fn()
+      .mockResolvedValueOnce(page([open("first111")], "c1"))
+      .mockReturnValueOnce(new Promise<OpenMatchPage>((resolve) => (finishMore = resolve)))
+      .mockResolvedValue(page([open("tomorrow", { venueName: "Sân bóng An Phú Quận 2" })]));
+    render(<MatchList load={load} now={NOW} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: t.loadMore }));
+    fireEvent.click(screen.getByRole("button", { name: new RegExp(t.tomorrow) }));
+    expect(await screen.findByText("Sân bóng An Phú Quận 2")).toBeTruthy();
+    finishMore(page([open("stale111", { venueName: "Khu thể thao An Phú" })]));
+
+    await waitFor(() => expect(load).toHaveBeenCalledTimes(3));
+    expect(screen.queryByText("Khu thể thao An Phú")).toBeNull();
+  });
 });
+

@@ -458,19 +458,21 @@ pub struct ListCursor {
 }
 
 impl ListCursor {
-    /// `<kickoff in Unix milliseconds>.<share id>`; `.` never appears in share ids.
+    /// `<kickoff in Unix microseconds>.<share id>`; `.` never appears in share ids.
+    /// Microseconds are the database's precision, so the next page starts exactly
+    /// after this match (a coarser cursor would repeat matches or never advance).
     pub fn encode(&self) -> String {
         format!(
             "{}.{}",
-            self.starts_at.timestamp_millis(),
+            self.starts_at.timestamp_micros(),
             self.share_id.as_str()
         )
     }
 
     pub fn decode(raw: &str) -> Option<Self> {
-        let (millis, share_id) = raw.split_once('.')?;
+        let (micros, share_id) = raw.split_once('.')?;
         Some(Self {
-            starts_at: DateTime::from_timestamp_millis(millis.parse().ok()?)?,
+            starts_at: DateTime::from_timestamp_micros(micros.parse().ok()?)?,
             share_id: ShareId::parse(share_id)?,
         })
     }
@@ -559,7 +561,7 @@ mod tests {
     #[test]
     fn list_cursor_round_trips_and_rejects_garbage() {
         let cursor = ListCursor {
-            starts_at: "2099-10-02T11:00:00.123Z".parse().unwrap(),
+            starts_at: "2099-10-02T11:00:00.123456Z".parse().unwrap(),
             share_id: ShareId::parse("k7Qm-x_Pa").unwrap(),
         };
         assert_eq!(ListCursor::decode(&cursor.encode()), Some(cursor));

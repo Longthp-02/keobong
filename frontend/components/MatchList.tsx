@@ -17,6 +17,12 @@ const t = messages.list;
 const TYPES: MatchView["matchType"][] = ["casual", "competitive", "beginner_friendly"];
 /** At or below this, the places-left label turns urgent (as in the design). */
 const FEW_PLACES = 2;
+/**
+ * Full matches are dropped after paging, so a page can be empty and still have
+ * a next one. Follow at most this many such pages per request; the seven-day
+ * window bounds the list anyway.
+ */
+const MAX_EMPTY_PAGES = 5;
 
 type Position = { lat: number; lng: number };
 
@@ -128,10 +134,22 @@ export function MatchList({ load = browserOpenMatches, now = () => new Date(), l
     [date, type, near],
   );
 
+  /** Loads from `cursor`, skipping pages that only had full matches. */
+  const fetchPage = useCallback(
+    async (cursor?: string): Promise<OpenMatchPage> => {
+      let page = await load(query(cursor ? { cursor } : {}));
+      for (let skipped = 0; page.matches.length === 0 && page.nextCursor && skipped < MAX_EMPTY_PAGES; skipped++) {
+        page = await load(query({ cursor: page.nextCursor }));
+      }
+      return page;
+    },
+    [load, query],
+  );
+
   const reload = useCallback(() => {
     const current = ++generation.current;
     setStatus("loading");
-    load(query()).then(
+    fetchPage().then(
       (page) => {
         if (current === generation.current) {
           setMatches(page.matches);
@@ -146,7 +164,7 @@ export function MatchList({ load = browserOpenMatches, now = () => new Date(), l
         }
       },
     );
-  }, [load, query]);
+  }, [fetchPage]);
 
   useEffect(() => {
     reload();
@@ -159,14 +177,16 @@ export function MatchList({ load = browserOpenMatches, now = () => new Date(), l
     const current = generation.current;
     setLoadingMore(true);
     try {
-      const page = await load(query({ cursor }));
+      const page = await fetchPage(cursor);
       if (current === generation.current) {
         setMatches((shown) => [...shown, ...page.matches]);
         setCursor(page.nextCursor);
       }
     } catch (error) {
       console.error("could not load more matches", error);
-      setStatus("failed");
+      if (current === generation.current) {
+        setStatus("failed");
+      }
     } finally {
       setLoadingMore(false);
     }
@@ -239,7 +259,7 @@ export function MatchList({ load = browserOpenMatches, now = () => new Date(), l
 
       {status === "failed" ? (
         <div className="match-list__state">
-          <p className="form-error" role="alert">
+          <p className="form-error" role="alert" id="match-list-summary">
             {t.loadFailed}
           </p>
           <button type="button" className="button-secondary" onClick={reload}>

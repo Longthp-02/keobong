@@ -166,6 +166,7 @@ export function CreateMatchForm({ venues, onSubmit, hasPayout = true }: Props) {
           ))}
         </select>
         {venue ? <span className="field-hint">{venue.address}</span> : null}
+        {venues.length === 0 ? <span className="form-error">{t.venuesUnavailable}</span> : null}
         <span className="field-hint">{t.venueMissing}</span>
       </div>
 

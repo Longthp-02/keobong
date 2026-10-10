@@ -216,6 +216,7 @@
     "title": "Tạo kèo",
     "venue": "Sân",
     "venuePlaceholder": "Chọn sân",
+    "venuesUnavailable": "Chưa tải được danh sách sân. Hãy tải lại trang sau ít phút.",
     "venueMissing": "Sân của bạn chưa có trong danh sách? Gửi tên và địa chỉ sân tới lienhe@daghep.vn.",
     "date": "Ngày",
     "startTime": "Giờ bắt đầu",

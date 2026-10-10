@@ -15,6 +15,4 @@ CREATE TABLE venues (
 -- New matches copy the venue's location into matches.location for distance queries.
 ALTER TABLE matches ADD COLUMN venue_id BIGINT REFERENCES venues (id);
 CREATE INDEX matches_venue_id_idx ON matches (venue_id);
-
--- The match list: upcoming, not cancelled, ordered by kickoff then share id (the page cursor).
-CREATE INDEX matches_open_by_start_idx ON matches (starts_at, share_id) WHERE cancelled_at IS NULL;
+-- The match list is served by the existing matches_starts_at_idx (checked with EXPLAIN).

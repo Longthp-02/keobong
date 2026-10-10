@@ -228,4 +228,11 @@ describe("CreateMatchForm", () => {
 
     expect(screen.getByText("93 Nguyễn Hoàng, Bình Trưng")).toBeTruthy();
   });
+
+  it("says when the venue list could not be loaded", () => {
+    render(<CreateMatchForm venues={[]} onSubmit={vi.fn()} />);
+
+    expect(screen.getByText(t.venuesUnavailable)).toBeTruthy();
+  });
 });
+

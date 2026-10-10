@@ -345,3 +345,124 @@ async fn rejects_bad_query_parameters_by_field(pool: PgPool) {
         );
     }
 }
+
+#[sqlx::test]
+async fn pages_without_repeats_when_kickoffs_have_sub_millisecond_times(pool: PgPool) {
+    let app = app(pool);
+    let host = host(&app).await;
+    let mut created = Vec::new();
+    for _ in 0..21 {
+        created.push(
+            create(
+                &app,
+                &host,
+                "ssa-amitie",
+                "2099-10-02T11:00:00.000500Z",
+                "casual",
+                10,
+            )
+            .await,
+        );
+    }
+    created.sort();
+
+    let (_, first) = list(&app, "").await;
+    let cursor = first["nextCursor"]
+        .as_str()
+        .expect("next cursor")
+        .to_owned();
+    let (_, second) = list(&app, &format!("?cursor={cursor}")).await;
+
+    let mut seen = share_ids(&first);
+    seen.extend(share_ids(&second));
+    seen.sort();
+    assert_eq!(seen, created);
+    assert_eq!(second["nextCursor"], Value::Null);
+}
+
+#[sqlx::test]
+async fn released_and_expired_places_are_open_again(pool: PgPool) {
+    let clock = TestClock::at(NOW);
+    let app = app_with(pool, clock.clone(), FRONTEND);
+    let host = host(&app).await;
+    // A paid match: places are held for 30 minutes until the transfer is reported.
+    let start: chrono::DateTime<chrono::Utc> = "2099-10-02T11:00:00Z".parse().unwrap();
+    let request = Request::post("/api/matches")
+        .header(CONTENT_TYPE, "application/json")
+        .header(COOKIE, format!("daghep_session={}", host.session))
+        .body(Body::from(
+            json!({
+                "venueId": "ssa-amitie", "startsAt": start, "endsAt": start + Duration::minutes(90),
+                "format": "five_a_side", "matchType": "casual", "levelMin": 2.5, "levelMax": 3.5,
+                "totalFeeVnd": 500000, "slotCount": 10
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let response = call(&app, request).await;
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let paid = json_body(response).await["shareId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let free = create(
+        &app,
+        &host,
+        "ssa-amitie",
+        "2099-10-02T12:00:00Z",
+        "casual",
+        10,
+    )
+    .await;
+
+    join(&app, &paid, "holder", "a", json!(["Guest"])).await;
+    let leaver = sign_in(&app, "leaver").await;
+    let join_free = Request::post(format!("/api/matches/{free}/slots"))
+        .header(CONTENT_TYPE, "application/json")
+        .header(COOKIE, format!("daghep_session={leaver}"))
+        .body(Body::from(json!({ "team": "a", "guests": [] }).to_string()))
+        .unwrap();
+    assert_eq!(call(&app, join_free).await.status(), StatusCode::CREATED);
+    let leave = Request::delete(format!("/api/matches/{free}/slots/mine"))
+        .header(COOKIE, format!("daghep_session={leaver}"))
+        .body(Body::empty())
+        .unwrap();
+    assert!(call(&app, leave).await.status().is_success());
+
+    let places_left = |body: &Value| -> Vec<i64> {
+        body["matches"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|m| m["placesLeft"].as_i64().unwrap())
+            .collect()
+    };
+    let (_, body) = list(&app, "").await;
+    assert_eq!(places_left(&body), vec![8, 10]);
+
+    clock.advance(Duration::minutes(31));
+    let (_, body) = list(&app, "").await;
+    assert_eq!(places_left(&body), vec![10, 10]);
+}
+
+#[sqlx::test]
+async fn a_match_at_local_midnight_belongs_to_that_day(pool: PgPool) {
+    let app = app(pool);
+    let host = host(&app).await;
+    // 00:00 on 4 October in Ho Chi Minh City.
+    let midnight = create(
+        &app,
+        &host,
+        "ssa-amitie",
+        "2099-10-03T17:00:00Z",
+        "casual",
+        10,
+    )
+    .await;
+
+    let (_, day) = list(&app, "?date=2099-10-04").await;
+    let (_, before) = list(&app, "?date=2099-10-03").await;
+
+    assert_eq!(share_ids(&day), vec![midnight]);
+    assert!(share_ids(&before).is_empty());
+}

@@ -28,7 +28,15 @@ export default async function CreateMatchPage() {
   if (!me) {
     return <SignInPrompt next="/create" />;
   }
-  const [payout, banks, venues] = await Promise.all([getPayout(cookie), getBanks(), getVenues()]);
+  const [payout, banks, venues] = await Promise.all([
+    getPayout(cookie),
+    getBanks(),
+    // The form explains an empty list, which beats an error page (e.g. during a deploy).
+    getVenues().catch((error: unknown) => {
+      console.error("venues unavailable", error);
+      return [];
+    }),
+  ]);
   const hasPayout = canHostPaidMatches(payout, banks);
   return (
     <>
