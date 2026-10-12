@@ -8,6 +8,9 @@ use super::domain::{
 };
 use crate::auth::UserId;
 
+/// Advisory lock key that serialises draft reads ("draftrds" in ASCII).
+const DRAFT_READS_LOCK: i64 = 0x6472_6166_7472_6473;
+
 #[derive(Clone)]
 pub struct PgDraftRepository {
     pool: PgPool,
@@ -26,9 +29,19 @@ impl DraftRepository for PgDraftRepository {
         now: DateTime<Utc>,
     ) -> Result<Result<(), LimitScope>, RepoError> {
         let since = now - Duration::hours(24);
-        // One statement: count both windows and insert only when both are open.
-        // Two concurrent requests can both pass the check, so a limit may be
-        // exceeded by a read or two; it bounds cost, it is not exact.
+        // Reads are rare (at most a few hundred a day), so one transaction-level
+        // lock makes the check and the insert exact under concurrent requests.
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|error| RepoError(error.to_string()))?;
+        sqlx::query("SELECT pg_advisory_xact_lock($1)")
+            .bind(DRAFT_READS_LOCK)
+            .execute(&mut *tx)
+            .await
+            .map_err(|error| RepoError(error.to_string()))?;
+        // Count both windows and insert only when both are open.
         let row: (i64, i64, bool) = sqlx::query_as(
             "WITH expired AS (
                  -- Reads only matter for 24 hours; older rows are not kept.
@@ -54,9 +67,12 @@ impl DraftRepository for PgDraftRepository {
         .bind(now)
         .bind(USER_READS_PER_DAY)
         .bind(SERVICE_READS_PER_DAY)
-        .fetch_one(&self.pool)
+        .fetch_one(&mut *tx)
         .await
         .map_err(|error| RepoError(error.to_string()))?;
+        tx.commit()
+            .await
+            .map_err(|error| RepoError(error.to_string()))?;
         Ok(match row {
             (_, _, true) => Ok(()),
             (user_reads, _, false) if user_reads >= USER_READS_PER_DAY => Err(LimitScope::User),

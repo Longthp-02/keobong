@@ -10,7 +10,7 @@ use chrono::{DateTime, Duration, NaiveDate, NaiveTime, Utc};
 use crate::auth::UserId;
 use crate::matches::domain::{
     Format, Level, MAX_DAYS_AHEAD, MAX_DURATION_HOURS, MAX_TOTAL_FEE_VND, MatchType,
-    SLOT_COUNT_RANGE, Venue,
+    SLOT_COUNT_RANGE, Venue, local_date, local_instant,
 };
 
 /// Longest message accepted, in characters. Organisers' posts are a few lines.
@@ -76,8 +76,9 @@ pub struct MatchDraft {
 }
 
 impl MatchDraft {
-    /// Keeps only the fields that fit the match rules.
-    pub fn checked(raw: RawDraft, today: NaiveDate, venues: &[Venue]) -> Self {
+    /// Keeps only the fields that fit the match rules at `now`.
+    pub fn checked(raw: RawDraft, now: DateTime<Utc>, venues: &[Venue]) -> Self {
+        let today = local_date(now);
         let venue_id = raw
             .venue_id
             .filter(|id| venues.iter().any(|venue| venue.slug.as_str() == id));
@@ -87,6 +88,13 @@ impl MatchDraft {
             .and_then(|value| NaiveDate::parse_from_str(value, "%Y-%m-%d").ok())
             .filter(|day| *day >= today && *day <= today + Duration::days(MAX_DAYS_AHEAD));
         let start_time = raw.start_time.as_deref().and_then(parse_time);
+        // Same rule as creating a match: kickoff in the future, at most 30 days ahead.
+        let date = date.filter(|day| {
+            start_time.is_none_or(|start| {
+                let kickoff = local_instant(*day, start);
+                kickoff > now && kickoff <= now + Duration::days(MAX_DAYS_AHEAD)
+            })
+        });
         let end_time = raw.end_time.as_deref().and_then(parse_time).filter(|end| {
             start_time.is_some_and(|start| {
                 let length = *end - start;
@@ -169,6 +177,11 @@ mod tests {
         NaiveDate::from_ymd_opt(2099, 10, 1).unwrap()
     }
 
+    /// 07:00 on 1 October 2099 in Ho Chi Minh City.
+    fn now() -> DateTime<Utc> {
+        "2099-10-01T00:00:00Z".parse().unwrap()
+    }
+
     fn full() -> RawDraft {
         RawDraft {
             venue_id: Some("ssa-amitie".to_owned()),
@@ -187,7 +200,7 @@ mod tests {
 
     #[test]
     fn keeps_valid_fields_and_turns_the_price_per_person_into_a_total() {
-        let draft = MatchDraft::checked(full(), today(), &venues());
+        let draft = MatchDraft::checked(full(), now(), &venues());
         assert_eq!(draft.venue_id.as_deref(), Some("ssa-amitie"));
         assert_eq!(draft.date, Some(today()));
         assert_eq!(draft.start_time, NaiveTime::from_hms_opt(19, 0, 0));
@@ -206,7 +219,7 @@ mod tests {
             ..full()
         };
         assert_eq!(
-            MatchDraft::checked(raw, today(), &venues()).total_fee_vnd,
+            MatchDraft::checked(raw, now(), &venues()).total_fee_vnd,
             Some(600_000)
         );
     }
@@ -227,7 +240,7 @@ mod tests {
             total_fee_vnd: None,
         };
         assert_eq!(
-            MatchDraft::checked(raw, today(), &venues()),
+            MatchDraft::checked(raw, now(), &venues()),
             MatchDraft::default()
         );
     }
@@ -240,7 +253,7 @@ mod tests {
                 ..full()
             };
             assert_eq!(
-                MatchDraft::checked(raw, today(), &venues()).end_time,
+                MatchDraft::checked(raw, now(), &venues()).end_time,
                 None,
                 "{end}"
             );
@@ -254,9 +267,36 @@ mod tests {
             total_fee_vnd: Some(MAX_TOTAL_FEE_VND + 1),
             ..full()
         };
-        let draft = MatchDraft::checked(raw, today(), &venues());
+        let draft = MatchDraft::checked(raw, now(), &venues());
         assert_eq!(draft.date, None);
         assert_eq!(draft.total_fee_vnd, None);
+    }
+
+    #[test]
+    fn drops_a_date_whose_kickoff_has_passed_or_is_more_than_thirty_days_away() {
+        let earlier_today = RawDraft {
+            start_time: Some("06:00".to_owned()),
+            end_time: None,
+            ..full()
+        };
+        let draft = MatchDraft::checked(earlier_today, now(), &venues());
+        assert_eq!(draft.date, None);
+        assert_eq!(draft.start_time, NaiveTime::from_hms_opt(6, 0, 0));
+
+        let last_day = |time: &str| RawDraft {
+            date: Some("2099-10-31".to_owned()),
+            start_time: Some(time.to_owned()),
+            end_time: None,
+            ..full()
+        };
+        assert_eq!(
+            MatchDraft::checked(last_day("07:00"), now(), &venues()).date,
+            NaiveDate::from_ymd_opt(2099, 10, 31)
+        );
+        assert_eq!(
+            MatchDraft::checked(last_day("08:00"), now(), &venues()).date,
+            None
+        );
     }
 
     #[test]
@@ -266,7 +306,7 @@ mod tests {
             level_max: Some(3.3),
             ..full()
         };
-        let draft = MatchDraft::checked(raw, today(), &venues());
+        let draft = MatchDraft::checked(raw, now(), &venues());
         assert_eq!((draft.level_min, draft.level_max), (None, None));
     }
 }

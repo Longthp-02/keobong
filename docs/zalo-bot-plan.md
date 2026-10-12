@@ -36,7 +36,7 @@ as it does today for everyone who prefers the link.
 
 ## Design
 - New feature `bot` (`backend/src/bot/{domain,service,repo,http}.rs`). `POST /api/bot/zalo/webhook` on the Cloud Run URL; constant-time secret check; text events only; replies sent in the background so the webhook answers fast.
-- Port `MatchTextReader`: text + today + venue list → draft fields. Adapter: Anthropic Messages API, small model, strict JSON schema. The output is validated with the existing match rules.
+- Port `MatchTextReader`: text + today + venue list → draft fields. Adapter: Anthropic Messages API, small model, forced tool call with a JSON schema. The output is validated with the existing match rules.
 - Port `ChatReply`: Zalo `sendMessage`.
 - Tables: `zalo_links` (Zalo id ↔ user, unique), `bot_link_codes` (hashed code, expiry), `match_drafts` (sender, chat, fields, expiry), `bot_match_chats` (match ↔ group chat). Step 3 adds chat places to the slots tables.
 - The web paste box on `/create` reuses the reader (`POST /api/match-drafts`).

@@ -4,7 +4,6 @@
 
 use std::time::Duration;
 
-use serde::Deserialize;
 use serde_json::{Value, json};
 
 use super::domain::{MatchTextReader, RawDraft, ReadRequest, ReaderError, ReaderFuture};
@@ -80,7 +79,7 @@ looks for players, and you fill in the {TOOL} tool. Today is {today} ({weekday})
 Rules:\n\
 - Use only what the message states. Leave a field null when it is not stated; never guess.\n\
 - venueId: one of the ids below, only when the message clearly names that venue.\n\
-- date as YYYY-MM-DD: \"tối nay\"/\"hôm nay\" is today, \"mai\" is tomorrow, \"thứ 2\"…\"thứ 7\" and \"chủ nhật\" are the next such day.\n\
+- date as YYYY-MM-DD: \"tối nay\"/\"hôm nay\" is today, \"mai\" is tomorrow, \"thứ 2\"…\"thứ 7\" and \"chủ nhật\" mean today if today is that day, otherwise the next such day.\n\
 - startTime and endTime as HH:MM, 24-hour: \"19h\" is 19:00, \"19h30\" is 19:30, \"7h tối\" is 19:00. No end time unless stated.\n\
 - format: \"sân 5\" five_a_side, \"sân 7\" seven_a_side, \"sân 11\" eleven_a_side.\n\
 - matchType: casual (giao lưu, đá vui), competitive (đá căng, có kèo), beginner_friendly (mới tập, gà). Null when not stated.\n\
@@ -132,23 +131,9 @@ fn request_body(model: &str, request: &ReadRequest<'_>) -> Value {
     })
 }
 
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ToolInput {
-    venue_id: Option<String>,
-    date: Option<String>,
-    start_time: Option<String>,
-    end_time: Option<String>,
-    format: Option<String>,
-    match_type: Option<String>,
-    level_min: Option<f64>,
-    level_max: Option<f64>,
-    slot_count: Option<i64>,
-    price_per_player_vnd: Option<i64>,
-    total_fee_vnd: Option<i64>,
-}
-
-/// Takes the tool call out of a Messages API reply.
+/// Takes the tool call out of a Messages API reply. Each field is read on its
+/// own and a field of the wrong type is left out, so one mistake does not lose
+/// the whole draft. Errors never quote the reply: it may repeat the message.
 fn draft_from_reply(reply: &Value) -> Result<RawDraft, ReaderError> {
     let input = reply["content"]
         .as_array()
@@ -157,22 +142,32 @@ fn draft_from_reply(reply: &Value) -> Result<RawDraft, ReaderError> {
                 .iter()
                 .find(|block| block["type"] == "tool_use" && block["name"] == TOOL)
         })
-        .map(|block| block["input"].clone())
+        .map(|block| &block["input"])
+        .filter(|input| input.is_object())
         .ok_or_else(|| ReaderError::Failed("reply has no draft".to_owned()))?;
-    let input: ToolInput = serde_json::from_value(input)
-        .map_err(|error| ReaderError::Failed(format!("draft has the wrong shape: {error}")))?;
+    let text = |key: &str| input[key].as_str().map(str::to_owned);
+    let number = |key: &str| input[key].as_f64();
+    let whole = |key: &str| match &input[key] {
+        Value::Number(n) => n.as_i64().or_else(|| {
+            n.as_f64()
+                .filter(|v| v.fract() == 0.0 && v.abs() < 1e15)
+                .map(|v| v as i64)
+        }),
+        Value::String(s) => s.trim().parse().ok(),
+        _ => None,
+    };
     Ok(RawDraft {
-        venue_id: input.venue_id,
-        date: input.date,
-        start_time: input.start_time,
-        end_time: input.end_time,
-        format: input.format,
-        match_type: input.match_type,
-        level_min: input.level_min,
-        level_max: input.level_max,
-        slot_count: input.slot_count,
-        price_per_player_vnd: input.price_per_player_vnd,
-        total_fee_vnd: input.total_fee_vnd,
+        venue_id: text("venueId"),
+        date: text("date"),
+        start_time: text("startTime"),
+        end_time: text("endTime"),
+        format: text("format"),
+        match_type: text("matchType"),
+        level_min: number("levelMin"),
+        level_max: number("levelMax"),
+        slot_count: whole("slotCount"),
+        price_per_player_vnd: whole("pricePerPlayerVnd"),
+        total_fee_vnd: whole("totalFeeVnd"),
     })
 }
 
@@ -234,7 +229,22 @@ mod tests {
     fn a_reply_without_the_tool_call_is_an_error() {
         let reply = json!({ "content": [{ "type": "text", "text": "Sorry" }] });
         assert!(draft_from_reply(&reply).is_err());
-        let wrong = json!({ "content": [{ "type": "tool_use", "name": TOOL, "input": { "slotCount": "three" } }] });
-        assert!(draft_from_reply(&wrong).is_err());
+        let not_an_object =
+            json!({ "content": [{ "type": "tool_use", "name": TOOL, "input": "draft" }] });
+        assert!(draft_from_reply(&not_an_object).is_err());
+    }
+
+    #[test]
+    fn a_field_of_the_wrong_type_is_left_out_and_numbers_are_read_leniently() {
+        let reply = json!({ "content": [{ "type": "tool_use", "name": TOOL, "input": {
+            "slotCount": "3", "pricePerPlayerVnd": 60000.0, "totalFeeVnd": "lots",
+            "startTime": 19, "levelMin": 2.5
+        } }] });
+        let draft = draft_from_reply(&reply).unwrap();
+        assert_eq!(draft.slot_count, Some(3));
+        assert_eq!(draft.price_per_player_vnd, Some(60_000));
+        assert_eq!(draft.total_fee_vnd, None);
+        assert_eq!(draft.start_time, None);
+        assert_eq!(draft.level_min, Some(2.5));
     }
 }

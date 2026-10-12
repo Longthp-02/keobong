@@ -60,5 +60,5 @@ where
             venues: &venues,
         })
         .await?;
-    Ok(MatchDraft::checked(raw, today, &venues))
+    Ok(MatchDraft::checked(raw, now, &venues))
 }

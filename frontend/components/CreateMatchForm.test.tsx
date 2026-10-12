@@ -304,6 +304,18 @@ describe("CreateMatchForm paste box", () => {
     await waitFor(() => expect(screen.getByRole("status").textContent).toBe(p.errors.limit_user));
   });
 
+  it("keeps the level range valid when the message states only one level", async () => {
+    const empty = Object.fromEntries(Object.keys(tonight).map((key) => [key, null]));
+    const readDraft = vi.fn().mockResolvedValue({ ok: true, draft: { ...empty, levelMin: 4.5 } });
+    render(<CreateMatchForm venues={VENUES} onSubmit={vi.fn()} readDraft={readDraft} />);
+
+    fireEvent.change(screen.getByLabelText(p.label), { target: { value: "trình 4.5 trở lên" } });
+    fireEvent.click(screen.getByRole("button", { name: p.submit }));
+
+    await waitFor(() => expect(field(t.levelMin).value).toBe("4.5"));
+    expect(field(t.levelMax).value).toBe("4.5");
+  });
+
   it("does not send an empty message", () => {
     const readDraft = vi.fn();
     render(<CreateMatchForm venues={VENUES} onSubmit={vi.fn()} readDraft={readDraft} />);

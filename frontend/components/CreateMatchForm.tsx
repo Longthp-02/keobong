@@ -123,13 +123,21 @@ export function CreateMatchForm({ venues, onSubmit, hasPayout = true, readDraft 
     apply(draft.endTime, setEndTime);
     apply(draft.format, (next) => {
       setFormat(next);
+      // The draft's own place count, applied next, wins over the format's default.
       if (!slotsTouched && draft.slotCount === null) {
         setSlotCount(String(defaultSlotCount(next)));
       }
     });
     apply(draft.matchType, setMatchType);
-    apply(draft.levelMin, setLevelMin);
-    apply(draft.levelMax, setLevelMax);
+    // A single level keeps the range valid: the other end moves to meet it if needed.
+    apply(draft.levelMin, (min) => {
+      setLevelMin(min);
+      if (draft.levelMax === null) setLevelMax((max) => Math.max(max, min));
+    });
+    apply(draft.levelMax, (max) => {
+      setLevelMax(max);
+      if (draft.levelMin === null) setLevelMin((min) => Math.min(min, max));
+    });
     apply(draft.slotCount, (count) => {
       setSlotsTouched(true);
       setSlotCount(String(count));
@@ -146,7 +154,7 @@ export function CreateMatchForm({ venues, onSubmit, hasPayout = true, readDraft 
       return;
     }
     setReading(true);
-    setPasteStatus("");
+    setPasteStatus(t.paste.reading);
     try {
       const result = await readDraft(text);
       if (result.ok) {

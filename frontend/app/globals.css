@@ -302,8 +302,10 @@ main {
   justify-self: start;
 }
 
-.paste-box [role="status"]:empty {
-  display: none;
+/* The status line stays rendered (also when empty) so screen readers announce updates. */
+.paste-box [role="status"] {
+  min-height: 1.2em;
+  margin: 0;
 }
 
 .field-row {

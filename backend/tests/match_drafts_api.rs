@@ -187,7 +187,12 @@ async fn one_user_gets_ten_reads_per_day(pool: PgPool) {
     assert_eq!(read(&app, &other, "kèo").await.status(), StatusCode::OK);
 
     // The window rolls: a day after the first read, the host can read again.
-    clock.advance(Duration::hours(24) + Duration::seconds(1));
+    clock.advance(Duration::hours(24) - Duration::seconds(1));
+    assert_eq!(
+        read(&app, &host, "kèo").await.status(),
+        StatusCode::TOO_MANY_REQUESTS
+    );
+    clock.advance(Duration::seconds(2));
     assert_eq!(read(&app, &host, "kèo").await.status(), StatusCode::OK);
 }
 
@@ -268,4 +273,29 @@ async fn without_a_reader_drafts_are_unavailable(pool: PgPool) {
         json!({ "error": "drafts_unavailable" })
     );
     assert_eq!(reads_in_db(&pool).await, 0);
+}
+
+#[sqlx::test]
+async fn parallel_requests_cannot_beat_the_limit(pool: PgPool) {
+    let app = app_with_reader(
+        pool.clone(),
+        TestClock::at(NOW),
+        reader(Some(tonight_at_ssa())),
+    );
+    let session = sign_in(&app, "host").await;
+
+    let requests = (0..15).map(|_| {
+        let app = app.clone();
+        let session = session.clone();
+        tokio::spawn(async move { read(&app, &session, "kèo").await.status() })
+    });
+    let mut accepted = 0;
+    for request in requests.collect::<Vec<_>>() {
+        if request.await.unwrap() == StatusCode::OK {
+            accepted += 1;
+        }
+    }
+
+    assert_eq!(accepted, 10);
+    assert_eq!(reads_in_db(&pool).await, 10);
 }
