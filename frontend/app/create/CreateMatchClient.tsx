@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { CreateMatchForm } from "../../components/CreateMatchForm";
-import type { CreateMatchInput, Venue } from "../../lib/api";
+import { browserReadDraft, type CreateMatchInput, type Venue } from "../../lib/api";
 import { createMatchAction } from "./actions";
 
 export function CreateMatchClient({ hasPayout, venues }: { hasPayout: boolean; venues: Venue[] }) {
@@ -17,5 +17,12 @@ export function CreateMatchClient({ hasPayout, venues }: { hasPayout: boolean; v
     return undefined;
   }
 
-  return <CreateMatchForm venues={venues} onSubmit={submit} hasPayout={hasPayout} />;
+  return (
+    <CreateMatchForm
+      venues={venues}
+      onSubmit={submit}
+      hasPayout={hasPayout}
+      readDraft={(text) => browserReadDraft(text)}
+    />
+  );
 }

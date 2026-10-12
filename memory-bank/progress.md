@@ -6,7 +6,7 @@
 - UI design prototype (external Claude Design canvas).
 - Backend (`backend/`): Axum app with `GET /health` and `GET /api/matches/{shareId}`; `matches` feature split into domain / service / repo / http; first migration (`matches` table, PostGIS, GiST index); `daghep-api migrate` subcommand; lazy DB pool for fast cold starts; multi-stage Dockerfile.
 - Frontend (`frontend/`): Next.js 16 PWA with home page, `/m/[shareId]` match page (server-rendered, Open Graph tags without payment details), not-found page, web manifest, `messages/vi.json`.
-- Tests: backend 64 unit + 99 acceptance/integration; frontend 172.
+- Tests: backend 74 unit + 108 acceptance/integration; frontend 186.
 - Production web: https://daghep.vn on Vercel (www redirects to apex); DNS at iNET.
 - Legal pages: `/privacy`, `/terms`, footer links, `LegalPage` tests.
 - Create match (PR 3a): `POST /api/matches` (validation, share id generation with retry, Clock port), `pricePerPlayerVnd` in the public view, `/create` form with live price preview. Limits: fee 0–100M VND, 2–30 slots, start within 30 days, max 4 hours, same HCMC day. `/create` hidden in production until `API_BASE_URL` is set.
@@ -14,6 +14,7 @@
 - Slots (PR 3c): `backend/src/slots/` — public roster, own place, join team A/B with up to 2 guests, leave until kickoff; claims lock the match row (`FOR NO KEY UPDATE`, READ COMMITTED) so teams never overbook; `TeamSlots` on the match page refreshes the roster on load and after each action.
 - Payments (PR 3d): `backend/src/payments/` payout accounts, bank list and VietQR payload (verified against a published example); paid matches need a payout account; places carry payment status with a lazily expiring 30-minute hold; players report transfers, hosts confirm or reject; `/account/payout`, `PaymentPanel`, `HostPayments`.
 - Cancel (PR 3d-2): host-only `POST /api/matches/{id}/cancel` before kickoff; `cancelledAt` in the public view and `cancelled` in the roster; joins, reports and host payment actions refused afterwards; banner, link-preview prefix, refund note, host cancel button with confirmation.
+- Match drafts (2026-10-12): `drafts` feature, `POST /api/match-drafts`, Anthropic reader, daily limits in `draft_reads`; "Dán tin kèo" box on `/create`. Zalo bot steps planned in `docs/zalo-bot-plan.md`.
 - Page-view analytics (2026-10-12): Vercel Web Analytics in the root layout; privacy policy updated (no cookies, aggregated dashboard, visitor hash dropped after 24 hours).
 - Automatic API releases (2026-10-10): `.github/workflows/deploy.yml` runs after CI on main when `backend/` changed (Workload Identity Federation, `github-deployer` account; one-time setup in `docs/deploy.md`).
 - Deploy (2026-10-10): Cloud Run service `daghep-api` + migrate job, Neon, Secret Manager, Vercel `API_BASE_URL`; runbook in `docs/deploy.md`. Production verified end to end.

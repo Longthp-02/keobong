@@ -74,7 +74,8 @@
             "Với chủ kèo: thông tin nhận tiền (ngân hàng, số tài khoản, tên chủ tài khoản) để tạo mã VietQR.",
             "Lịch sử tham gia: chỗ đã giữ, trạng thái thanh toán do chủ kèo xác nhận, điểm danh và các lần bùng kèo.",
             "Dữ liệu kỹ thuật: nhật ký truy cập và địa chỉ IP, dùng để vận hành, sửa lỗi và chống lạm dụng.",
-            "Thống kê lượt truy cập: chúng tôi dùng Vercel Web Analytics để đếm lượt xem trang. Mỗi lượt xem ghi lại thời điểm, địa chỉ trang được mở, trang dẫn bạn đến (ví dụ LinkedIn hay Facebook), quốc gia và thành phố ước tính, loại thiết bị, hệ điều hành và trình duyệt. Công cụ này không dùng cookie, không lưu địa chỉ IP và không gắn với tài khoản của bạn; mỗi lượt truy cập chỉ được nhận diện bằng một mã băm tạm thời, bị xoá sau 24 giờ. Chúng tôi chỉ xem số liệu tổng hợp để biết trang nào được dùng nhiều."
+            "Thống kê lượt truy cập: chúng tôi dùng Vercel Web Analytics để đếm lượt xem trang. Mỗi lượt xem ghi lại thời điểm, địa chỉ trang được mở, trang dẫn bạn đến (ví dụ LinkedIn hay Facebook), quốc gia và thành phố ước tính, loại thiết bị, hệ điều hành và trình duyệt. Công cụ này không dùng cookie, không lưu địa chỉ IP và không gắn với tài khoản của bạn; mỗi lượt truy cập chỉ được nhận diện bằng một mã băm tạm thời, bị xoá sau 24 giờ. Chúng tôi chỉ xem số liệu tổng hợp để biết trang nào được dùng nhiều.",
+            "Tin kèo bạn dán vào ô \"Dán tin kèo\": nội dung được gửi tới Anthropic (dịch vụ AI Claude) để đọc và điền form giúp bạn. Chúng tôi không lưu nội dung này; chỉ ghi lại thời điểm bạn dùng tính năng, để giới hạn số lần dùng mỗi ngày, và xoá sau 24 giờ."
           ]
         },
         {
@@ -103,6 +104,7 @@
           "heading": "5. Nơi lưu trữ",
           "paragraphs": [
             "Máy chủ ứng dụng và cơ sở dữ liệu đặt tại Singapore (Google Cloud, Neon). Giao diện web chạy trên Vercel (vùng Singapore) và được phân phối qua mạng lưới máy chủ toàn cầu của Vercel, nên dữ liệu có thể đi qua máy chủ ở nước ngoài.",
+            "Khi bạn dùng ô \"Dán tin kèo\", nội dung tin được gửi tới Anthropic (Hoa Kỳ) để đọc.",
             "Phông chữ được tải từ Google Fonts và ảnh đại diện tài khoản Google được tải từ máy chủ của Google, vì vậy Google nhận được địa chỉ IP của trình duyệt khi bạn mở trang.",
             "Các nhà cung cấp này chỉ xử lý dữ liệu để vận hành dịch vụ."
           ]
@@ -248,7 +250,24 @@
       "payout": "Kèo có thu tiền cần tài khoản nhận tiền để người chơi chuyển khoản."
     },
     "payoutNeeded": "Kèo có thu tiền: hãy thêm tài khoản nhận tiền trước khi đăng kèo.",
-    "payoutLink": "Thêm tài khoản nhận tiền"
+    "payoutLink": "Thêm tài khoản nhận tiền",
+    "paste": {
+      "label": "Dán tin kèo của bạn",
+      "placeholder": "Ví dụ: Tối nay 19h sân SSA thiếu 3 người, sân 7, 60k/người",
+      "hint": "Dán tin bạn hay đăng trên Zalo hoặc Facebook, Đá Ghép sẽ điền form giúp bạn. Bạn vẫn kiểm tra lại trước khi đăng.",
+      "submit": "Điền giúp tôi",
+      "reading": "Đang đọc tin…",
+      "filled": "Đã điền {count} mục từ tin của bạn. Kiểm tra lại và điền nốt phần còn trống.",
+      "nothing": "Chưa đọc được thông tin nào từ tin này. Bạn điền tay giúp nhé.",
+      "errors": {
+        "invalid_text": "Tin kèo cần từ 1 đến 500 ký tự.",
+        "limit_user": "Bạn đã dùng hết 10 lần điền tự động hôm nay. Bạn vẫn điền tay được.",
+        "limit_service": "Hôm nay Đá Ghép đã hết lượt điền tự động. Bạn vẫn điền tay được.",
+        "unavailable": "Tính năng điền tự động đang tạm nghỉ. Bạn vẫn điền tay được.",
+        "signed_out": "Phiên đăng nhập đã hết hạn. Hãy tải lại trang và đăng nhập lại.",
+        "failed": "Chưa đọc được tin, bạn thử lại sau ít phút hoặc điền tay nhé."
+      }
+    }
   },
   "auth": {
     "signInTitle": "Đăng nhập để tạo kèo",

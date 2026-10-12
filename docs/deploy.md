@@ -4,6 +4,7 @@ The pieces:
 - **API:** Google Cloud Run in Singapore (`asia-southeast1`), running as its own least-privilege service account.
 - **Database:** Neon (AWS Singapore).
 - **Web app:** Vercel (`sin1`), which proxies `/api/*` to Cloud Run.
+- **Match drafts:** the API reads `ANTHROPIC_API_KEY` from Secret Manager (`daghep-anthropic-api-key`), attached once with `gcloud run services update daghep-api --region asia-southeast1 --update-secrets ANTHROPIC_API_KEY=daghep-anthropic-api-key:latest`. Later releases keep it. Without it, the paste box says the feature is resting. Optional `ANTHROPIC_MODEL` overrides the default small model.
 - **Page-view analytics:** Vercel Web Analytics. It counts nothing until it is enabled once in Vercel → project `keobong` → Analytics → Enable; the numbers appear on that tab.
 
 Secrets live only in Google Secret Manager and Vercel, never in the repo, chat or shell history.

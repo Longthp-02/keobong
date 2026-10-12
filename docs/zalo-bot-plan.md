@@ -1,6 +1,6 @@
 # Plan: create and fill matches from Zalo chat (Bot DaGhep)
 
-Status: draft, waiting for Long's approval. No code yet.
+Status: approved by Long on 2026-10-12. Step 1 is in progress.
 
 ## Goal
 An organiser runs a match without leaving Zalo. In a group that has "Bot DaGhep"
@@ -42,18 +42,18 @@ as it does today for everyone who prefers the link.
 - The web paste box on `/create` reuses the reader (`POST /api/match-drafts`).
 
 ## Limits, cost, secrets
-- Proposal: 10 reads per sender per day, 200 per day in total, counted in Postgres. TODO: verify with Long.
+- 10 reads per sender and 200 in total per rolling 24 hours, counted in Postgres (`draft_reads`).
 - Secrets in Secret Manager only: `daghep-zalo-bot-token`, `daghep-zalo-bot-webhook-secret`, `daghep-anthropic-api-key`.
 
 ## Privacy policy changes
 The bot only receives messages that tag it or are sent to it privately. Those messages pass through Zalo and the AI provider to be read. Drafts are deleted after 30 minutes. Chat players' Zalo display names appear in the public match list, like names on the web.
 
-## Decisions for Long
-1. AI provider: Anthropic (Claude, small model); Long creates the API key and billing.
+## Decisions (Long, 2026-10-12)
+1. AI provider: Anthropic (Claude, small model). Long created the key (Secret Manager `daghep-anthropic-api-key`) with a small prepaid balance and spending limit.
 2. Create in the chat after "@Bot DaGhep ok" from the same sender (no web click).
-3. TODO: verify. "thiếu 3 người, 60k/người" means a match with 3 places at 60,000 VND each (total 180,000), not the whole pitch.
-4. TODO: verify. Chat players without an account (step 3): how they pay. Proposal: they transfer to the organiser as they do today, no 30-minute hold, and the organiser marks them paid on the web.
-5. TODO: verify. Rate limits above.
+3. "thiếu 3 người, 60k/người" means a match with 3 places at 60,000 VND each (total 180,000), not the whole pitch.
+4. Chat players without an account (step 3) transfer to the organiser as they do today, no 30-minute hold, and the organiser marks them paid on the web.
+5. Rate limits: 10 reads per user and 200 in total per rolling 24 hours.
 
 ## Steps (one PR each)
 1. Reader + drafts + paste box on `/create` (web only).

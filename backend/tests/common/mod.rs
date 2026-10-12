@@ -9,12 +9,15 @@ use axum::body::Body;
 use axum::http::header::{COOKIE, LOCATION, SET_COOKIE};
 use axum::http::{Request, StatusCode};
 use axum::response::Response;
-use chrono::{DateTime, Duration, Utc};
+use chrono::{DateTime, Duration, NaiveDate, Utc};
 use daghep_api::Deps;
 use daghep_api::auth::domain::{
     IdentityProvider, LoginAttempt, Provider, ProviderError, ProviderFuture, ProviderIdentity,
 };
 use daghep_api::clock::Clock;
+use daghep_api::drafts::domain::{
+    MatchTextReader, RawDraft, ReadRequest, ReaderError, ReaderFuture,
+};
 use http_body_util::BodyExt;
 use serde_json::Value;
 use sqlx::PgPool;
@@ -94,6 +97,47 @@ pub fn app_with(pool: PgPool, clock: TestClock, frontend_origin: &str) -> Router
         clock: Arc::new(clock),
         google: Some(Arc::new(FakeGoogle)),
         frontend_origin: frontend_origin.to_owned(),
+        reader: None,
+    })
+}
+
+/// One request the fake reader received: the message, today and the venue ids.
+pub type ReaderCall = (String, NaiveDate, Vec<String>);
+
+/// Fake AI reader: answers every message with `answer` (or fails when it is
+/// `None`) and records what it was asked.
+#[derive(Clone, Default)]
+pub struct FakeReader {
+    pub answer: Option<RawDraft>,
+    pub calls: Arc<Mutex<Vec<ReaderCall>>>,
+}
+
+impl MatchTextReader for FakeReader {
+    fn read<'a>(&'a self, request: ReadRequest<'a>) -> ReaderFuture<'a> {
+        self.calls.lock().unwrap().push((
+            request.text.to_owned(),
+            request.today,
+            request
+                .venues
+                .iter()
+                .map(|venue| venue.slug.as_str().to_owned())
+                .collect(),
+        ));
+        let answer = self
+            .answer
+            .clone()
+            .ok_or_else(|| ReaderError::Failed("fake failure".to_owned()));
+        Box::pin(async move { answer })
+    }
+}
+
+pub fn app_with_reader(pool: PgPool, clock: TestClock, reader: FakeReader) -> Router {
+    daghep_api::app(Deps {
+        pool,
+        clock: Arc::new(clock),
+        google: Some(Arc::new(FakeGoogle)),
+        frontend_origin: FRONTEND.to_owned(),
+        reader: Some(Arc::new(reader)),
     })
 }
 
@@ -103,6 +147,7 @@ pub fn app_without_google(pool: PgPool) -> Router {
         clock: Arc::new(TestClock::at(NOW)),
         google: None,
         frontend_origin: FRONTEND.to_owned(),
+        reader: None,
     })
 }
 

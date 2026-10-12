@@ -274,3 +274,53 @@ export async function createMatch(input: CreateMatchInput, options: Options = {}
   }
   return { ok: true, match: (await response.json()) as MatchView };
 }
+
+/** Fields read from a pasted organiser message; anything the reader was unsure about is null. */
+export type MatchDraft = {
+  venueId: string | null;
+  /** `YYYY-MM-DD` in Ho Chi Minh City. */
+  date: string | null;
+  /** `HH:MM` in Ho Chi Minh City. */
+  startTime: string | null;
+  endTime: string | null;
+  format: MatchView["format"] | null;
+  matchType: MatchView["matchType"] | null;
+  levelMin: number | null;
+  levelMax: number | null;
+  slotCount: number | null;
+  totalFeeVnd: number | null;
+};
+
+export type DraftError = "invalid_text" | "limit_user" | "limit_service" | "unavailable" | "signed_out" | "failed";
+
+export type DraftResult = { ok: true; draft: MatchDraft } | { ok: false; error: DraftError };
+
+/** Reads a pasted message into create-form fields (signed-in users, limited per day). */
+export async function browserReadDraft(
+  text: string,
+  fetchImpl: typeof fetch = (...args) => fetch(...args),
+): Promise<DraftResult> {
+  let response: Response;
+  try {
+    response = await fetchImpl("/api/match-drafts", {
+      method: "POST",
+      headers: { "content-type": "application/json", accept: "application/json" },
+      body: JSON.stringify({ text }),
+      cache: "no-store",
+    });
+  } catch {
+    return { ok: false, error: "failed" };
+  }
+  if (response.ok) {
+    const body = (await response.json()) as { draft: MatchDraft };
+    return { ok: true, draft: body.draft };
+  }
+  if (response.status === 401) return { ok: false, error: "signed_out" };
+  if (response.status === 422) return { ok: false, error: "invalid_text" };
+  if (response.status === 503) return { ok: false, error: "unavailable" };
+  if (response.status === 429) {
+    const body = (await response.json().catch(() => null)) as { scope?: string } | null;
+    return { ok: false, error: body?.scope === "service" ? "limit_service" : "limit_user" };
+  }
+  return { ok: false, error: "failed" };
+}

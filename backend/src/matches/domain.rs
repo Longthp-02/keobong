@@ -166,6 +166,11 @@ const LOCAL_OFFSET: FixedOffset = match FixedOffset::east_opt(7 * 3600) {
     None => panic!("UTC+7 is a valid offset"),
 };
 
+/// The calendar date in Ho Chi Minh City at `now`.
+pub fn local_date(now: DateTime<Utc>) -> NaiveDate {
+    now.with_timezone(&LOCAL_OFFSET).date_naive()
+}
+
 /// A match starts and ends on the same local calendar day.
 fn same_local_day(start: DateTime<Utc>, end: DateTime<Utc>) -> bool {
     start.with_timezone(&LOCAL_OFFSET).date_naive() == end.with_timezone(&LOCAL_OFFSET).date_naive()

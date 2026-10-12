@@ -4,6 +4,7 @@ pub mod auth;
 pub mod clock;
 pub mod config;
 pub mod discovery;
+pub mod drafts;
 pub mod matches;
 pub mod payments;
 pub mod random;
@@ -39,6 +40,8 @@ pub struct Deps {
     pub google: Option<Arc<dyn IdentityProvider>>,
     /// The web app's origin, e.g. `https://daghep.vn`.
     pub frontend_origin: String,
+    /// `None` disables reading pasted messages into match drafts.
+    pub reader: Option<Arc<dyn drafts::domain::MatchTextReader>>,
 }
 
 /// Builds the stateless HTTP application. All state lives in Postgres.
@@ -61,6 +64,13 @@ pub fn app(deps: Deps) -> Router {
         .merge(payments::router(
             payments::PgPayoutRepository::new(deps.pool.clone()),
             deps.clock.clone(),
+            auth_state.clone(),
+        ))
+        .merge(drafts::router(
+            drafts::PgDraftRepository::new(deps.pool.clone()),
+            matches::PgMatchRepository::new(deps.pool.clone()),
+            deps.clock.clone(),
+            deps.reader,
             auth_state.clone(),
         ))
         .merge(discovery::router(
