@@ -34,4 +34,4 @@ Production is live (2026-10-10): API on Cloud Run (`daghep-api`, asia-southeast1
 - Zalo for Developers: activate the app, verify the domain daghep.vn, set the callback `https://daghep.vn/api/auth/zalo/callback`.
 
 ## Next Safe Step
-Long runs the manual release for PR #12 and the one-time Workload Identity setup; then merge the auto-deploy PR and watch its first run in GitHub Actions.
+Automatic API releases are live (Workload Identity set up, first run green). Launch post on LinkedIn went out 2026-10-12; a Reddit post asks about the cold start. Next: Long enables Web Analytics in Vercel after the analytics PR merges, then marketing (message 3–5 existing organisers); product backlog continues with the link-preview image.
