@@ -1,3 +1,4 @@
+import { Analytics } from "@vercel/analytics/next";
 import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
 import messages from "../messages/vi.json";
@@ -44,6 +45,8 @@ export default function RootLayout({ children }: { children: ReactNode }) {
             </nav>
           </footer>
         </div>
+        {/* Anonymous page-view counts (no cookies); see the privacy policy. */}
+        <Analytics />
       </body>
     </html>
   );

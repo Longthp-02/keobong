@@ -62,7 +62,7 @@
     "updatedLabel": "Cập nhật lần cuối:",
     "privacy": {
       "title": "Chính sách bảo mật",
-      "updated": "05/10/2026",
+      "updated": "12/10/2026",
       "intro": "Đá Ghép (daghep.vn) là ứng dụng miễn phí, mã nguồn mở, giúp người chơi tìm và tham gia các trận bóng đá ghép. Dịch vụ do cá nhân Phạm Trịnh Hoàng Long phát triển và vận hành. Ông Long là bên kiểm soát dữ liệu cá nhân của bạn. Trang này giải thích dữ liệu nào được thu thập, dùng để làm gì và bạn có những quyền gì.",
       "sections": [
         {
@@ -73,7 +73,8 @@
             "Vị trí: nếu bạn cho phép trình duyệt chia sẻ vị trí, vị trí đó chỉ dùng để tìm kèo gần bạn và không được lưu vào hồ sơ của bạn; nó có thể xuất hiện trong nhật ký kỹ thuật tối đa 30 ngày. Vị trí của sân trong mỗi kèo được lưu để hiển thị trên bản đồ và danh sách.",
             "Với chủ kèo: thông tin nhận tiền (ngân hàng, số tài khoản, tên chủ tài khoản) để tạo mã VietQR.",
             "Lịch sử tham gia: chỗ đã giữ, trạng thái thanh toán do chủ kèo xác nhận, điểm danh và các lần bùng kèo.",
-            "Dữ liệu kỹ thuật: nhật ký truy cập và địa chỉ IP, dùng để vận hành, sửa lỗi và chống lạm dụng."
+            "Dữ liệu kỹ thuật: nhật ký truy cập và địa chỉ IP, dùng để vận hành, sửa lỗi và chống lạm dụng.",
+            "Thống kê lượt truy cập: chúng tôi dùng Vercel Web Analytics để đếm lượt xem trang. Mỗi lượt xem ghi lại thời điểm, địa chỉ trang được mở, trang dẫn bạn đến (ví dụ LinkedIn hay Facebook), quốc gia và thành phố ước tính, loại thiết bị, hệ điều hành và trình duyệt. Công cụ này không dùng cookie, không lưu địa chỉ IP và không gắn với tài khoản của bạn; mỗi lượt truy cập chỉ được nhận diện bằng một mã băm tạm thời, bị xoá sau 24 giờ. Chúng tôi chỉ xem số liệu tổng hợp để biết trang nào được dùng nhiều."
           ]
         },
         {
@@ -86,7 +87,7 @@
         {
           "heading": "3. Mục đích sử dụng",
           "paragraphs": [
-            "Để bạn đăng nhập, tạo kèo, giữ chỗ và thanh toán cho chủ kèo; hiển thị uy tín (số trận, số lần bùng kèo); xử lý khiếu nại; và bảo vệ cộng đồng khỏi kèo giả, lừa đảo."
+            "Để bạn đăng nhập, tạo kèo, giữ chỗ và thanh toán cho chủ kèo; hiển thị uy tín (số trận, số lần bùng kèo); xử lý khiếu nại; bảo vệ cộng đồng khỏi kèo giả, lừa đảo; và thống kê lượt truy cập ẩn danh để cải thiện trang."
           ]
         },
         {
@@ -109,13 +110,13 @@
         {
           "heading": "6. Cookie",
           "paragraphs": [
-            "Chúng tôi chỉ dùng cookie và bộ nhớ trình duyệt cần thiết cho việc đăng nhập và vận hành ứng dụng. Không dùng cookie quảng cáo hay theo dõi của bên thứ ba."
+            "Chúng tôi chỉ dùng cookie và bộ nhớ trình duyệt cần thiết cho việc đăng nhập và vận hành ứng dụng. Thống kê lượt truy cập không dùng cookie. Không dùng cookie quảng cáo hay theo dõi của bên thứ ba."
           ]
         },
         {
           "heading": "7. Thời gian lưu trữ và xoá dữ liệu",
           "paragraphs": [
-            "Dữ liệu tài khoản được giữ trong thời gian bạn còn sử dụng Đá Ghép. Nhật ký kỹ thuật tự động được xoá sau 30 ngày.",
+            "Dữ liệu tài khoản được giữ trong thời gian bạn còn sử dụng Đá Ghép. Nhật ký kỹ thuật tự động được xoá sau 30 ngày. Mã băm dùng cho thống kê lượt truy cập bị xoá sau 24 giờ.",
             "Khi bạn yêu cầu xoá tài khoản, chúng tôi xoá tên, ảnh đại diện, email, thông tin nhận tiền và liên kết đăng nhập Google/Zalo. Lịch sử các kèo bạn đã tham gia được giữ lại ở dạng ẩn danh để kèo của người khác không bị sai lệch; tên khách đi cùng do bạn nhập cũng bị xoá và chỉ hiển thị là \"Khách\".",
             "Bạn cũng có thể gỡ quyền truy cập của Đá Ghép trong phần cài đặt tài khoản Google hoặc Zalo của mình."
           ]
