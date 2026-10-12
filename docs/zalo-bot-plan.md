@@ -1,64 +1,72 @@
-# Plan: create matches from a chat message (Zalo bot)
+# Plan: create and fill matches from Zalo chat (Bot DaGhep)
 
 Status: draft, waiting for Long's approval. No code yet.
 
 ## Goal
-An organiser types the message they already write today, for example
-"tối nay 19h sân SSA thiếu 3 người, 60k/người", either in a Zalo group that
-has "Bot DaGhep" or in a private chat with the bot. The bot answers with a
-short summary and a link that opens the create form already filled in. After
-the organiser confirms on the web, the match link can be shared as usual.
+An organiser runs a match without leaving Zalo. In a group that has "Bot DaGhep"
+they write "@Bot DaGhep tối nay 19h SSA thiếu 3 người, 60k/người", confirm with
+"@Bot DaGhep ok", and the bot creates the match and posts its link. Players answer
+"@Bot DaGhep +1" and the bot keeps the list up to date. The web app keeps working
+as it does today for everyone who prefers the link.
 
-The same text reader also powers a "paste your message" box on `/create`, so
-the feature is useful before the Zalo part is finished.
+## Tested with the real bot (2026-10-12, Long, via getUpdates)
+- `getMe`: `account_type` BASIC, `can_join_groups` true. Long added the bot to a test group.
+- A group message that tags the bot arrives: `chat.chat_type` `GROUP`, `chat.id` like `zgr-…`, `text` starts with the literal `@Bot DaGhep`, `from.id` and `from.display_name` identify the sender.
+- A group message without the tag does not arrive (two tries, no update within the wait). So the bot only ever sees messages that tag it.
+- A private message arrives with `chat_type` `PRIVATE`; `chat.id` equals the sender's `from.id`.
+- Docs: webhook POST with header `X-Bot-Api-Secret-Token`; `sendMessage` 1–2,000 characters; `sendPhoto` takes an image URL; webhook and getUpdates are exclusive; group support is Beta.
+- TODO: verify whether the bot can message a user privately before that user has written to it.
+- TODO: verify free-plan limits.
 
-## What we know (Zalo Bot Platform docs, read 2026-10-12)
-- Individuals can create bots; the name must start with "Bot". Created: "Bot DaGhep".
-- Updates arrive by webhook (POST, header `X-Bot-Api-Secret-Token` carries our secret) or by `getUpdates`; not both.
-- Each message has `chat.chat_type`: `PRIVATE` or `GROUP` (groups are Beta). Replies go to `chat.id` with `sendMessage` (1–2,000 characters, optional markdown).
-- Long added the bot to a test group on 2026-10-12; it joined.
-- TODO: verify whether group webhooks deliver every message or only messages that mention the bot, and how a mention appears in `text`.
-- TODO: verify free-plan limits (paid plans exist).
+## Flows
+### One-time setup per organiser (only in a private chat)
+1. The organiser writes "liên kết" to the bot privately. In a group, the bot answers "Nhắn riêng cho Bot DaGhep chữ 'liên kết' để bắt đầu" instead.
+2. The bot replies with a one-time link (`daghep.vn/bot/link?code=…`, 15 minutes, single use). The organiser signs in with Google, and the Zalo id is linked to their account. Paid matches also need the payout account, set once on the web as today.
+3. Why private only: a link posted in a group could be opened by someone else, who would then receive that organiser's matches and payments.
+
+### Create a match in a group or privately
+1. "@Bot DaGhep tối nay 19h SSA thiếu 3 người, 60k/người" → the reader turns it into a draft and the bot answers with a summary: "Kèo 19:00 hôm nay, SSA Amitie, sân 7, 3 chỗ, 60k/người. Trả lời '@Bot DaGhep ok' để tạo."
+2. Only the same sender's "@Bot DaGhep ok" within 30 minutes creates the match through `matches::service::create_match` (same rules as the web). The bot posts the link and the list.
+3. Missing or unclear details → one short question. Unknown venue → "Đá Ghép hiện có 3 sân: …". Not linked → the setup message above.
+
+### Join and leave from the chat (step 3, needs new domain rules)
+- "@Bot DaGhep +1" adds the sender; "+2" adds the sender and one guest (limit 2 guests, as on the web); "-1" removes them before kickoff. The bot answers with the list, e.g. "Kèo 19:00 SSA, 2/3: Nam, Hùng. Còn 1 chỗ."
+- The bot applies it to the newest open match created in that group. If the group has several, it asks which.
+- A chat player has no Đá Ghép account: the place stores the Zalo id and display name.
 
 ## Design
-1. **Reply with a pre-filled link instead of creating the match in the chat.** The web flow already handles sign-in, the payout account, validation and the host's confirmation, so the bot needs no account linking in v1 and never sees bank details.
-2. **New feature `bot`** (`backend/src/bot/{domain,service,repo,http}.rs`):
-   - `POST /api/bot/zalo/webhook`: checks the secret header in constant time, ignores non-text events, and in groups ignores messages that do not mention the bot. Those are dropped without logging their text.
-   - Port `MatchTextReader`: text + today's date + venue list → a draft (venue slug, date, start and end, format, match type, level range, total fee, places). Adapter: Anthropic Messages API with a small model and a strict JSON schema. Its output is validated with the existing match rules, never trusted.
-   - Port `ChatReply`: adapter for Zalo `sendMessage`.
-   - Table `match_drafts` (random id, fields, source `web`/`zalo`, created_at, expires after 24 hours). The link is `https://daghep.vn/create?draft=<id>`.
-3. **`/create?draft=<id>`** pre-fills the form; the organiser checks it and submits as today.
-4. **Web paste box** on `/create`: calls `POST /api/match-drafts` (signed in) with the text and fills the form from the draft.
-5. **Missing or unclear details**: the bot asks one short follow-up question (unknown venue → "Hiện Đá Ghép mới có 3 sân: …"; no time → asks for the time). The form also leaves unknown fields empty.
+- New feature `bot` (`backend/src/bot/{domain,service,repo,http}.rs`). `POST /api/bot/zalo/webhook` on the Cloud Run URL; constant-time secret check; text events only; replies sent in the background so the webhook answers fast.
+- Port `MatchTextReader`: text + today + venue list → draft fields. Adapter: Anthropic Messages API, small model, strict JSON schema. The output is validated with the existing match rules.
+- Port `ChatReply`: Zalo `sendMessage`.
+- Tables: `zalo_links` (Zalo id ↔ user, unique), `bot_link_codes` (hashed code, expiry), `match_drafts` (sender, chat, fields, expiry), `bot_match_chats` (match ↔ group chat). Step 3 adds chat places to the slots tables.
+- The web paste box on `/create` reuses the reader (`POST /api/match-drafts`).
 
-## Limits and cost
-- Per sender: TODO: verify (proposal: 10 messages read per day); whole service: TODO: verify (proposal: 200 per day), counted in Postgres. Over the limit the bot says so.
-- Only messages that mention the bot (or private messages to it) reach the AI provider.
-
-## Secrets (Secret Manager, never in chat or repo)
-`daghep-zalo-bot-token`, `daghep-zalo-bot-webhook-secret`, `daghep-anthropic-api-key`.
+## Limits, cost, secrets
+- Proposal: 10 reads per sender per day, 200 per day in total, counted in Postgres. TODO: verify with Long.
+- Secrets in Secret Manager only: `daghep-zalo-bot-token`, `daghep-zalo-bot-webhook-secret`, `daghep-anthropic-api-key`.
 
 ## Privacy policy changes
-Messages sent to the bot pass through Zalo and the AI provider to be read; drafts are deleted after 24 hours; the bot only reads group messages that mention it.
+The bot only receives messages that tag it or are sent to it privately. Those messages pass through Zalo and the AI provider to be read. Drafts are deleted after 30 minutes. Chat players' Zalo display names appear in the public match list, like names on the web.
 
 ## Decisions for Long
-1. AI provider: Anthropic (Claude, small model). Long creates the API key and billing.
-2. The bot replies with a pre-filled link; the match is created on the web (no account linking in v1).
-3. TODO: verify. How to read "thiếu 3 người, 60k/người": a match with 3 places at 60,000 VND each (total 180,000), or the full pitch?
-4. TODO: verify. The rate limits above.
-5. Later (v2): after the match is created, the bot posts the match link back into the group.
+1. AI provider: Anthropic (Claude, small model); Long creates the API key and billing.
+2. Create in the chat after "@Bot DaGhep ok" from the same sender (no web click).
+3. TODO: verify. "thiếu 3 người, 60k/người" means a match with 3 places at 60,000 VND each (total 180,000), not the whole pitch.
+4. TODO: verify. Chat players without an account (step 3): how they pay. Proposal: they transfer to the organiser as they do today, no 30-minute hold, and the organiser marks them paid on the web.
+5. TODO: verify. Rate limits above.
 
 ## Steps (one PR each)
-1. Draft reader + `match_drafts` + `POST /api/match-drafts` + paste box and `?draft=` on `/create`.
-2. Zalo webhook + group mention filter + replies + rate limits; set the webhook to the Cloud Run URL.
-3. v2: post the match link back to the group.
+1. Reader + drafts + paste box on `/create` (web only).
+2. Webhook, private linking, create in chat with "ok", post the link. Players join through the link as today.
+3. "+1 / -1" chat places and list updates (after decision 4).
 
 ## Tests
-- Unit: draft validation (bad venue, past time, fee limits), mention filter, secret check.
-- Acceptance (`#[sqlx::test]`): webhook with a fake reader and a fake chat reply (no network); expired drafts are not returned; rate limits.
-- Frontend: paste box fills the form; `?draft=` pre-fills; an expired draft shows a message.
-- A small fixed set of real organiser messages (Vietnamese) to check the reader by hand before launch.
+- Unit: tag parsing ("@Bot DaGhep" prefix, "+1", "+2", "-1", "ok"), draft validation, secret check, code expiry.
+- Acceptance (`#[sqlx::test]`): webhook with a fake reader and a fake chat reply, no network; only the same sender can confirm; expired drafts and codes are refused; a code works once; rate limits.
+- Frontend: paste box, `/bot/link` sign-in page.
+- A fixed set of real organiser messages in Vietnamese to check the reader by hand before launch.
 
 ## Risks
-- Group support is Beta and Zalo may change limits or terms.
-- AI can misread a message; the human confirmation on the web is the safety net.
+- Group support is Beta; Zalo may change limits or terms.
+- The AI can misread a message; the summary + "ok" step is the safety net.
+- Chat players without accounts weaken no-show tracking.
