@@ -11,6 +11,8 @@ use daghep_api::auth::domain::IdentityProvider;
 use daghep_api::auth::google::GoogleProvider;
 use daghep_api::clock::{Clock, SystemClock};
 use daghep_api::config::Config;
+use daghep_api::drafts::anthropic::AnthropicReader;
+use daghep_api::drafts::domain::MatchTextReader;
 use sqlx::postgres::PgPoolOptions;
 use tower_http::cors::CorsLayer;
 use tracing_subscriber::EnvFilter;
@@ -61,6 +63,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!(
         frontend_origin = %config.frontend_origin,
         google_sign_in = config.google.is_some(),
+        match_drafts = config.anthropic.is_some(),
         "configuration loaded"
     );
 
@@ -77,11 +80,20 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         }
         None => None,
     };
+    let reader = match config.anthropic {
+        Some(anthropic) => {
+            let reader: Arc<dyn MatchTextReader> =
+                Arc::new(AnthropicReader::new(anthropic.api_key, anthropic.model)?);
+            Some(reader)
+        }
+        None => None,
+    };
     let app = daghep_api::app(Deps {
         pool,
         clock,
         google,
         frontend_origin: config.frontend_origin,
+        reader,
     })
     .layer(cors);
     let listener = tokio::net::TcpListener::bind(("0.0.0.0", config.port)).await?;

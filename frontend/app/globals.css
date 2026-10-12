@@ -279,6 +279,35 @@ main {
   width: 100%;
 }
 
+.field textarea {
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink);
+  padding: 10px 12px;
+  font: 500 15px var(--font-body);
+  width: 100%;
+  resize: vertical;
+}
+
+/* "Paste your message": a tinted card above the form so it reads as the quick way in. */
+.paste-box {
+  padding: 14px;
+  border-radius: 16px;
+  border: 1px dashed var(--line);
+  background: var(--surface);
+}
+
+.paste-box .button-secondary {
+  justify-self: start;
+}
+
+/* The status line stays rendered (also when empty) so screen readers announce updates. */
+.paste-box [role="status"] {
+  min-height: 1.2em;
+  margin: 0;
+}
+
 .field-row {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

@@ -1,7 +1,7 @@
 "use client";
 
 import { type FormEvent, useState } from "react";
-import type { CreateMatchInput, MatchView, Venue } from "../lib/api";
+import type { CreateMatchInput, DraftResult, MatchDraft, MatchView, Venue } from "../lib/api";
 import { formatVnd } from "../lib/format";
 import {
   MAX_DURATION_HOURS,
@@ -12,6 +12,7 @@ import {
   pricePerPlayerVnd,
 } from "../lib/pricing";
 import messages from "../messages/vi.json";
+import { fill } from "../lib/text";
 
 const t = messages.create;
 const FORMATS: MatchView["format"][] = ["five_a_side", "seven_a_side", "eleven_a_side"];
@@ -25,6 +26,8 @@ type Props = {
   onSubmit: (input: CreateMatchInput) => Promise<{ field: string } | undefined>;
   /** Whether the host saved a payout account; a paid match needs one. */
   hasPayout?: boolean;
+  /** Reads a pasted organiser message into form fields; without it the paste box is hidden. */
+  readDraft?: (text: string) => Promise<DraftResult>;
 };
 
 const PAYOUT_PAGE = `/account/payout?next=${encodeURIComponent("/create")}`;
@@ -73,7 +76,7 @@ function errorMessage(field: string): string {
   return errors[field] ?? t.errors.unknown;
 }
 
-export function CreateMatchForm({ venues, onSubmit, hasPayout = true }: Props) {
+export function CreateMatchForm({ venues, onSubmit, hasPayout = true, readDraft }: Props) {
   const [venueId, setVenueId] = useState("");
   const venue = venues.find((candidate) => candidate.id === venueId) ?? null;
   const [date, setDate] = useState("");
@@ -89,6 +92,9 @@ export function CreateMatchForm({ venues, onSubmit, hasPayout = true }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [errorField, setErrorField] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [pasted, setPasted] = useState("");
+  const [reading, setReading] = useState(false);
+  const [pasteStatus, setPasteStatus] = useState("");
 
   const fee = parseWholeNumber(totalFee);
   const needsPayout = !hasPayout && fee !== null && fee > 0;
@@ -99,6 +105,68 @@ export function CreateMatchForm({ venues, onSubmit, hasPayout = true }: Props) {
     setFormat(next);
     if (!slotsTouched) {
       setSlotCount(String(defaultSlotCount(next)));
+    }
+  }
+
+  /** Copies the fields the reader was sure about into the form; returns how many. */
+  function applyDraft(draft: MatchDraft): number {
+    let filled = 0;
+    const apply = <T,>(value: T | null, set: (value: T) => void) => {
+      if (value !== null) {
+        set(value);
+        filled += 1;
+      }
+    };
+    apply(draft.venueId, setVenueId);
+    apply(draft.date, setDate);
+    apply(draft.startTime, setStartTime);
+    apply(draft.endTime, setEndTime);
+    apply(draft.format, (next) => {
+      setFormat(next);
+      // The draft's own place count, applied next, wins over the format's default.
+      if (!slotsTouched && draft.slotCount === null) {
+        setSlotCount(String(defaultSlotCount(next)));
+      }
+    });
+    apply(draft.matchType, setMatchType);
+    // A single level keeps the range valid: the other end moves to meet it if needed.
+    apply(draft.levelMin, (min) => {
+      setLevelMin(min);
+      if (draft.levelMax === null) setLevelMax((max) => Math.max(max, min));
+    });
+    apply(draft.levelMax, (max) => {
+      setLevelMax(max);
+      if (draft.levelMin === null) setLevelMin((min) => Math.min(min, max));
+    });
+    apply(draft.slotCount, (count) => {
+      setSlotsTouched(true);
+      setSlotCount(String(count));
+    });
+    apply(draft.totalFeeVnd, (fee) => setTotalFee(String(fee)));
+    return filled;
+  }
+
+  async function handleRead() {
+    if (!readDraft) return;
+    const text = pasted.trim();
+    if (text === "" || text.length > 500) {
+      setPasteStatus(t.paste.errors.invalid_text);
+      return;
+    }
+    setReading(true);
+    setPasteStatus(t.paste.reading);
+    try {
+      const result = await readDraft(text);
+      if (result.ok) {
+        const filled = applyDraft(result.draft);
+        setPasteStatus(filled > 0 ? fill(t.paste.filled, { count: filled }) : t.paste.nothing);
+      } else {
+        setPasteStatus(t.paste.errors[result.error]);
+      }
+    } catch {
+      setPasteStatus(t.paste.errors.failed);
+    } finally {
+      setReading(false);
     }
   }
 
@@ -148,6 +216,27 @@ export function CreateMatchForm({ venues, onSubmit, hasPayout = true }: Props) {
   return (
     <form className="create-form" onSubmit={handleSubmit} noValidate>
       <h1 className="create-form__title">{t.title}</h1>
+
+      {readDraft ? (
+        <div className="field paste-box">
+          <label htmlFor="create-paste">{t.paste.label}</label>
+          <textarea
+            id="create-paste"
+            rows={3}
+            maxLength={500}
+            placeholder={t.paste.placeholder}
+            value={pasted}
+            onChange={(e) => setPasted(e.target.value)}
+          />
+          <span className="field-hint">{t.paste.hint}</span>
+          <button type="button" className="button-secondary" onClick={handleRead} disabled={reading}>
+            {reading ? t.paste.reading : t.paste.submit}
+          </button>
+          <p className="muted" role="status" aria-live="polite">
+            {pasteStatus}
+          </p>
+        </div>
+      ) : null}
 
       <div className="field">
         <label htmlFor="create-venue">{t.venue}</label>

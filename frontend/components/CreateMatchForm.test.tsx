@@ -171,9 +171,7 @@ describe("CreateMatchForm", () => {
   it("announces the price preview politely to screen readers", () => {
     render(<CreateMatchForm venues={VENUES} onSubmit={vi.fn()} />);
 
-    expect(screen.getByTestId("price-per-player").closest("[aria-live]")?.getAttribute("aria-live")).toBe(
-      "polite",
-    );
+    expect(screen.getByTestId("price-per-player").closest("[aria-live]")?.getAttribute("aria-live")).toBe("polite");
   });
 
   it("asks for a payout account before posting a paid match", async () => {
@@ -236,3 +234,95 @@ describe("CreateMatchForm", () => {
   });
 });
 
+describe("CreateMatchForm paste box", () => {
+  const p = t.paste;
+  const tonight = {
+    venueId: "ssa-amitie",
+    date: "2099-10-01",
+    startTime: "19:00",
+    endTime: null,
+    format: "five_a_side" as const,
+    matchType: "competitive" as const,
+    levelMin: 2,
+    levelMax: 3,
+    slotCount: 3,
+    totalFeeVnd: 180000,
+  };
+
+  it("is hidden when the page cannot read messages", () => {
+    render(<CreateMatchForm venues={VENUES} onSubmit={vi.fn()} />);
+
+    expect(screen.queryByLabelText(p.label)).toBeNull();
+  });
+
+  it("fills the form from a pasted message and leaves the rest to the host", async () => {
+    const readDraft = vi.fn().mockResolvedValue({ ok: true, draft: tonight });
+    render(<CreateMatchForm venues={VENUES} onSubmit={vi.fn()} readDraft={readDraft} />);
+
+    fireEvent.change(screen.getByLabelText(p.label), { target: { value: "tối nay 19h SSA thiếu 3, 60k" } });
+    fireEvent.click(screen.getByRole("button", { name: p.submit }));
+
+    await waitFor(() => expect(field(t.venue).value).toBe("ssa-amitie"));
+    expect(readDraft).toHaveBeenCalledWith("tối nay 19h SSA thiếu 3, 60k");
+    expect(field(t.date).value).toBe("2099-10-01");
+    expect(field(t.startTime).value).toBe("19:00");
+    expect(field(t.endTime).value).toBe("");
+    expect((screen.getByRole("radio", { name: messages.match.format.five_a_side }) as HTMLInputElement).checked).toBe(
+      true,
+    );
+    expect(
+      (screen.getByRole("radio", { name: messages.match.matchType.competitive }) as HTMLInputElement).checked,
+    ).toBe(true);
+    expect(field(t.levelMin).value).toBe("2");
+    expect(field(t.levelMax).value).toBe("3");
+    // The draft's place count wins over the format's default.
+    expect(field(t.slotCount).value).toBe("3");
+    expect(field(t.totalFee).value).toBe("180000");
+    expect(screen.getByTestId("price-per-player").textContent).toMatch(/60\.000/);
+    expect(screen.getByRole("status").textContent).toBe(p.filled.replace("{count}", "9"));
+  });
+
+  it("says when nothing could be read", async () => {
+    const empty = Object.fromEntries(Object.keys(tonight).map((key) => [key, null]));
+    const readDraft = vi.fn().mockResolvedValue({ ok: true, draft: empty });
+    render(<CreateMatchForm venues={VENUES} onSubmit={vi.fn()} readDraft={readDraft} />);
+
+    fireEvent.change(screen.getByLabelText(p.label), { target: { value: "alo" } });
+    fireEvent.click(screen.getByRole("button", { name: p.submit }));
+
+    await waitFor(() => expect(screen.getByRole("status").textContent).toBe(p.nothing));
+    expect(field(t.slotCount).value).toBe("18");
+  });
+
+  it("explains why a message could not be read", async () => {
+    const readDraft = vi.fn().mockResolvedValue({ ok: false, error: "limit_user" });
+    render(<CreateMatchForm venues={VENUES} onSubmit={vi.fn()} readDraft={readDraft} />);
+
+    fireEvent.change(screen.getByLabelText(p.label), { target: { value: "tối nay 19h" } });
+    fireEvent.click(screen.getByRole("button", { name: p.submit }));
+
+    await waitFor(() => expect(screen.getByRole("status").textContent).toBe(p.errors.limit_user));
+  });
+
+  it("keeps the level range valid when the message states only one level", async () => {
+    const empty = Object.fromEntries(Object.keys(tonight).map((key) => [key, null]));
+    const readDraft = vi.fn().mockResolvedValue({ ok: true, draft: { ...empty, levelMin: 4.5 } });
+    render(<CreateMatchForm venues={VENUES} onSubmit={vi.fn()} readDraft={readDraft} />);
+
+    fireEvent.change(screen.getByLabelText(p.label), { target: { value: "trình 4.5 trở lên" } });
+    fireEvent.click(screen.getByRole("button", { name: p.submit }));
+
+    await waitFor(() => expect(field(t.levelMin).value).toBe("4.5"));
+    expect(field(t.levelMax).value).toBe("4.5");
+  });
+
+  it("does not send an empty message", () => {
+    const readDraft = vi.fn();
+    render(<CreateMatchForm venues={VENUES} onSubmit={vi.fn()} readDraft={readDraft} />);
+
+    fireEvent.click(screen.getByRole("button", { name: p.submit }));
+
+    expect(readDraft).not.toHaveBeenCalled();
+    expect(screen.getByRole("status").textContent).toBe(p.errors.invalid_text);
+  });
+});

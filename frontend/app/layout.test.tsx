@@ -27,4 +27,11 @@ describe("privacy policy", () => {
 
     expect(text).toContain("Vercel Web Analytics");
   });
+
+  it("tells hosts that a pasted message is sent to Anthropic to be read and is not stored", () => {
+    const text = JSON.stringify(messages.legal.privacy);
+
+    expect(text).toContain("Anthropic");
+    expect(text).toContain("Chúng tôi không lưu nội dung này");
+  });
 });

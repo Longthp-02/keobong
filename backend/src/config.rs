@@ -31,6 +31,16 @@ pub struct GoogleConfig {
     pub redirect_uri: String,
 }
 
+/// Anthropic API settings for reading pasted match messages.
+#[derive(Debug, Clone)]
+pub struct AnthropicConfig {
+    pub api_key: Secret,
+    pub model: String,
+}
+
+/// A small, inexpensive model is enough to read a few lines of text.
+pub const DEFAULT_ANTHROPIC_MODEL: &str = "claude-haiku-4-5";
+
 #[derive(Debug, Clone)]
 pub struct Config {
     pub database_url: String,
@@ -40,6 +50,8 @@ pub struct Config {
     pub frontend_origin: String,
     /// `None` disables Google sign-in (sign-in endpoints answer 503).
     pub google: Option<GoogleConfig>,
+    /// `None` disables match drafts (`POST /api/match-drafts` answers 503).
+    pub anthropic: Option<AnthropicConfig>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -104,11 +116,16 @@ impl Config {
             [None, None, None] => None,
             _ => return Err(ConfigError::PartialGoogle),
         };
+        let anthropic = get("ANTHROPIC_API_KEY").map(|api_key| AnthropicConfig {
+            api_key: Secret::new(api_key),
+            model: get("ANTHROPIC_MODEL").unwrap_or_else(|| DEFAULT_ANTHROPIC_MODEL.to_owned()),
+        });
         Ok(Self {
             database_url,
             port,
             frontend_origin,
             google,
+            anthropic,
         })
     }
 }
@@ -157,6 +174,25 @@ mod tests {
         assert_eq!(config.port, 8080);
         assert_eq!(config.frontend_origin, "http://localhost:3000");
         assert!(config.google.is_none());
+    }
+
+    #[test]
+    fn match_drafts_need_an_anthropic_key_and_default_to_a_small_model() {
+        assert!(config(&[DB]).unwrap().anthropic.is_none());
+
+        let with_key = config(&[DB, ("ANTHROPIC_API_KEY", "sk-ant-secret")]).unwrap();
+        let anthropic = with_key.anthropic.clone().unwrap();
+        assert_eq!(anthropic.api_key.expose(), "sk-ant-secret");
+        assert_eq!(anthropic.model, DEFAULT_ANTHROPIC_MODEL);
+        assert!(!format!("{with_key:?}").contains("sk-ant-secret"));
+
+        let other_model = config(&[
+            DB,
+            ("ANTHROPIC_API_KEY", "k"),
+            ("ANTHROPIC_MODEL", "claude-other"),
+        ])
+        .unwrap();
+        assert_eq!(other_model.anthropic.unwrap().model, "claude-other");
     }
 
     #[test]

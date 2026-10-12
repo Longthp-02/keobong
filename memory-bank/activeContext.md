@@ -34,4 +34,4 @@ Production is live (2026-10-10): API on Cloud Run (`daghep-api`, asia-southeast1
 - Zalo for Developers: activate the app, verify the domain daghep.vn, set the callback `https://daghep.vn/api/auth/zalo/callback`.
 
 ## Next Safe Step
-Automatic API releases are live (Workload Identity set up, first run green). Launch post on LinkedIn went out 2026-10-12; a Reddit post asks about the cold start. Next: Long enables Web Analytics in Vercel after the analytics PR merges, then marketing (message 3–5 existing organisers); product backlog continues with the link-preview image.
+Automatic API releases are live. LinkedIn launch post went out 2026-10-12; a Reddit post asks about the cold start. Web Analytics is enabled on Vercel. Zalo "Bot DaGhep" exists and was tested with getUpdates (group messages arrive only when tagged; private messages arrive). Plan approved in `docs/zalo-bot-plan.md`; step 1 (match drafts, paste box) is in the `match-drafts` PR. The Anthropic key is in Secret Manager (`daghep-anthropic-api-key`); after merge, attach it to Cloud Run once (`docs/deploy.md`). Next: step 2, the Zalo webhook.
