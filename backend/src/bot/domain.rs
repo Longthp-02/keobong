@@ -74,7 +74,7 @@ pub fn parse_command(text: &str, kind: ChatKind, bot_name: &str) -> Option<Comma
     let rest = rest.trim();
     let word = rest.trim_end_matches(['.', '!', '?', ' ']).to_lowercase();
     let commands = &COPY.commands;
-    let is = |words: &[String]| words.iter().any(|candidate| *candidate == word);
+    let is = |words: &[String]| words.contains(&word);
     Some(if is(&commands.help) {
         Command::Help
     } else if is(&commands.link) {
