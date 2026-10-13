@@ -71,7 +71,7 @@ pub fn parse_command(text: &str, kind: ChatKind, bot_name: &str) -> Option<Comma
         None if kind == ChatKind::Group => return None,
         None => text,
     };
-    let rest = rest.trim();
+    let rest = rest.trim_start_matches([',', ':', '.', '!', '-']).trim();
     let word = rest.trim_end_matches(['.', '!', '?', ' ']).to_lowercase();
     let commands = &COPY.commands;
     let is = |words: &[String]| words.contains(&word);
@@ -92,7 +92,9 @@ pub fn parse_command(text: &str, kind: ChatKind, bot_name: &str) -> Option<Comma
 fn strip_prefix_ignore_case<'a>(text: &'a str, prefix: &str) -> Option<&'a str> {
     let head = text.get(..prefix.len())?;
     let rest = &text[prefix.len()..];
-    let whole_word = rest.is_empty() || rest.starts_with(char::is_whitespace);
+    let whole_word = rest.is_empty()
+        || rest
+            .starts_with(|c: char| c.is_whitespace() || matches!(c, ',' | ':' | '.' | '!' | '-'));
     (whole_word && head.to_lowercase() == prefix.to_lowercase()).then_some(rest)
 }
 
