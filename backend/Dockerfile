@@ -4,6 +4,8 @@ WORKDIR /app
 COPY Cargo.toml Cargo.lock ./
 COPY src ./src
 COPY migrations ./migrations
+# Bot replies (end-user copy) are compiled into the binary.
+COPY messages ./messages
 RUN cargo build --release --locked
 
 FROM gcr.io/distroless/cc-debian12:nonroot

@@ -38,6 +38,18 @@ pub struct AnthropicConfig {
     pub model: String,
 }
 
+/// Zalo Bot Platform settings ("Bot DaGhep").
+#[derive(Debug, Clone)]
+pub struct ZaloBotConfig {
+    pub token: Secret,
+    /// Sent by Zalo in `X-Bot-Api-Secret-Token`; set with the `setWebhook` API.
+    pub webhook_secret: Secret,
+    /// The bot's display name, as tagged in groups.
+    pub bot_name: String,
+}
+
+pub const DEFAULT_ZALO_BOT_NAME: &str = "Bot DaGhep";
+
 /// A small, inexpensive model is enough to read a few lines of text.
 pub const DEFAULT_ANTHROPIC_MODEL: &str = "claude-haiku-4-5";
 
@@ -52,6 +64,8 @@ pub struct Config {
     pub google: Option<GoogleConfig>,
     /// `None` disables match drafts (`POST /api/match-drafts` answers 503).
     pub anthropic: Option<AnthropicConfig>,
+    /// `None` disables the Zalo bot.
+    pub zalo_bot: Option<ZaloBotConfig>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -62,6 +76,10 @@ pub enum ConfigError {
     Invalid { name: &'static str, value: String },
     #[error("set all of GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET and GOOGLE_REDIRECT_URI, or none")]
     PartialGoogle,
+    #[error(
+        "set both ZALO_BOT_TOKEN and ZALO_BOT_WEBHOOK_SECRET (at least 16 characters), or neither"
+    )]
+    PartialZaloBot,
 }
 
 const GOOGLE_VARS: [&str; 3] = [
@@ -120,12 +138,22 @@ impl Config {
             api_key: Secret::new(api_key),
             model: get("ANTHROPIC_MODEL").unwrap_or_else(|| DEFAULT_ANTHROPIC_MODEL.to_owned()),
         });
+        let zalo_bot = match (get("ZALO_BOT_TOKEN"), get("ZALO_BOT_WEBHOOK_SECRET")) {
+            (Some(token), Some(secret)) if secret.chars().count() >= 16 => Some(ZaloBotConfig {
+                token: Secret::new(token),
+                webhook_secret: Secret::new(secret),
+                bot_name: get("ZALO_BOT_NAME").unwrap_or_else(|| DEFAULT_ZALO_BOT_NAME.to_owned()),
+            }),
+            (None, None) => None,
+            _ => return Err(ConfigError::PartialZaloBot),
+        };
         Ok(Self {
             database_url,
             port,
             frontend_origin,
             google,
             anthropic,
+            zalo_bot,
         })
     }
 }
@@ -193,6 +221,32 @@ mod tests {
         ])
         .unwrap();
         assert_eq!(other_model.anthropic.unwrap().model, "claude-other");
+    }
+
+    #[test]
+    fn the_zalo_bot_needs_a_token_and_a_long_webhook_secret() {
+        assert!(config(&[DB]).unwrap().zalo_bot.is_none());
+
+        let bot = config(&[
+            DB,
+            ("ZALO_BOT_TOKEN", "123:token-value"),
+            ("ZALO_BOT_WEBHOOK_SECRET", "a-long-webhook-secret"),
+        ])
+        .unwrap();
+        let zalo = bot.zalo_bot.clone().unwrap();
+        assert_eq!(zalo.bot_name, DEFAULT_ZALO_BOT_NAME);
+        assert_eq!(zalo.token.expose(), "123:token-value");
+        assert!(!format!("{bot:?}").contains("token-value"));
+        assert!(!format!("{bot:?}").contains("a-long-webhook-secret"));
+
+        let short = config(&[
+            DB,
+            ("ZALO_BOT_TOKEN", "t"),
+            ("ZALO_BOT_WEBHOOK_SECRET", "short"),
+        ]);
+        assert!(matches!(short, Err(ConfigError::PartialZaloBot)));
+        let partial = config(&[DB, ("ZALO_BOT_TOKEN", "t")]);
+        assert!(matches!(partial, Err(ConfigError::PartialZaloBot)));
     }
 
     #[test]

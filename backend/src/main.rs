@@ -9,6 +9,8 @@ use axum::http::{HeaderValue, Method};
 use daghep_api::Deps;
 use daghep_api::auth::domain::IdentityProvider;
 use daghep_api::auth::google::GoogleProvider;
+use daghep_api::bot::ZaloSettings;
+use daghep_api::bot::zalo::ZaloReply;
 use daghep_api::clock::{Clock, SystemClock};
 use daghep_api::config::Config;
 use daghep_api::drafts::anthropic::AnthropicReader;
@@ -64,6 +66,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         frontend_origin = %config.frontend_origin,
         google_sign_in = config.google.is_some(),
         match_drafts = config.anthropic.is_some(),
+        zalo_bot = config.zalo_bot.is_some(),
         "configuration loaded"
     );
 
@@ -88,12 +91,23 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         }
         None => None,
     };
+    // A broken copy file stops the server here, not on the first message.
+    daghep_api::bot::domain::check_copy()?;
+    let zalo = match config.zalo_bot {
+        Some(bot) => Some(Arc::new(ZaloSettings {
+            reply: Arc::new(ZaloReply::new(bot.token)?),
+            webhook_secret: bot.webhook_secret,
+            bot_name: bot.bot_name,
+        })),
+        None => None,
+    };
     let app = daghep_api::app(Deps {
         pool,
         clock,
         google,
         frontend_origin: config.frontend_origin,
         reader,
+        zalo,
     })
     .layer(cors);
     let listener = tokio::net::TcpListener::bind(("0.0.0.0", config.port)).await?;
