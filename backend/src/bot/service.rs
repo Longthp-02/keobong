@@ -10,7 +10,7 @@ use sha2::{Digest, Sha256};
 use super::domain::{
     BotDraft, BotRepository, COPY, ChatKind, Command, DEFAULT_LEVEL_MAX_TENTHS,
     DEFAULT_LEVEL_MIN_TENTHS, DEFAULT_MATCH_TYPE, DRAFT_MINUTES, Incoming, LINK_CODE_MINUTES,
-    entry, fill, parse_command,
+    UpdateOutcome, entry, fill, parse_command,
 };
 use crate::auth::UserId;
 use crate::clock::Clock;
@@ -64,12 +64,12 @@ where
         return Ok(None);
     };
     let now = ctx.clock.now();
-    if !ctx
+    let outcome = ctx
         .bot
-        .record_update(&message.message_id, now)
+        .record_update(&message.message_id, &message.sender_id, now)
         .await
-        .map_err(fail)?
-    {
+        .map_err(fail)?;
+    if outcome != UpdateOutcome::New {
         return Ok(None);
     }
     // In groups every command must tag the bot, so the examples do too.
@@ -78,7 +78,7 @@ where
         ChatKind::Private => String::new(),
     };
     let reply = match command {
-        Command::Help => fill(&COPY.help, &[("mention", &mention)]),
+        Command::Help => fill(&COPY.help, &[("mention", &mention), ("bot", ctx.bot_name)]),
         Command::Link => link(ctx, message, now).await?,
         Command::Cancel => match ctx
             .bot
@@ -106,7 +106,7 @@ where
     // A link posted in a group could be opened by someone else, who would then
     // host (and be paid for) this sender's matches.
     if message.chat_kind == ChatKind::Group {
-        return Ok(COPY.link_in_group.clone());
+        return Ok(fill(&COPY.link_in_group, &[("bot", ctx.bot_name)]));
     }
     let code = URL_SAFE_NO_PAD.encode(random_bytes::<32>().map_err(fail)?);
     ctx.bot
@@ -145,7 +145,7 @@ where
         .await
         .map_err(fail)?
     else {
-        return Ok(COPY.not_linked.clone());
+        return Ok(fill(&COPY.not_linked, &[("bot", ctx.bot_name)]));
     };
     let create_url = format!("{}/create", ctx.frontend_origin);
     let draft = match read_draft(ctx.drafts, ctx.matches, ctx.clock, ctx.reader, user, text).await {
@@ -166,12 +166,18 @@ where
         }
         Err(ReadDraftError::Storage(error)) => return Err(BotError(error)),
     };
+    let venues = matches::service::venues(ctx.matches).await.map_err(fail)?;
     let input = match complete(&draft) {
         Ok(input) => input,
         Err(missing) => {
+            let venue_names = venues
+                .iter()
+                .map(|venue| venue.name.as_str())
+                .collect::<Vec<_>>()
+                .join(", ");
             let fields = missing
                 .iter()
-                .map(|field| entry(&COPY.fields, field))
+                .map(|field| fill(entry(&COPY.fields, field), &[("venues", &venue_names)]))
                 .collect::<Vec<_>>()
                 .join(", ");
             return Ok(fill(
@@ -189,7 +195,6 @@ where
         let url = format!("{}/account/payout", ctx.frontend_origin);
         return Ok(fill(&COPY.payout_needed, &[("url", &url)]));
     }
-    let venues = matches::service::venues(ctx.matches).await.map_err(fail)?;
     let venue_name = venues
         .iter()
         .find(|venue| venue.slug.as_str() == input.venue)
@@ -303,7 +308,12 @@ fn summary(draft: &BotDraft, venue_name: &str) -> String {
         .get(start.weekday().num_days_from_sunday() as usize)
         .map_or("", String::as_str);
     let day = format!("{weekday} {}", start.format("%d/%m"));
-    let price = price_per_player_vnd(draft.total_fee_vnd, draft.slot_count);
+    let price = if draft.total_fee_vnd == 0 {
+        COPY.free.clone()
+    } else {
+        let amount = format_vnd(price_per_player_vnd(draft.total_fee_vnd, draft.slot_count));
+        fill(&COPY.per_player, &[("amount", &amount)])
+    };
     fill(
         &COPY.summary,
         &[
@@ -313,7 +323,7 @@ fn summary(draft: &BotDraft, venue_name: &str) -> String {
             ("venue", venue_name),
             ("format", entry(&COPY.formats, draft.format.as_str())),
             ("slots", &draft.slot_count.to_string()),
-            ("price", &format_vnd(price)),
+            ("price", &price),
         ],
     )
 }
@@ -329,7 +339,7 @@ pub fn format_vnd(amount: i64) -> String {
         grouped.push(digit);
     }
     let sign = if amount < 0 { "-" } else { "" };
-    format!("{sign}{grouped}đ")
+    fill(&COPY.currency, &[("amount", &format!("{sign}{grouped}"))])
 }
 
 async fn confirm<B, D, M, P>(
@@ -350,14 +360,28 @@ where
     else {
         return Ok(COPY.no_draft.clone());
     };
+    // The draft was read for whoever this Zalo account was linked to then.
+    let linked = ctx
+        .bot
+        .linked_user(&message.sender_id)
+        .await
+        .map_err(fail)?;
+    if linked != Some(draft.user) {
+        return Ok(fill(&COPY.not_linked, &[("bot", ctx.bot_name)]));
+    }
+    let level = |tenths: i16| {
+        Level::from_tenths(tenths)
+            .map(Level::as_f64)
+            .ok_or_else(|| BotError(format!("stored draft has an invalid level {tenths}")))
+    };
     let input = NewMatchInput {
         venue: draft.venue_slug,
         starts_at: draft.starts_at,
         ends_at: draft.ends_at,
         format: draft.format,
         match_type: draft.match_type,
-        level_min: Level::from_tenths(draft.level_min_tenths).map_or(1.0, Level::as_f64),
-        level_max: Level::from_tenths(draft.level_max_tenths).map_or(5.0, Level::as_f64),
+        level_min: level(draft.level_min_tenths)?,
+        level_max: level(draft.level_max_tenths)?,
         total_fee_vnd: draft.total_fee_vnd,
         slot_count: Some(i64::from(draft.slot_count)),
     };

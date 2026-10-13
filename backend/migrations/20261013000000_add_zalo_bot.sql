@@ -40,11 +40,14 @@ CREATE TABLE bot_drafts (
 
 CREATE INDEX bot_drafts_expires_at_idx ON bot_drafts (expires_at);
 
--- Zalo may deliver a message more than once; each message id is handled once.
--- Rows older than two days are deleted.
+-- Messages the bot answered: Zalo may deliver a message more than once, and each
+-- sender gets at most 20 answers per hour. No message text is stored. Rows
+-- older than two days are deleted.
 CREATE TABLE bot_updates (
     message_id text PRIMARY KEY CHECK (char_length(message_id) BETWEEN 1 AND 128),
+    sender_id text NOT NULL CHECK (char_length(sender_id) BETWEEN 1 AND 64),
     received_at timestamptz NOT NULL
 );
 
 CREATE INDEX bot_updates_received_at_idx ON bot_updates (received_at);
+CREATE INDEX bot_updates_sender_received_at_idx ON bot_updates (sender_id, received_at);

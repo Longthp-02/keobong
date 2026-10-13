@@ -2,6 +2,7 @@
 
 use std::sync::Arc;
 
+use axum::body::Bytes;
 use axum::extract::rejection::JsonRejection;
 use axum::extract::{FromRef, State};
 use axum::http::header::CACHE_CONTROL;
@@ -13,7 +14,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
-use super::domain::{COPY, ChatKind, ChatReply, Incoming};
+use super::domain::{COPY, ChatKind, ChatReply, Incoming, fill};
 use super::repo::PgBotRepository;
 use super::service::{BotContext, handle_message, redeem_link};
 use crate::auth::{AuthState, AuthenticatedUser};
@@ -82,25 +83,33 @@ fn incoming(body: &Value) -> Option<Incoming> {
         return None;
     }
     let text = |value: &Value| value.as_str().filter(|s| !s.is_empty()).map(str::to_owned);
+    // Ids longer than the database allows would fail later without a reply.
+    let id = |value: &Value, max: usize| {
+        let id = text(value)?;
+        if id.len() > max {
+            tracing::warn!(
+                length = id.len(),
+                "ignoring a Zalo update with an over-long id"
+            );
+            return None;
+        }
+        Some(id)
+    };
     let chat_kind = match message["chat"]["chat_type"].as_str()? {
         "PRIVATE" => ChatKind::Private,
         "GROUP" => ChatKind::Group,
         _ => return None,
     };
     Some(Incoming {
-        message_id: text(&message["message_id"])?,
-        chat_id: text(&message["chat"]["id"]).filter(|id| id.len() <= 64)?,
+        message_id: id(&message["message_id"], 128)?,
+        chat_id: id(&message["chat"]["id"], 64)?,
         chat_kind,
-        sender_id: text(&message["from"]["id"]).filter(|id| id.len() <= 64)?,
+        sender_id: id(&message["from"]["id"], 64)?,
         text: text(&message["text"])?,
     })
 }
 
-async fn webhook(
-    State(state): State<BotState>,
-    headers: HeaderMap,
-    body: Option<Json<Value>>,
-) -> Response {
+async fn webhook(State(state): State<BotState>, headers: HeaderMap, body: Bytes) -> Response {
     let Some(zalo) = state.zalo.clone() else {
         return StatusCode::NOT_FOUND.into_response();
     };
@@ -110,8 +119,12 @@ async fn webhook(
     if !authentic {
         return (StatusCode::FORBIDDEN, Json(json!({ "error": "forbidden" }))).into_response();
     }
-    // Zalo gets 200 for anything we could not use, so it does not retry it.
-    let Some(message) = body.as_ref().and_then(|Json(body)| incoming(body)) else {
+    // Parsed only after the secret check. Zalo gets 200 for anything we could
+    // not use, so it does not retry it.
+    let Some(message) = serde_json::from_slice::<Value>(&body)
+        .ok()
+        .and_then(|body| incoming(&body))
+    else {
         return Json(json!({ "ok": true })).into_response();
     };
     let ctx = BotContext {
@@ -132,7 +145,12 @@ async fn webhook(
         }
         Ok(None) => {}
         // The message text is never logged.
-        Err(error) => tracing::error!(error = %error, "bot could not handle a message"),
+        Err(error) => {
+            tracing::error!(error = %error, "bot could not handle a message");
+            if let Err(error) = zalo.reply.send(&message.chat_id, &COPY.failed).await {
+                tracing::error!(error = %error, "bot reply failed");
+            }
+        }
     }
     Json(json!({ "ok": true })).into_response()
 }
@@ -162,7 +180,12 @@ async fn link(
     match redeem_link(&state.bot, state.clock.as_ref(), user.id, &request.code).await {
         Ok(Some(zalo_user_id)) => {
             // A private chat's id is the user's id; this confirms on the phone too.
-            if let Err(error) = zalo.reply.send(&zalo_user_id, &COPY.linked).await {
+            let name = user
+                .display_name
+                .clone()
+                .unwrap_or_else(|| COPY.anonymous_name.clone());
+            let confirmation = fill(&COPY.linked, &[("name", &name)]);
+            if let Err(error) = zalo.reply.send(&zalo_user_id, &confirmation).await {
                 tracing::warn!(error = %error, "could not confirm a Zalo link in chat");
             }
             respond(StatusCode::OK, json!({ "linked": true }))

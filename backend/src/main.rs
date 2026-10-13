@@ -91,6 +91,8 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         }
         None => None,
     };
+    // A broken copy file stops the server here, not on the first message.
+    daghep_api::bot::domain::check_copy()?;
     let zalo = match config.zalo_bot {
         Some(bot) => Some(Arc::new(ZaloSettings {
             reply: Arc::new(ZaloReply::new(bot.token)?),

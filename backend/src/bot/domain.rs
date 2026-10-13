@@ -16,6 +16,19 @@ use crate::matches::domain::{Format, MatchType};
 pub const LINK_CODE_MINUTES: i64 = 15;
 /// How long a draft waits for "ok".
 pub const DRAFT_MINUTES: i64 = 30;
+/// Messages one sender gets answered per hour; later ones are ignored, so a
+/// group member tagging the bot again and again cannot use up Zalo's quota.
+pub const REPLIES_PER_SENDER_PER_HOUR: i64 = 20;
+
+/// What recording a delivered message found.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UpdateOutcome {
+    New,
+    /// Zalo delivered this message before.
+    Duplicate,
+    /// The sender reached the hourly reply limit.
+    SenderLimited,
+}
 /// Defaults for what a message does not say (confirmed by Long 2026-10-13).
 pub const DEFAULT_MATCH_TYPE: MatchType = MatchType::Casual;
 pub const DEFAULT_LEVEL_MIN_TENTHS: i16 = 10;
@@ -60,23 +73,27 @@ pub fn parse_command(text: &str, kind: ChatKind, bot_name: &str) -> Option<Comma
     };
     let rest = rest.trim();
     let word = rest.trim_end_matches(['.', '!', '?', ' ']).to_lowercase();
-    Some(match word.as_str() {
-        "" | "help" | "hướng dẫn" | "huong dan" | "hi" | "hello" | "chào" | "xin chào" => {
-            Command::Help
-        }
-        "liên kết" | "lien ket" | "link" => Command::Link,
-        "ok" | "oke" | "okay" | "okie" | "đồng ý" | "dong y" | "tạo" | "tao" | "yes" => {
-            Command::Confirm
-        }
-        "huỷ" | "hủy" | "huy" | "cancel" => Command::Cancel,
-        _ => Command::Describe(rest.to_owned()),
+    let commands = &COPY.commands;
+    let is = |words: &[String]| words.iter().any(|candidate| *candidate == word);
+    Some(if is(&commands.help) {
+        Command::Help
+    } else if is(&commands.link) {
+        Command::Link
+    } else if is(&commands.confirm) {
+        Command::Confirm
+    } else if is(&commands.cancel) {
+        Command::Cancel
+    } else {
+        Command::Describe(rest.to_owned())
     })
 }
 
+/// Strips the tag when the text starts with it as a whole word, ignoring case.
 fn strip_prefix_ignore_case<'a>(text: &'a str, prefix: &str) -> Option<&'a str> {
     let head = text.get(..prefix.len())?;
-    head.eq_ignore_ascii_case(prefix)
-        .then(|| &text[prefix.len()..])
+    let rest = &text[prefix.len()..];
+    let whole_word = rest.is_empty() || rest.starts_with(char::is_whitespace);
+    (whole_word && head.to_lowercase() == prefix.to_lowercase()).then_some(rest)
 }
 
 /// A match waiting for the sender's "ok"; every field already passed the match rules.
@@ -103,12 +120,14 @@ pub struct RepoError(pub String);
 
 /// Port: everything the bot keeps in Postgres.
 pub trait BotRepository: Send + Sync {
-    /// Records a message id; false when it was handled before. Also forgets old ids.
+    /// Records a message from `sender`, unless it was seen before or the sender
+    /// reached the hourly limit. Also forgets old messages.
     fn record_update(
         &self,
         message_id: &str,
+        sender_id: &str,
         now: DateTime<Utc>,
-    ) -> impl Future<Output = Result<bool, RepoError>> + Send;
+    ) -> impl Future<Output = Result<UpdateOutcome, RepoError>> + Send;
 
     fn linked_user(
         &self,
@@ -181,10 +200,32 @@ pub struct BotCopy {
     pub too_long: String,
     pub formats: HashMap<String, String>,
     pub weekdays: Vec<String>,
+    pub per_player: String,
+    pub free: String,
+    pub currency: String,
+    pub anonymous_name: String,
+    pub commands: Commands,
+}
+
+/// Words that mean a command (lower case, without trailing punctuation).
+#[derive(Debug, Deserialize)]
+pub struct Commands {
+    pub help: Vec<String>,
+    pub link: Vec<String>,
+    pub confirm: Vec<String>,
+    pub cancel: Vec<String>,
+}
+
+const COPY_JSON: &str = include_str!("../../messages/vi.json");
+
+/// Parses the copy file; `main` calls it at startup so a broken file stops the
+/// server there instead of on the first message.
+pub fn check_copy() -> Result<(), serde_json::Error> {
+    serde_json::from_str::<BotCopy>(COPY_JSON).map(|_| ())
 }
 
 pub static COPY: LazyLock<BotCopy> = LazyLock::new(|| {
-    serde_json::from_str(include_str!("../../messages/vi.json"))
+    serde_json::from_str(COPY_JSON)
         .unwrap_or_else(|error| panic!("backend/messages/vi.json is invalid: {error}"))
 });
 
@@ -257,6 +298,23 @@ mod tests {
         assert_eq!(
             parse_command("ok tối nay 19h", ChatKind::Private, BOT),
             Some(Command::Describe("ok tối nay 19h".to_owned()))
+        );
+        assert_eq!(
+            parse_command("chốt", ChatKind::Private, BOT),
+            Some(Command::Confirm)
+        );
+        assert_eq!(
+            parse_command("ok nhé", ChatKind::Private, BOT),
+            Some(Command::Confirm)
+        );
+    }
+
+    #[test]
+    fn the_tag_must_be_a_whole_word() {
+        assert_eq!(parse_command("@Bot DaGhepok", ChatKind::Group, BOT), None);
+        assert_eq!(
+            parse_command("@Bot DaGhep", ChatKind::Group, BOT),
+            Some(Command::Help)
         );
     }
 

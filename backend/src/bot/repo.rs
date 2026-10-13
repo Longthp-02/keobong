@@ -3,7 +3,9 @@
 use chrono::{DateTime, Duration, Utc};
 use sqlx::PgPool;
 
-use super::domain::{BotDraft, BotRepository, DRAFT_MINUTES, RepoError};
+use super::domain::{
+    BotDraft, BotRepository, DRAFT_MINUTES, REPLIES_PER_SENDER_PER_HOUR, RepoError, UpdateOutcome,
+};
 use crate::auth::UserId;
 use crate::matches::domain::{Format, MatchType};
 
@@ -37,18 +39,45 @@ type DraftRow = (
 );
 
 impl BotRepository for PgBotRepository {
-    async fn record_update(&self, message_id: &str, now: DateTime<Utc>) -> Result<bool, RepoError> {
+    async fn record_update(
+        &self,
+        message_id: &str,
+        sender_id: &str,
+        now: DateTime<Utc>,
+    ) -> Result<UpdateOutcome, RepoError> {
         let mut tx = self.pool.begin().await.map_err(repo_error)?;
         sqlx::query("DELETE FROM bot_updates WHERE received_at < $1")
             .bind(now - Duration::days(2))
             .execute(&mut *tx)
             .await
             .map_err(repo_error)?;
+        let seen: bool =
+            sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM bot_updates WHERE message_id = $1)")
+                .bind(message_id)
+                .fetch_one(&mut *tx)
+                .await
+                .map_err(repo_error)?;
+        if seen {
+            return Ok(UpdateOutcome::Duplicate);
+        }
+        let recent: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM bot_updates WHERE sender_id = $1 AND received_at > $2",
+        )
+        .bind(sender_id)
+        .bind(now - Duration::hours(1))
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(repo_error)?;
+        if recent >= REPLIES_PER_SENDER_PER_HOUR {
+            return Ok(UpdateOutcome::SenderLimited);
+        }
+        // A concurrent delivery of the same message may have won; then it is a duplicate.
         let inserted = sqlx::query(
-            "INSERT INTO bot_updates (message_id, received_at) VALUES ($1, $2)
+            "INSERT INTO bot_updates (message_id, sender_id, received_at) VALUES ($1, $2, $3)
              ON CONFLICT (message_id) DO NOTHING",
         )
         .bind(message_id)
+        .bind(sender_id)
         .bind(now)
         .execute(&mut *tx)
         .await
@@ -56,7 +85,11 @@ impl BotRepository for PgBotRepository {
         .rows_affected()
             == 1;
         tx.commit().await.map_err(repo_error)?;
-        Ok(inserted)
+        Ok(if inserted {
+            UpdateOutcome::New
+        } else {
+            UpdateOutcome::Duplicate
+        })
     }
 
     async fn linked_user(&self, zalo_user_id: &str) -> Result<Option<UserId>, RepoError> {
@@ -131,9 +164,11 @@ impl BotRepository for PgBotRepository {
         .execute(&mut *tx)
         .await
         .map_err(repo_error)?;
-        // Drafts read for another account must not be created for this one.
-        sqlx::query("DELETE FROM bot_drafts WHERE zalo_user_id = $1")
+        // Drafts read under the previous link, by this Zalo account or for this
+        // user, must not be created after the link changed.
+        sqlx::query("DELETE FROM bot_drafts WHERE zalo_user_id = $1 OR user_id = $2")
             .bind(&zalo_user_id)
+            .bind(user.0)
             .execute(&mut *tx)
             .await
             .map_err(repo_error)?;
