@@ -315,6 +315,14 @@ mod tests {
     fn the_tag_must_be_a_whole_word() {
         assert_eq!(parse_command("@Bot DaGhepok", ChatKind::Group, BOT), None);
         assert_eq!(
+            parse_command("@Bot DaGhep, ok", ChatKind::Group, BOT),
+            Some(Command::Confirm)
+        );
+        assert_eq!(
+            parse_command("@Bot DaGhep: tối nay 19h", ChatKind::Group, BOT),
+            Some(Command::Describe("tối nay 19h".to_owned()))
+        );
+        assert_eq!(
             parse_command("@Bot DaGhep", ChatKind::Group, BOT),
             Some(Command::Help)
         );
