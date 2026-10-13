@@ -1,0 +1,43 @@
+{
+  "help": "Chào bạn! Mình là Bot Đá Ghép ⚽\nGửi tin kèo của bạn, ví dụ:\n{mention}tối nay 19h–20h30 SSA sân 7 thiếu 3, 60k/người\nMình sẽ tạo kèo và gửi link để mọi người giữ chỗ.\nLần đầu dùng, nhắn riêng cho mình chữ \"liên kết\".",
+  "linkInGroup": "Để bắt đầu, bạn nhắn riêng cho Bot DaGhep chữ \"liên kết\" nhé. Link liên kết chỉ gửi trong chat riêng để không ai dùng nhầm tài khoản của bạn.",
+  "linkPrivate": "Bấm link này để liên kết Zalo với tài khoản Đá Ghép (đăng nhập bằng Google). Link dùng một lần, hết hạn sau 15 phút, đừng gửi cho ai:\n{url}",
+  "linked": "✅ Đã liên kết Zalo với tài khoản Đá Ghép. Giờ bạn gửi tin kèo cho mình là được.",
+  "notLinked": "Mình chưa biết bạn là chủ kèo nào. Nhắn riêng cho Bot DaGhep chữ \"liên kết\" để bắt đầu nhé.",
+  "missing": "Mình còn thiếu: {fields}.\nGửi lại tin đầy đủ giúp mình nhé, ví dụ:\n{mention}tối nay 19h–20h30 SSA sân 7 thiếu 3, 60k/người",
+  "fields": {
+    "venue": "sân (SSA, An Phú Nguyễn Hoàng hoặc Khu thể thao An Phú)",
+    "date": "ngày",
+    "startTime": "giờ bắt đầu",
+    "endTime": "giờ kết thúc",
+    "format": "loại sân (5, 7 hay 11)",
+    "slotCount": "số người còn thiếu",
+    "fee": "giá mỗi người hoặc tiền sân"
+  },
+  "summary": "Kèo {day} {start}–{end}\n📍 {venue}\n⚽ {format} · {slots} chỗ · {price}/người",
+  "confirmHint": "Trả lời \"{mention}ok\" trong 30 phút để tạo kèo, hoặc \"{mention}huỷ\".",
+  "noDraft": "Không có kèo nào đang chờ tạo. Gửi tin kèo của bạn trước nhé.",
+  "cancelled": "Đã huỷ kèo đang chờ.",
+  "created": "✅ Đã tạo kèo! Mọi người bấm vào đây để giữ chỗ:\n{url}",
+  "payoutNeeded": "Kèo có thu tiền cần tài khoản nhận tiền để mọi người chuyển khoản. Thêm ở đây rồi gửi lại tin kèo:\n{url}",
+  "invalid": "Thông tin kèo chưa hợp lệ: {reason}",
+  "reasons": {
+    "venueId": "sân không có trong danh sách",
+    "startsAt": "giờ bắt đầu phải trong vòng 30 ngày tới",
+    "endsAt": "giờ kết thúc phải sau giờ bắt đầu, cùng ngày, tối đa 4 tiếng",
+    "slotCount": "số chỗ phải từ 2 đến 30",
+    "totalFeeVnd": "tiền sân tối đa 100.000.000đ",
+    "other": "kiểm tra lại thông tin"
+  },
+  "limitUser": "Hôm nay bạn đã dùng hết 10 lần đọc tin. Bạn vẫn tạo kèo được trên {url}",
+  "limitService": "Hôm nay Đá Ghép đã hết lượt đọc tin. Bạn vẫn tạo kèo được trên {url}",
+  "unavailable": "Tính năng đọc tin đang tạm nghỉ. Bạn tạo kèo trên {url} nhé.",
+  "failed": "Mình chưa đọc được tin, bạn thử lại sau ít phút nhé.",
+  "tooLong": "Tin dài quá, bạn gửi gọn lại dưới 500 ký tự giúp mình nhé.",
+  "formats": {
+    "five_a_side": "Sân 5",
+    "seven_a_side": "Sân 7",
+    "eleven_a_side": "Sân 11"
+  },
+  "weekdays": ["Chủ nhật", "Thứ 2", "Thứ 3", "Thứ 4", "Thứ 5", "Thứ 6", "Thứ 7"]
+}

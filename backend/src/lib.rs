@@ -1,6 +1,7 @@
 //! Daghep API. `main.rs` only wires configuration; everything testable lives here.
 
 pub mod auth;
+pub mod bot;
 pub mod clock;
 pub mod config;
 pub mod discovery;
@@ -42,6 +43,8 @@ pub struct Deps {
     pub frontend_origin: String,
     /// `None` disables reading pasted messages into match drafts.
     pub reader: Option<Arc<dyn drafts::domain::MatchTextReader>>,
+    /// `None` disables the Zalo bot (its routes answer 404).
+    pub zalo: Option<Arc<bot::ZaloSettings>>,
 }
 
 /// Builds the stateless HTTP application. All state lives in Postgres.
@@ -70,9 +73,20 @@ pub fn app(deps: Deps) -> Router {
             drafts::PgDraftRepository::new(deps.pool.clone()),
             matches::PgMatchRepository::new(deps.pool.clone()),
             deps.clock.clone(),
-            deps.reader,
+            deps.reader.clone(),
             auth_state.clone(),
         ))
+        .merge(bot::router(bot::BotState {
+            bot: bot::PgBotRepository::new(deps.pool.clone()),
+            drafts: drafts::PgDraftRepository::new(deps.pool.clone()),
+            matches: matches::PgMatchRepository::new(deps.pool.clone()),
+            payouts: payments::PgPayoutRepository::new(deps.pool.clone()),
+            clock: deps.clock.clone(),
+            reader: deps.reader,
+            zalo: deps.zalo,
+            frontend_origin: deps.frontend_origin.clone(),
+            auth: auth_state.clone(),
+        }))
         .merge(discovery::router(
             matches::PgMatchRepository::new(deps.pool.clone()),
             slots::PgSlotRepository::new(deps.pool.clone()),
