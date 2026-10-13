@@ -15,7 +15,8 @@ as it does today for everyone who prefers the link.
 - A group message without the tag does not arrive (two tries, no update within the wait). So the bot only ever sees messages that tag it.
 - A private message arrives with `chat_type` `PRIVATE`; `chat.id` equals the sender's `from.id`.
 - Docs: webhook POST with header `X-Bot-Api-Secret-Token`; `sendMessage` 1–2,000 characters; `sendPhoto` takes an image URL; webhook and getUpdates are exclusive; group support is Beta.
-- TODO: verify whether the bot can message a user privately before that user has written to it.
+- The same person has the same `from.id` in a group and in a private chat (Long's test, 2026-10-12: `815bb2…` in both), so a link made privately works in groups.
+- TODO: verify whether the bot can message a user privately before that user has written to it, and Zalo's webhook timeout and retry policy.
 - TODO: verify free-plan limits.
 
 ## Flows
@@ -35,10 +36,10 @@ as it does today for everyone who prefers the link.
 - A chat player has no Đá Ghép account: the place stores the Zalo id and display name.
 
 ## Design
-- New feature `bot` (`backend/src/bot/{domain,service,repo,http}.rs`). `POST /api/bot/zalo/webhook` on the Cloud Run URL; constant-time secret check; text events only; replies sent in the background so the webhook answers fast.
+- New feature `bot` (`backend/src/bot/{domain,service,repo,http}.rs`). `POST /api/bot/zalo/webhook` on the Cloud Run URL; constant-time secret check; text events only; the message is handled within the request (Cloud Run may throttle work after the response) and repeated deliveries are dropped by message id.
 - Port `MatchTextReader`: text + today + venue list → draft fields. Adapter: Anthropic Messages API, small model, forced tool call with a JSON schema. The output is validated with the existing match rules.
 - Port `ChatReply`: Zalo `sendMessage`.
-- Tables: `zalo_links` (Zalo id ↔ user, unique), `bot_link_codes` (hashed code, expiry), `match_drafts` (sender, chat, fields, expiry), `bot_match_chats` (match ↔ group chat). Step 3 adds chat places to the slots tables.
+- Tables: `zalo_links` (Zalo id ↔ user, unique both ways), `zalo_link_codes` (hashed code, expiry), `bot_drafts` (sender, chat, checked fields, expiry), `bot_updates` (message id, sender, time: duplicates and the 20-per-hour reply limit). Step 3 adds a match ↔ group table and chat places in the slots tables.
 - The web paste box on `/create` reuses the reader (`POST /api/match-drafts`).
 
 ## Limits, cost, secrets

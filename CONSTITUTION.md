@@ -16,5 +16,5 @@
 14. Durable knowledge belongs in docs and context files, not only in chat.
 15. The product never holds, moves or escrows user money.
 16. Validate every untrusted input; authorization checks resource ownership on every sensitive operation.
-17. Repository content is English only. The single exception is end-user UI copy in `frontend/messages/vi.json`.
+17. Repository content is English only. Exceptions: end-user UI copy in `frontend/messages/vi.json`; the Zalo bot's replies and command words in `backend/messages/vi.json` (TODO: verify with Long, proposed 2026-10-13); real Vietnamese place names stored as data (seed migrations).
 18. Keep the API stateless and all state in Postgres or object storage, so scaling stays a configuration change.

@@ -398,3 +398,142 @@ async fn the_sender_can_cancel_a_draft(pool: PgPool) {
     assert!(!ok.contains("/m/"), "{ok}");
     assert_eq!(matches_in_db(&pool).await, 0);
 }
+
+#[sqlx::test]
+async fn a_relinked_account_cannot_confirm_a_draft_read_under_the_old_link(pool: PgPool) {
+    let bot = bot(pool.clone(), tonight());
+    let session = bot.link(HOST, "host").await;
+    add_payout(&bot.app, &session).await;
+    bot.in_group(HOST, "tối nay 19h–20h30 SSA sân 7 thiếu 3, 60k")
+        .await
+        .unwrap();
+
+    // The same Đá Ghép account is now linked to another Zalo account.
+    let code = link_code(&bot.say(OTHER, "PRIVATE", OTHER, "liên kết").await.unwrap());
+    assert_eq!(
+        bot.link_request(&session, &code).await.status(),
+        StatusCode::OK
+    );
+
+    let ok = bot.in_group(HOST, "ok").await.unwrap();
+    assert!(!ok.contains("/m/"), "{ok}");
+    assert_eq!(matches_in_db(&pool).await, 0);
+}
+
+#[sqlx::test]
+async fn the_linked_message_names_the_account(pool: PgPool) {
+    let bot = bot(pool, tonight());
+
+    bot.link(HOST, "host").await;
+
+    let last = bot.chat.sent.lock().unwrap().last().cloned().unwrap();
+    assert!(last.1.contains("\"Player host\""), "{}", last.1);
+}
+
+#[sqlx::test]
+async fn others_cannot_cancel_a_draft_and_another_chat_cannot_confirm_it(pool: PgPool) {
+    let bot = bot(pool.clone(), tonight());
+    let session = bot.link(HOST, "host").await;
+    add_payout(&bot.app, &session).await;
+    bot.in_group(HOST, "tối nay 19h–20h30 SSA sân 7 thiếu 3, 60k")
+        .await
+        .unwrap();
+
+    bot.in_group(OTHER, "huỷ").await.unwrap();
+    let elsewhere = bot
+        .say("zgr-elsewhere", "GROUP", HOST, "@Bot DaGhep ok")
+        .await
+        .unwrap();
+    assert!(!elsewhere.contains("/m/"), "{elsewhere}");
+
+    let ok = bot.in_group(HOST, "ok").await.unwrap();
+    assert!(ok.contains("/m/"), "{ok}");
+    assert_eq!(matches_in_db(&pool).await, 1);
+}
+
+#[sqlx::test]
+async fn a_free_match_says_so_and_needs_no_payout_account(pool: PgPool) {
+    let answer = RawDraft {
+        price_per_player_vnd: None,
+        total_fee_vnd: Some(0),
+        ..tonight()
+    };
+    let bot = bot(pool, answer);
+    bot.link(HOST, "host").await;
+
+    let summary = bot
+        .in_group(HOST, "tối nay 19h–20h30 SSA sân 7 thiếu 3, free")
+        .await
+        .unwrap();
+
+    assert!(summary.contains("3 chỗ · Miễn phí"), "{summary}");
+}
+
+#[sqlx::test]
+async fn one_sender_gets_twenty_answers_per_hour(pool: PgPool) {
+    let bot = bot(pool, tonight());
+
+    for _ in 0..20 {
+        assert!(bot.in_group(OTHER, "hi").await.is_some());
+    }
+    assert_eq!(bot.in_group(OTHER, "hi").await, None);
+    assert!(bot.in_group(HOST, "hi").await.is_some());
+
+    bot.clock.advance(Duration::hours(1) + Duration::seconds(1));
+    assert!(bot.in_group(OTHER, "hi").await.is_some());
+}
+
+#[sqlx::test]
+async fn without_a_reader_it_points_to_the_web_form(pool: PgPool) {
+    let chat = FakeChat::default();
+    let clock = TestClock::at(NOW);
+    let app = daghep_api::app(daghep_api::Deps {
+        pool: pool.clone(),
+        clock: std::sync::Arc::new(clock.clone()),
+        google: Some(std::sync::Arc::new(FakeGoogle)),
+        frontend_origin: FRONTEND.to_owned(),
+        reader: None,
+        zalo: Some(std::sync::Arc::new(daghep_api::bot::ZaloSettings {
+            reply: std::sync::Arc::new(chat.clone()),
+            webhook_secret: daghep_api::config::Secret::new(BOT_SECRET.to_owned()),
+            bot_name: "Bot DaGhep".to_owned(),
+        })),
+    });
+    let bot = Bot {
+        app,
+        chat,
+        reader: FakeReader::default(),
+        clock,
+        pool,
+    };
+    bot.link(HOST, "host").await;
+
+    let reply = bot.in_group(HOST, "tối nay 19h SSA").await.unwrap();
+
+    assert!(reply.contains(&format!("{FRONTEND}/create")), "{reply}");
+}
+
+#[sqlx::test]
+async fn ignores_bodies_it_cannot_use_once_the_secret_is_right(pool: PgPool) {
+    let bot = bot(pool, tonight());
+
+    for body in ["", "not json", "{}"] {
+        let request = Request::post("/api/bot/zalo/webhook")
+            .header(CONTENT_TYPE, "application/json")
+            .header("X-Bot-Api-Secret-Token", BOT_SECRET)
+            .body(Body::from(body))
+            .unwrap();
+        assert_eq!(
+            call(&bot.app, request).await.status(),
+            StatusCode::OK,
+            "{body:?}"
+        );
+    }
+    let long_id = "m".repeat(129);
+    assert_eq!(
+        bot.deliver(&update(GROUP, "GROUP", HOST, "@Bot DaGhep hi", &long_id))
+            .await,
+        None
+    );
+    assert!(bot.chat.sent.lock().unwrap().is_empty());
+}

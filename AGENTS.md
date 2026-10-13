@@ -39,7 +39,7 @@ Daghep is a free, open-source (MIT) web app (PWA) that lets individual players i
 ## Non-Negotiables
 - Human defines correctness. Do not invent domain behavior; write `TODO: verify`.
 - If requirements are unclear or conflicting, ask the human immediately.
-- Everything in the repo is in English: code, comments, docs, commits. Exceptions: end-user UI copy in `frontend/messages/vi.json`, and the Zalo bot's chat replies in `backend/messages/vi.json` (TODO: verify with Long, proposed 2026-10-13); real Vietnamese place names in seed data.
+- Everything in the repo is in English: code, comments, docs, commits. Exceptions: end-user UI copy in `frontend/messages/vi.json`; the Zalo bot's replies and command words in `backend/messages/vi.json` (TODO: verify with Long, proposed 2026-10-13); real Vietnamese place names stored as data (seed migrations).
 - No hardcoded secrets; config via env vars / secret manager. Never log secrets or bank account numbers.
 - Never swallow failures silently (no `.unwrap()`/`.expect()` on fallible runtime paths; use `Result` and `tracing`).
 - No new dependency without a stated reason. No renames of objects, files or endpoints unless required.
