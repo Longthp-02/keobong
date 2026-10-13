@@ -1,6 +1,6 @@
 # Plan: create and fill matches from Zalo chat (Bot DaGhep)
 
-Status: approved by Long on 2026-10-12. Step 1 is in progress.
+Status: approved by Long on 2026-10-12. Step 1 shipped (PR #15); step 2 is in the `zalo-bot` PR.
 
 ## Goal
 An organiser runs a match without leaving Zalo. In a group that has "Bot DaGhep"
