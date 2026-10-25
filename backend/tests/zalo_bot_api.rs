@@ -63,8 +63,10 @@ fn bot(pool: PgPool, answer: RawDraft) -> Bot {
     }
 }
 
+/// A webhook body as Zalo sends it: the update itself, without the
+/// `{"ok": true, "result": ...}` envelope that `getUpdates` uses.
 fn update(chat_id: &str, chat_type: &str, sender: &str, text: &str, message_id: &str) -> Value {
-    json!({ "ok": true, "result": {
+    json!({
         "event_name": "message.text.received",
         "message": {
             "chat": { "id": chat_id, "chat_type": chat_type },
@@ -73,7 +75,7 @@ fn update(chat_id: &str, chat_type: &str, sender: &str, text: &str, message_id: 
             "date": 1,
             "from": { "id": sender, "is_bot": false, "display_name": "Someone" }
         }
-    } })
+    })
 }
 
 fn webhook_request(body: &Value, secret: Option<&str>) -> Request<Body> {
@@ -108,7 +110,9 @@ impl Bot {
         sent.get(before).map(|(chat, text)| {
             assert_eq!(
                 chat,
-                body["result"]["message"]["chat"]["id"].as_str().unwrap()
+                body.get("result").unwrap_or(body)["message"]["chat"]["id"]
+                    .as_str()
+                    .unwrap()
             );
             text.clone()
         })
@@ -155,6 +159,25 @@ async fn matches_in_db(pool: &PgPool) -> i64 {
         .fetch_one(pool)
         .await
         .unwrap()
+}
+
+#[sqlx::test]
+async fn the_webhook_answers_zalos_update_with_or_without_an_envelope(pool: PgPool) {
+    let bot = bot(pool, tonight());
+
+    let bare = update(HOST, "PRIVATE", HOST, "hi", "m-bare");
+    let reply = bot
+        .deliver(&bare)
+        .await
+        .expect("a reply to the bare update");
+    assert!(reply.contains("Bot DaGhep"), "{reply}");
+
+    let wrapped = json!({ "ok": true, "result": update(HOST, "PRIVATE", HOST, "hi", "m-wrapped") });
+    let reply = bot
+        .deliver(&wrapped)
+        .await
+        .expect("a reply to the wrapped update");
+    assert!(reply.contains("Bot DaGhep"), "{reply}");
 }
 
 #[sqlx::test]
