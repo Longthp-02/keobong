@@ -62,7 +62,7 @@
     "updatedLabel": "Cập nhật lần cuối:",
     "privacy": {
       "title": "Chính sách bảo mật",
-      "updated": "13/10/2026",
+      "updated": "25/10/2026",
       "intro": "Đá Ghép (daghep.vn) là ứng dụng miễn phí, mã nguồn mở, giúp người chơi tìm và tham gia các trận bóng đá ghép. Dịch vụ do cá nhân Phạm Trịnh Hoàng Long phát triển và vận hành. Ông Long là bên kiểm soát dữ liệu cá nhân của bạn. Trang này giải thích dữ liệu nào được thu thập, dùng để làm gì và bạn có những quyền gì.",
       "sections": [
         {
@@ -76,7 +76,7 @@
             "Dữ liệu kỹ thuật: nhật ký truy cập và địa chỉ IP, dùng để vận hành, sửa lỗi và chống lạm dụng.",
             "Thống kê lượt truy cập: chúng tôi dùng Vercel Web Analytics để đếm lượt xem trang. Mỗi lượt xem ghi lại thời điểm, địa chỉ trang được mở, trang dẫn bạn đến (ví dụ LinkedIn hay Facebook), quốc gia và thành phố ước tính, loại thiết bị, hệ điều hành và trình duyệt. Công cụ này không dùng cookie, không lưu địa chỉ IP và không gắn với tài khoản của bạn; mỗi lượt truy cập chỉ được nhận diện bằng một mã băm tạm thời, bị xoá sau 24 giờ. Chúng tôi chỉ xem số liệu tổng hợp để biết trang nào được dùng nhiều.",
             "Tin kèo bạn dán vào ô \"Dán tin kèo của bạn\": nội dung được gửi tới Anthropic (dịch vụ AI Claude) để đọc và điền form giúp bạn. Chúng tôi không lưu nội dung này; chỉ ghi lại tài khoản và thời điểm bạn dùng tính năng, để giới hạn số lần dùng mỗi ngày, và xoá sau 24 giờ. Anthropic không dùng nội dung này để huấn luyện AI và tự động xoá trong vòng 30 ngày (lâu hơn nếu cần để chống lạm dụng). Đừng dán số điện thoại hay thông tin riêng của người khác.",
-            "Nếu bạn dùng Bot DaGhep trên Zalo: chúng tôi lưu mã tài khoản Zalo bạn đã liên kết với tài khoản Đá Ghép, để biết ai là chủ kèo. Bot chỉ nhận tin nhắn riêng gửi cho bot và tin trong nhóm có gắn tag @Bot DaGhep. Khi bạn đã liên kết và gửi tin mô tả kèo, nội dung tin đó được gửi tới Anthropic để đọc như ô \"Dán tin kèo của bạn\". Kèo đang chờ xác nhận hết hạn sau 30 phút và được xoá sau đó; mã liên kết hết hạn sau 15 phút; mã tin nhắn và mã Zalo của người gửi (không có nội dung tin) chỉ được dùng trong 2 ngày để không trả lời trùng và để giới hạn số lần trả lời, sau đó được xoá. Khi bạn yêu cầu xoá tài khoản, liên kết Zalo cũng bị xoá."
+            "Nếu bạn dùng Bot DaGhep trên Zalo: chúng tôi lưu mã tài khoản Zalo bạn đã liên kết với tài khoản Đá Ghép, để biết ai là chủ kèo. Bot chỉ nhận tin nhắn riêng gửi cho bot và tin trong nhóm có gắn tag @Bot DaGhep. Khi bạn đã liên kết và gửi tin mô tả kèo, nội dung tin đó được gửi tới Anthropic để đọc như ô \"Dán tin kèo của bạn\". Kèo đang chờ xác nhận hết hạn sau 30 phút và được xoá sau đó; mã liên kết hết hạn sau 15 phút; mã tin nhắn và mã Zalo của người gửi (không có nội dung tin) chỉ được dùng trong 2 ngày để không trả lời trùng và để giới hạn số lần trả lời, sau đó được xoá. Nếu bạn đặt lịch nhắc với bot, chúng tôi lưu lịch, nội dung nhắc và mã cuộc trò chuyện Zalo cho tới khi lịch nhắc bị tắt (bằng lệnh \"tắt nhắc\", hoặc tự động khi bot không gửi được 3 lần liên tiếp). Nội dung yêu cầu đặt nhắc cũng được gửi tới Anthropic để đọc. Khi bạn yêu cầu xoá tài khoản, liên kết Zalo và các lịch nhắc bạn đã đặt cũng bị xoá."
           ]
         },
         {

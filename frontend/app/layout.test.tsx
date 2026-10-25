@@ -41,4 +41,11 @@ describe("privacy policy", () => {
     expect(text).toContain("Bot DaGhep");
     expect(text).toContain("mã tài khoản Zalo");
   });
+
+  it("tells organisers that reminder texts are stored until turned off", () => {
+    const text = JSON.stringify(messages.legal.privacy);
+
+    expect(text).toContain("lịch nhắc");
+    expect(text).toContain("cho tới khi lịch nhắc bị tắt");
+  });
 });

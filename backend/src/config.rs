@@ -46,6 +46,9 @@ pub struct ZaloBotConfig {
     pub webhook_secret: Secret,
     /// The bot's display name, as tagged in groups.
     pub bot_name: String,
+    /// Sent by the scheduler in `X-Cron-Secret` to post due reminders;
+    /// `BOT_CRON_SECRET`, at least 16 characters. `None` keeps reminders unposted.
+    pub cron_secret: Option<Secret>,
 }
 
 pub const DEFAULT_ZALO_BOT_NAME: &str = "Bot DaGhep";
@@ -138,11 +141,22 @@ impl Config {
             api_key: Secret::new(api_key),
             model: get("ANTHROPIC_MODEL").unwrap_or_else(|| DEFAULT_ANTHROPIC_MODEL.to_owned()),
         });
+        let cron_secret = match get("BOT_CRON_SECRET") {
+            Some(secret) if secret.chars().count() >= 16 => Some(Secret::new(secret)),
+            Some(_) => {
+                return Err(ConfigError::Invalid {
+                    name: "BOT_CRON_SECRET",
+                    value: "(shorter than 16 characters)".to_owned(),
+                });
+            }
+            None => None,
+        };
         let zalo_bot = match (get("ZALO_BOT_TOKEN"), get("ZALO_BOT_WEBHOOK_SECRET")) {
             (Some(token), Some(secret)) if secret.chars().count() >= 16 => Some(ZaloBotConfig {
                 token: Secret::new(token),
                 webhook_secret: Secret::new(secret),
                 bot_name: get("ZALO_BOT_NAME").unwrap_or_else(|| DEFAULT_ZALO_BOT_NAME.to_owned()),
+                cron_secret,
             }),
             (None, None) => None,
             _ => return Err(ConfigError::PartialZaloBot),
@@ -247,6 +261,29 @@ mod tests {
         assert!(matches!(short, Err(ConfigError::PartialZaloBot)));
         let partial = config(&[DB, ("ZALO_BOT_TOKEN", "t")]);
         assert!(matches!(partial, Err(ConfigError::PartialZaloBot)));
+    }
+
+    #[test]
+    fn the_reminder_scheduler_needs_a_long_secret() {
+        let bot = |extra: &[(&'static str, &'static str)]| {
+            let mut vars = vec![
+                DB,
+                ("ZALO_BOT_TOKEN", "123:token-value"),
+                ("ZALO_BOT_WEBHOOK_SECRET", "a-long-webhook-secret"),
+            ];
+            vars.extend_from_slice(extra);
+            config(&vars)
+        };
+        assert!(bot(&[]).unwrap().zalo_bot.unwrap().cron_secret.is_none());
+        let with = bot(&[("BOT_CRON_SECRET", "a-long-cron-secret-1")]).unwrap();
+        assert!(!format!("{with:?}").contains("a-long-cron-secret-1"));
+        assert_eq!(
+            with.zalo_bot.unwrap().cron_secret.unwrap().expose(),
+            "a-long-cron-secret-1"
+        );
+        let short = bot(&[("BOT_CRON_SECRET", "short")]);
+        assert!(matches!(short, Err(ConfigError::Invalid { .. })));
+        assert!(!format!("{short:?}").contains("short\""));
     }
 
     #[test]

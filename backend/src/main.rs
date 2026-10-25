@@ -10,6 +10,8 @@ use daghep_api::Deps;
 use daghep_api::auth::domain::IdentityProvider;
 use daghep_api::auth::google::GoogleProvider;
 use daghep_api::bot::ZaloSettings;
+use daghep_api::bot::anthropic::AnthropicReminderReader;
+use daghep_api::bot::reminders::ReminderReader;
 use daghep_api::bot::zalo::ZaloReply;
 use daghep_api::clock::{Clock, SystemClock};
 use daghep_api::config::Config;
@@ -67,6 +69,10 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         google_sign_in = config.google.is_some(),
         match_drafts = config.anthropic.is_some(),
         zalo_bot = config.zalo_bot.is_some(),
+        bot_reminders = config
+            .zalo_bot
+            .as_ref()
+            .is_some_and(|bot| bot.cron_secret.is_some()),
         "configuration loaded"
     );
 
@@ -83,13 +89,19 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         }
         None => None,
     };
-    let reader = match config.anthropic {
+    let (reader, reminder_reader) = match config.anthropic {
         Some(anthropic) => {
-            let reader: Arc<dyn MatchTextReader> =
-                Arc::new(AnthropicReader::new(anthropic.api_key, anthropic.model)?);
-            Some(reader)
+            let reader: Arc<dyn MatchTextReader> = Arc::new(AnthropicReader::new(
+                anthropic.api_key.clone(),
+                anthropic.model.clone(),
+            )?);
+            let reminders: Arc<dyn ReminderReader> = Arc::new(AnthropicReminderReader::new(
+                anthropic.api_key,
+                anthropic.model,
+            )?);
+            (Some(reader), Some(reminders))
         }
-        None => None,
+        None => (None, None),
     };
     // A broken copy file stops the server here, not on the first message.
     daghep_api::bot::domain::check_copy()?;
@@ -98,6 +110,8 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
             reply: Arc::new(ZaloReply::new(bot.token)?),
             webhook_secret: bot.webhook_secret,
             bot_name: bot.bot_name,
+            reminder_reader,
+            cron_secret: bot.cron_secret,
         })),
         None => None,
     };

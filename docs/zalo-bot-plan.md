@@ -57,10 +57,20 @@ The bot only receives messages that tag it or are sent to it privately. Those me
 4. Chat players without an account (step 3) transfer to the organiser as they do today, no 30-minute hold, and the organiser marks them paid on the web.
 5. Rate limits: 10 reads per user and 200 in total per rolling 24 hours.
 
+## Decisions (Long, 2026-10-25)
+6. Order: scheduled reminders first, then an attendance poll with a daily nudge, then basketball in the app.
+7. Reminders are set in natural Vietnamese ("@Bot DaGhep nhắc mỗi thứ 5 20h: …"): every day, chosen weekdays, or a day of the month. The bot replies with a summary and saves on "ok".
+8. Attendance poll answers need a signed-in account, so answers are tied to players.
+9. The daily nudge names who has not answered. The bot cannot read a Zalo group's member list, so a group's roster is everyone who answered one of its polls or tagged the bot there.
+10. Basketball: 3x3 and 5x5; Long sends the venues his group uses; the app keeps the name Đá Ghép.
+
 ## Steps (one PR each)
 1. Reader + drafts + paste box on `/create` (web only).
 2. Webhook, private linking, create in chat with "ok", post the link. Players join through the link as today.
 3. "+1 / -1" chat places and list updates (after decision 4).
+4. Scheduled reminders (decisions 6–7). Limits approved by Long 2026-10-25 with the migration: only linked senders set or stop reminders; at most 3 per chat; text up to 200 characters; a monthly day from 1 to 28; a reminder is dropped after 3 failed sends in a row. Reading a request uses the same AI read limits as match messages. Cloud Scheduler calls `POST /api/bot/reminders/run` every 5 minutes with `X-Cron-Secret`, so a reminder posts within 5 minutes of its time; one more than an hour late (after an outage) is skipped. Only a message that starts with "nhắc" (or "đặt lịch nhắc", "đặt nhắc") asks for a reminder, so a match post that mentions "nhắc" later stays a match. Unconfirmed reminders and match drafts are deleted by the next run after their 30 minutes.
+5. Attendance poll and daily nudge (decisions 8–9).
+6. Basketball in the app (decision 10).
 
 ## Tests
 - Unit: tag parsing ("@Bot DaGhep" prefix, "+1", "+2", "-1", "ok"), draft validation, secret check, code expiry.
@@ -70,5 +80,6 @@ The bot only receives messages that tag it or are sent to it privately. Those me
 
 ## Risks
 - Group support is Beta; Zalo may change limits or terms.
+- Reminders post to a group without a fresh message from it. Whether Zalo allows that for a bot is not yet tested; the first live reminder is the test.
 - The AI can misread a message; the summary + "ok" step is the safety net.
 - Chat players without accounts weaken no-show tracking.

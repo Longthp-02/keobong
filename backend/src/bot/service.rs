@@ -8,17 +8,21 @@ use chrono::{DateTime, Datelike, Duration, Utc};
 use sha2::{Digest, Sha256};
 
 use super::domain::{
-    BotDraft, BotRepository, COPY, ChatKind, Command, DEFAULT_LEVEL_MAX_TENTHS,
+    BotDraft, BotRepository, COPY, ChatKind, ChatReply, Command, DEFAULT_LEVEL_MAX_TENTHS,
     DEFAULT_LEVEL_MIN_TENTHS, DEFAULT_MATCH_TYPE, DRAFT_MINUTES, Incoming, LINK_CODE_MINUTES,
     UpdateOutcome, entry, fill, parse_command,
 };
+use super::reminders::{
+    EVERY_DAY, MAX_LATE_MINUTES, PendingReminder, ReminderReader, ReminderRequest, Repeat, Schedule,
+};
 use crate::auth::UserId;
 use crate::clock::Clock;
+use crate::drafts::domain::MAX_TEXT_CHARS;
 use crate::drafts::domain::{DraftRepository, LimitScope, MatchDraft, MatchTextReader};
-use crate::drafts::service::{ReadDraftError, read_draft};
+use crate::drafts::service::{ReadDraftError, read_draft, use_read};
 use crate::matches;
 use crate::matches::domain::{
-    Field, Level, MatchRepository, NewMatch, NewMatchInput, local_instant, local_time,
+    Field, Level, MatchRepository, NewMatch, NewMatchInput, local_date, local_instant, local_time,
     price_per_player_vnd,
 };
 use crate::matches::service::{CreateMatchError, create_match};
@@ -34,6 +38,7 @@ pub struct BotContext<'a, B, D, M, P> {
     pub payouts: &'a P,
     pub clock: &'a dyn Clock,
     pub reader: Option<&'a dyn MatchTextReader>,
+    pub reminder_reader: Option<&'a dyn ReminderReader>,
     /// The web app's origin, for links in replies.
     pub frontend_origin: &'a str,
     /// The bot's display name, as tagged in groups ("Bot DaGhep").
@@ -80,16 +85,35 @@ where
     let reply = match command {
         Command::Help => fill(&COPY.help, &[("mention", &mention), ("bot", ctx.bot_name)]),
         Command::Link => link(ctx, message, now).await?,
-        Command::Cancel => match ctx
+        Command::Cancel => {
+            let draft = ctx
+                .bot
+                .take_draft(&message.sender_id, &message.chat_id, now)
+                .await
+                .map_err(fail)?;
+            let reminder = ctx
+                .bot
+                .take_pending_reminder(&message.sender_id, &message.chat_id, now)
+                .await
+                .map_err(fail)?;
+            if draft.is_some() || reminder.is_some() {
+                COPY.cancelled.clone()
+            } else {
+                COPY.no_draft.clone()
+            }
+        }
+        Command::Confirm => match ctx
             .bot
-            .take_draft(&message.sender_id, &message.chat_id, now)
+            .take_pending_reminder(&message.sender_id, &message.chat_id, now)
             .await
             .map_err(fail)?
         {
-            Some(_) => COPY.cancelled.clone(),
-            None => COPY.no_draft.clone(),
+            Some(pending) => save_reminder(ctx, message, pending, &mention, now).await?,
+            None => confirm(ctx, message).await?,
         },
-        Command::Confirm => confirm(ctx, message).await?,
+        Command::Remind(text) => remind(ctx, message, &text, &mention, now).await?,
+        Command::ListReminders => list_reminders(ctx, message, &mention).await?,
+        Command::StopReminder(number) => stop_reminder(ctx, message, number, &mention).await?,
         Command::Describe(text) => describe(ctx, message, &text, &mention, now).await?,
     };
     Ok(Some(reply))
@@ -166,6 +190,9 @@ where
         }
         Err(ReadDraftError::Storage(error)) => return Err(BotError(error)),
     };
+    if draft == MatchDraft::default() {
+        return Ok(fill(&COPY.not_a_match, &[("mention", mention)]));
+    }
     let venues = matches::service::venues(ctx.matches).await.map_err(fail)?;
     let input = match complete(&draft) {
         Ok(input) => input,
@@ -400,6 +427,280 @@ where
         Err(CreateMatchError::Invalid(field)) => Ok(invalid(field)),
         Err(error) => Err(fail(error)),
     }
+}
+
+async fn remind<B, D, M, P>(
+    ctx: &BotContext<'_, B, D, M, P>,
+    message: &Incoming,
+    text: &str,
+    mention: &str,
+    now: DateTime<Utc>,
+) -> Result<String, BotError>
+where
+    B: BotRepository,
+    D: DraftRepository,
+{
+    let Some(user) = ctx
+        .bot
+        .linked_user(&message.sender_id)
+        .await
+        .map_err(fail)?
+    else {
+        return Ok(fill(&COPY.not_linked, &[("bot", ctx.bot_name)]));
+    };
+    let text = text.trim();
+    if text.chars().count() > MAX_TEXT_CHARS {
+        return Ok(COPY.too_long.clone());
+    }
+    let create_url = format!("{}/create", ctx.frontend_origin);
+    let Some(reader) = ctx.reminder_reader else {
+        return Ok(fill(&COPY.unavailable, &[("url", &create_url)]));
+    };
+    match use_read(ctx.drafts, user, now).await {
+        Ok(()) => {}
+        Err(ReadDraftError::Limited(LimitScope::User)) => {
+            return Ok(fill(&COPY.limit_user, &[("url", &create_url)]));
+        }
+        Err(ReadDraftError::Limited(LimitScope::Service)) => {
+            return Ok(fill(&COPY.limit_service, &[("url", &create_url)]));
+        }
+        Err(error) => return Err(fail(error)),
+    }
+    let raw = match reader
+        .read(ReminderRequest {
+            text,
+            today: local_date(now),
+        })
+        .await
+    {
+        Ok(raw) => raw,
+        Err(error) => {
+            tracing::warn!(error = %error, "bot could not read a reminder");
+            return Ok(COPY.failed.clone());
+        }
+    };
+    let plan = match raw.checked() {
+        Ok(plan) => plan,
+        Err(gaps) => {
+            let fields = gaps
+                .iter()
+                .map(|gap| entry(&COPY.reminder_gaps, gap.key()))
+                .collect::<Vec<_>>()
+                .join(", ");
+            return Ok(fill(
+                &COPY.reminder_missing,
+                &[("fields", &fields), ("mention", mention)],
+            ));
+        }
+    };
+    let pending = PendingReminder {
+        zalo_user_id: message.sender_id.clone(),
+        chat_id: message.chat_id.clone(),
+        user,
+        plan,
+        expires_at: now + Duration::minutes(DRAFT_MINUTES),
+    };
+    ctx.bot
+        .save_pending_reminder(&pending)
+        .await
+        .map_err(fail)?;
+    let (when, time) = describe_schedule(&pending.plan.schedule);
+    Ok(format!(
+        "{}\n{}",
+        fill(
+            &COPY.reminder_summary,
+            &[
+                ("when", &when),
+                ("time", &time),
+                ("text", &pending.plan.text)
+            ]
+        ),
+        fill(&COPY.reminder_confirm_hint, &[("mention", mention)])
+    ))
+}
+
+async fn save_reminder<B, D, M, P>(
+    ctx: &BotContext<'_, B, D, M, P>,
+    message: &Incoming,
+    pending: PendingReminder,
+    mention: &str,
+    now: DateTime<Utc>,
+) -> Result<String, BotError>
+where
+    B: BotRepository,
+{
+    // Read under whoever this Zalo account was linked to then.
+    let linked = ctx
+        .bot
+        .linked_user(&message.sender_id)
+        .await
+        .map_err(fail)?;
+    if linked != Some(pending.user) {
+        return Ok(fill(&COPY.not_linked, &[("bot", ctx.bot_name)]));
+    }
+    let next = pending.plan.schedule.next_run(now);
+    let saved = ctx
+        .bot
+        .add_reminder(&pending.chat_id, pending.user, &pending.plan, next, now)
+        .await
+        .map_err(fail)?;
+    if !saved {
+        return Ok(fill(&COPY.reminder_limit, &[("mention", mention)]));
+    }
+    Ok(fill(
+        &COPY.reminder_saved,
+        &[("next", &moment(next)), ("mention", mention)],
+    ))
+}
+
+async fn list_reminders<B, D, M, P>(
+    ctx: &BotContext<'_, B, D, M, P>,
+    message: &Incoming,
+    mention: &str,
+) -> Result<String, BotError>
+where
+    B: BotRepository,
+{
+    let reminders = ctx.bot.reminders(&message.chat_id).await.map_err(fail)?;
+    if reminders.is_empty() {
+        return Ok(fill(&COPY.no_reminders, &[("mention", mention)]));
+    }
+    let items = reminders
+        .iter()
+        .enumerate()
+        .map(|(index, reminder)| {
+            let (when, time) = describe_schedule(&reminder.plan.schedule);
+            fill(
+                &COPY.reminder_list_item,
+                &[
+                    ("n", &(index + 1).to_string()),
+                    ("when", &when),
+                    ("time", &time),
+                    ("text", &reminder.plan.text),
+                ],
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    Ok(fill(
+        &COPY.reminder_list,
+        &[("items", &items), ("mention", mention)],
+    ))
+}
+
+async fn stop_reminder<B, D, M, P>(
+    ctx: &BotContext<'_, B, D, M, P>,
+    message: &Incoming,
+    number: Option<i64>,
+    mention: &str,
+) -> Result<String, BotError>
+where
+    B: BotRepository,
+{
+    let Some(number) = number else {
+        return list_reminders(ctx, message, mention).await;
+    };
+    // Only linked members may stop a group's reminders.
+    if ctx
+        .bot
+        .linked_user(&message.sender_id)
+        .await
+        .map_err(fail)?
+        .is_none()
+    {
+        return Ok(fill(&COPY.not_linked, &[("bot", ctx.bot_name)]));
+    }
+    let reminders = ctx.bot.reminders(&message.chat_id).await.map_err(fail)?;
+    let n = number.to_string();
+    let target = usize::try_from(number)
+        .ok()
+        .and_then(|number| number.checked_sub(1))
+        .and_then(|index| reminders.get(index));
+    let Some(target) = target else {
+        return Ok(fill(
+            &COPY.reminder_not_found,
+            &[("n", &n), ("mention", mention)],
+        ));
+    };
+    if ctx
+        .bot
+        .delete_reminder(&message.chat_id, target.id)
+        .await
+        .map_err(fail)?
+    {
+        Ok(fill(&COPY.reminder_stopped, &[("n", &n)]))
+    } else {
+        Ok(fill(
+            &COPY.reminder_not_found,
+            &[("n", &n), ("mention", mention)],
+        ))
+    }
+}
+
+/// Posts every reminder that is due; returns how many were delivered.
+pub async fn run_due_reminders<B: BotRepository>(
+    bot: &B,
+    clock: &dyn Clock,
+    chat: &dyn ChatReply,
+) -> Result<usize, BotError> {
+    let now = clock.now();
+    let due = bot.claim_due_reminders(now).await.map_err(fail)?;
+    let mut delivered = 0;
+    for reminder in due {
+        // After an outage, "ai đá tối nay?" at 3 am helps nobody: skip it; the
+        // claim already moved it to its next time.
+        if now - reminder.next_run_at > Duration::minutes(MAX_LATE_MINUTES) {
+            tracing::info!(
+                reminder = reminder.id,
+                "skipping a reminder that is too late"
+            );
+            continue;
+        }
+        let text = fill(&COPY.reminder_post, &[("text", &reminder.plan.text)]);
+        let sent = match chat.send(&reminder.chat_id, &text).await {
+            Ok(()) => true,
+            Err(error) => {
+                tracing::warn!(error = %error, reminder = reminder.id, "could not post a reminder");
+                false
+            }
+        };
+        delivered += usize::from(sent);
+        // One failed write must not stop the rest of the batch from posting.
+        if let Err(error) = bot.record_reminder_send(reminder.id, sent).await {
+            tracing::error!(error = %error, reminder = reminder.id, "could not record a reminder send");
+        }
+    }
+    Ok(delivered)
+}
+
+/// "mỗi Thứ 7, Chủ nhật" / "mỗi ngày" / "ngày 1 hằng tháng", and "08:00".
+fn describe_schedule(schedule: &Schedule) -> (String, String) {
+    let when = match schedule.repeat {
+        Repeat::Weekdays(EVERY_DAY) => COPY.every_day.clone(),
+        Repeat::Weekdays(days) => {
+            // Monday first, Sunday last, as people say them.
+            let names = [1, 2, 3, 4, 5, 6, 0]
+                .into_iter()
+                .filter(|day| days & (1 << day) != 0)
+                .filter_map(|day| COPY.weekdays.get(day))
+                .map(String::as_str)
+                .collect::<Vec<_>>()
+                .join(", ");
+            fill(&COPY.on_weekdays, &[("days", &names)])
+        }
+        Repeat::MonthDay(day) => fill(&COPY.month_day, &[("day", &day.to_string())]),
+    };
+    (when, schedule.time.format("%H:%M").to_string())
+}
+
+/// "Thứ 7 03/10 08:00" in Ho Chi Minh City time.
+fn moment(at: DateTime<Utc>) -> String {
+    let local = local_time(at);
+    let weekday = COPY
+        .weekdays
+        .get(local.weekday().num_days_from_sunday() as usize)
+        .map_or("", String::as_str);
+    format!("{weekday} {}", local.format("%d/%m %H:%M"))
 }
 
 /// Links the Zalo account behind a link code to `user`. Returns the Zalo id to

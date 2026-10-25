@@ -6,6 +6,7 @@ The pieces:
 - **Web app:** Vercel (`sin1`), which proxies `/api/*` to Cloud Run.
 - **Match drafts:** the API reads `ANTHROPIC_API_KEY` from Secret Manager (`daghep-anthropic-api-key`), attached once with `gcloud run services update daghep-api --region asia-southeast1 --update-secrets ANTHROPIC_API_KEY=daghep-anthropic-api-key:latest`. Later releases keep it. Without it, the paste box says the feature is resting. Optional `ANTHROPIC_MODEL` overrides the default small model.
 - **Zalo bot:** the API reads `ZALO_BOT_TOKEN` and `ZALO_BOT_WEBHOOK_SECRET` (16+ characters) from Secret Manager (`daghep-zalo-bot-token`, `daghep-zalo-bot-webhook-secret`), readable by the `daghep-api` service account (`gcloud secrets add-iam-policy-binding <secret> --member serviceAccount:daghep-api@$PROJECT_ID.iam.gserviceaccount.com --role roles/secretmanager.secretAccessor`) and attached once with `gcloud run services update daghep-api --region asia-southeast1 --update-secrets ZALO_BOT_TOKEN=daghep-zalo-bot-token:latest,ZALO_BOT_WEBHOOK_SECRET=daghep-zalo-bot-webhook-secret:latest`. Then point Zalo at the API once with `setWebhook` (`url` = the Cloud Run URL + `/api/bot/zalo/webhook`, `secret_token` = the webhook secret). Optional `ZALO_BOT_NAME` (default `Bot DaGhep`) must match the bot's display name, since group messages start with `@<name>`.
+- **Bot reminders:** the API reads `BOT_CRON_SECRET` (16+ characters) from Secret Manager (`daghep-bot-cron-secret`), attached with `--update-secrets BOT_CRON_SECRET=daghep-bot-cron-secret:latest` after granting the `daghep-api` service account `roles/secretmanager.secretAccessor` on it. A Cloud Scheduler job posts due reminders every 5 minutes: `gcloud scheduler jobs create http daghep-bot-reminders --location asia-southeast1 --schedule "*/5 * * * *" --http-method POST --uri "<Cloud Run URL>/api/bot/reminders/run" --headers "X-Cron-Secret=<the secret>" --attempt-deadline 300s`. Each run posts at most 20 reminders and skips one more than an hour late (after an outage). Without the secret the endpoint answers 404 and reminders are saved but never posted.
 - **Page-view analytics:** Vercel Web Analytics. It counts nothing until it is enabled once in Vercel → project `keobong` → Analytics → Enable; the numbers appear on that tab.
 
 Secrets live only in Google Secret Manager and Vercel, never in the repo, chat or shell history.
@@ -150,3 +151,16 @@ gcloud run services update-traffic daghep-api --region "$REGION" --to-revisions 
 ```
 Before rolling back, disable the automatic releases (GitHub → Actions → Deploy API → ⋯ → Disable workflow). Otherwise the next run on `main` sees the old revision serving and releases the newer code again. Enable the workflow again once the fix is merged.
 Traffic stays pinned until the next release's step 3 (`--to-latest`).
+
+## Account deletion request: Zalo bot data
+User rows are kept anonymised, so `ON DELETE CASCADE` does not remove bot data. When a user asks to delete their account, also run this in `psql`, after `\set uid <their users.id>`:
+```sql
+BEGIN;
+DELETE FROM bot_reminders WHERE user_id = :uid;
+DELETE FROM bot_pending_reminders WHERE user_id = :uid;
+DELETE FROM bot_drafts WHERE user_id = :uid;
+DELETE FROM zalo_link_codes WHERE zalo_user_id IN (SELECT zalo_user_id FROM zalo_links WHERE user_id = :uid);
+DELETE FROM zalo_links WHERE user_id = :uid;
+COMMIT;
+```
+The rest of the deletion procedure (profile, payout account, sign-in links, guest names) is not written down yet. TODO: verify with Long.
