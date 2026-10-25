@@ -39,8 +39,24 @@
   "list": {
     "today": "Hôm nay",
     "tomorrow": "Mai",
-    "weekday": ["Chủ nhật", "Thứ 2", "Thứ 3", "Thứ 4", "Thứ 5", "Thứ 6", "Thứ 7"],
-    "weekdayShort": ["CN", "T2", "T3", "T4", "T5", "T6", "T7"],
+    "weekday": [
+      "Chủ nhật",
+      "Thứ 2",
+      "Thứ 3",
+      "Thứ 4",
+      "Thứ 5",
+      "Thứ 6",
+      "Thứ 7"
+    ],
+    "weekdayShort": [
+      "CN",
+      "T2",
+      "T3",
+      "T4",
+      "T5",
+      "T6",
+      "T7"
+    ],
     "daysLabel": "Chọn ngày",
     "typesLabel": "Lọc theo kiểu trận",
     "allTypes": "Tất cả",
@@ -76,7 +92,7 @@
             "Dữ liệu kỹ thuật: nhật ký truy cập và địa chỉ IP, dùng để vận hành, sửa lỗi và chống lạm dụng.",
             "Thống kê lượt truy cập: chúng tôi dùng Vercel Web Analytics để đếm lượt xem trang. Mỗi lượt xem ghi lại thời điểm, địa chỉ trang được mở, trang dẫn bạn đến (ví dụ LinkedIn hay Facebook), quốc gia và thành phố ước tính, loại thiết bị, hệ điều hành và trình duyệt. Công cụ này không dùng cookie, không lưu địa chỉ IP và không gắn với tài khoản của bạn; mỗi lượt truy cập chỉ được nhận diện bằng một mã băm tạm thời, bị xoá sau 24 giờ. Chúng tôi chỉ xem số liệu tổng hợp để biết trang nào được dùng nhiều.",
             "Tin kèo bạn dán vào ô \"Dán tin kèo của bạn\": nội dung được gửi tới Anthropic (dịch vụ AI Claude) để đọc và điền form giúp bạn. Chúng tôi không lưu nội dung này; chỉ ghi lại tài khoản và thời điểm bạn dùng tính năng, để giới hạn số lần dùng mỗi ngày, và xoá sau 24 giờ. Anthropic không dùng nội dung này để huấn luyện AI và tự động xoá trong vòng 30 ngày (lâu hơn nếu cần để chống lạm dụng). Đừng dán số điện thoại hay thông tin riêng của người khác.",
-            "Nếu bạn dùng Bot DaGhep trên Zalo: chúng tôi lưu mã tài khoản Zalo bạn đã liên kết với tài khoản Đá Ghép, để biết ai là chủ kèo. Bot chỉ nhận tin nhắn riêng gửi cho bot và tin trong nhóm có gắn tag @Bot DaGhep. Khi bạn đã liên kết và gửi tin mô tả kèo, nội dung tin đó được gửi tới Anthropic để đọc như ô \"Dán tin kèo của bạn\". Kèo đang chờ xác nhận hết hạn sau 30 phút và được xoá sau đó; mã liên kết hết hạn sau 15 phút; mã tin nhắn và mã Zalo của người gửi (không có nội dung tin) chỉ được dùng trong 2 ngày để không trả lời trùng và để giới hạn số lần trả lời, sau đó được xoá. Nếu bạn đặt lịch nhắc với bot, chúng tôi lưu lịch, nội dung nhắc và mã cuộc trò chuyện Zalo cho tới khi lịch nhắc bị tắt (bằng lệnh \"tắt nhắc\", hoặc tự động khi bot không gửi được 3 lần liên tiếp). Nội dung yêu cầu đặt nhắc cũng được gửi tới Anthropic để đọc. Khi bạn yêu cầu xoá tài khoản, liên kết Zalo và các lịch nhắc bạn đã đặt cũng bị xoá."
+            "Nếu bạn dùng Bot DaGhep trên Zalo: chúng tôi lưu mã tài khoản Zalo bạn đã liên kết với tài khoản Đá Ghép, để biết ai là chủ kèo. Bot chỉ nhận tin nhắn riêng gửi cho bot và tin trong nhóm có gắn tag @Bot DaGhep. Khi bạn đã liên kết và gửi tin mô tả kèo, nội dung tin đó được gửi tới Anthropic để đọc như ô \"Dán tin kèo của bạn\". Kèo đang chờ xác nhận hết hạn sau 30 phút và được xoá sau đó; mã liên kết hết hạn sau 15 phút; mã tin nhắn và mã Zalo của người gửi (không có nội dung tin) chỉ được dùng trong 2 ngày để không trả lời trùng và để giới hạn số lần trả lời, sau đó được xoá. Nếu bạn đặt lịch nhắc với bot, chúng tôi lưu lịch, nội dung nhắc và mã cuộc trò chuyện Zalo cho tới khi lịch nhắc bị tắt (bằng lệnh \"tắt nhắc\", hoặc tự động khi bot không gửi được 3 lần liên tiếp). Nội dung yêu cầu đặt nhắc cũng được gửi tới Anthropic để đọc. Nếu bạn trả lời bảng điểm danh của bot, tên bạn và câu trả lời Có/Không cho từng ngày được lưu, và ai có link bảng đều xem được, giống danh sách người chơi của một kèo. Để bot nhắc đúng tên người chưa trả lời, chúng tôi ghi nhớ những người đã liên kết và tag bot trong mỗi nhóm, cùng những người đã trả lời bảng của nhóm đó. Khi bạn yêu cầu xoá tài khoản, liên kết Zalo, các lịch nhắc và bảng điểm danh bạn đã tạo, và tên bạn trong danh sách nhóm cũng bị xoá."
           ]
         },
         {
@@ -411,5 +427,33 @@
     "cancelYes": "Xác nhận huỷ",
     "cancelNo": "Không huỷ",
     "cancelledNote": "Kèo đã huỷ. Danh sách dưới đây giúp bạn hoàn tiền cho người đã chuyển khoản."
+  },
+  "poll": {
+    "pageTitle": "Bảng điểm danh",
+    "notFound": "Không tìm thấy bảng điểm danh này. Có thể link bị sai.",
+    "weekdays": [
+      "CN",
+      "T2",
+      "T3",
+      "T4",
+      "T5",
+      "T6",
+      "T7"
+    ],
+    "playerColumn": "Người chơi",
+    "countRow": "Số người có",
+    "yes": "Có",
+    "no": "Không",
+    "unanswered": "–",
+    "empty": "Chưa ai trả lời. Bạn là người đầu tiên nhé!",
+    "yourAnswer": "Bạn có chơi không?",
+    "save": "Lưu câu trả lời",
+    "saving": "Đang lưu…",
+    "saved": "✅ Đã lưu. Bot sẽ không nhắc tên bạn nữa.",
+    "pickAll": "Chọn Có hoặc Không cho mỗi ngày nhé.",
+    "closed": "Bảng đã đóng, không trả lời thêm được.",
+    "failed": "Chưa lưu được, bạn thử lại nhé.",
+    "signInTitle": "Đăng nhập để trả lời",
+    "signInBody": "Đăng nhập bằng Google để chọn Có/Không cho từng ngày. Tên bạn sẽ hiện trong bảng."
   }
 }

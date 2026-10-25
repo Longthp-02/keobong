@@ -48,4 +48,11 @@ describe("privacy policy", () => {
     expect(text).toContain("lịch nhắc");
     expect(text).toContain("cho tới khi lịch nhắc bị tắt");
   });
+
+  it("tells players that poll answers show their name to anyone with the link", () => {
+    const text = JSON.stringify(messages.legal.privacy);
+
+    expect(text).toContain("bảng điểm danh");
+    expect(text).toContain("ai có link bảng đều xem được");
+  });
 });

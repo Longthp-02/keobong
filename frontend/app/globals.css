@@ -1221,3 +1221,84 @@ button.slot__button:focus-visible {
   text-decoration: none;
   box-shadow: 0 6px 18px rgba(22, 32, 26, 0.22);
 }
+
+/* Attendance poll (/p/...): a table that scrolls sideways on phones. */
+.poll {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.poll__scroll {
+  overflow-x: auto;
+}
+
+.poll__table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  font-size: 15px;
+}
+
+.poll__table th,
+.poll__table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+  text-align: center;
+  white-space: nowrap;
+}
+
+.poll__table th[scope="row"],
+.poll__table thead th:first-child {
+  text-align: left;
+}
+
+.poll__table tfoot th,
+.poll__table tfoot td {
+  border-bottom: 0;
+  font-weight: 600;
+}
+
+.poll__yes {
+  background: var(--slot-bg);
+  color: var(--slot-ink);
+  font-weight: 600;
+}
+
+.poll__answer {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.poll__question {
+  margin: 0;
+  font-size: 18px;
+}
+
+.poll__day {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.poll__day legend {
+  float: left;
+  min-width: 84px;
+  padding: 0;
+  font-weight: 600;
+}
+
+.poll__choice {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+}
