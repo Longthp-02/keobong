@@ -928,7 +928,9 @@ fn weekend_poll() -> RawPoll {
     RawPoll {
         title: Some("Ai chơi bóng rổ cuối tuần này?".to_owned()),
         days: vec!["2099-10-03".to_owned(), "2099-10-04".to_owned()],
-        nudge_time: Some("20:00".to_owned()),
+        play_time: Some("18:00".to_owned()),
+        // Not stated: the bot nudges at 20:00.
+        nudge_time: None,
     }
 }
 
@@ -1006,10 +1008,13 @@ async fn a_poll_is_read_confirmed_and_posted_with_its_link(pool: PgPool) {
         "{summary}"
     );
     assert!(
-        summary.contains("Thứ 7 03/10 · Chủ nhật 04/10"),
+        summary.contains("Thứ 7 03/10 · Chủ nhật 04/10 · chơi lúc 18:00"),
         "{summary}"
     );
-    assert!(summary.contains("lúc 20:00"), "{summary}");
+    assert!(
+        summary.contains("nhắc người chưa trả lời lúc 20:00"),
+        "{summary}"
+    );
     assert!(bot.reminders.calls.lock().unwrap().is_empty());
 
     let posted = bot.in_group(HOST, "ok").await.unwrap();
@@ -1018,6 +1023,8 @@ async fn a_poll_is_read_confirmed_and_posted_with_its_link(pool: PgPool) {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(poll["title"], "Ai chơi bóng rổ cuối tuần này?");
     assert_eq!(poll["days"], json!(["2099-10-03", "2099-10-04"]));
+    assert_eq!(poll["playTime"], "18:00");
+    assert!(posted.contains("chơi lúc 18:00"), "{posted}");
     assert_eq!(poll["closed"], false);
     assert_eq!(poll["mine"], Value::Null);
     assert_eq!(poll["players"], json!([]));
@@ -1028,14 +1035,14 @@ async fn a_poll_request_asks_for_what_it_left_out(pool: PgPool) {
     let bot = bot(pool, tonight());
     bot.link(HOST, "host").await;
     bot.poll_answer(Some(RawPoll {
-        nudge_time: None,
+        play_time: None,
         ..weekend_poll()
     }));
     let reply = bot
         .in_group(HOST, "tạo bảng điểm danh T7, CN")
         .await
         .unwrap();
-    assert!(reply.contains("mấy giờ nhắc người chưa trả lời"), "{reply}");
+    assert!(reply.contains("chơi lúc mấy giờ"), "{reply}");
 }
 
 #[sqlx::test]
@@ -1128,6 +1135,10 @@ async fn the_daily_nudge_counts_and_names_who_has_not_answered(pool: PgPool) {
     assert_eq!(bot.run_nudges().await, 1);
     let (chat, nudge) = bot.last_sent();
     assert_eq!(chat, GROUP);
+    assert!(
+        nudge.contains("Ai chơi bóng rổ cuối tuần này? · chơi lúc 18:00"),
+        "{nudge}"
+    );
     assert!(nudge.contains("Thứ 7 03/10: 1 người có"), "{nudge}");
     assert!(nudge.contains("Chủ nhật 04/10: 1 người có"), "{nudge}");
     // The host tagged the bot in the group; Huy left a day out.

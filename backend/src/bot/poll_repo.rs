@@ -24,11 +24,12 @@ type PollRow = (
     String,
     Vec<NaiveDate>,
     NaiveTime,
+    Option<NaiveTime>,
     DateTime<Utc>,
 );
 
 fn poll_from_row(row: PollRow) -> Result<Poll, PollRepoError> {
-    let (id, share_id, chat_id, title, days, nudge_time, closes_at) = row;
+    let (id, share_id, chat_id, title, days, nudge_time, play_time, closes_at) = row;
     let share_id = ShareId::parse(&share_id)
         .ok_or_else(|| PollRepoError(format!("stored poll {id} has an invalid share id")))?;
     Ok(Poll {
@@ -38,13 +39,21 @@ fn poll_from_row(row: PollRow) -> Result<Poll, PollRepoError> {
         plan: PollPlan {
             title,
             days,
+            play_time,
             nudge_time,
         },
         closes_at,
     })
 }
 
-type PendingPollRow = (i64, String, Vec<NaiveDate>, NaiveTime, DateTime<Utc>);
+type PendingPollRow = (
+    i64,
+    String,
+    Vec<NaiveDate>,
+    Option<NaiveTime>,
+    NaiveTime,
+    DateTime<Utc>,
+);
 
 type DueRow = (
     i64,
@@ -53,11 +62,12 @@ type DueRow = (
     String,
     Vec<NaiveDate>,
     NaiveTime,
+    Option<NaiveTime>,
     DateTime<Utc>,
     DateTime<Utc>,
 );
 
-const POLL_COLUMNS: &str = "id, share_id, chat_id, title, days, nudge_time, closes_at";
+const POLL_COLUMNS: &str = "id, share_id, chat_id, title, days, nudge_time, play_time, closes_at";
 
 impl PollRepository for PgBotRepository {
     async fn save_pending_poll(&self, pending: &PendingPoll) -> Result<(), PollRepoError> {
@@ -76,11 +86,12 @@ impl PollRepository for PgBotRepository {
         }
         sqlx::query(
             "INSERT INTO bot_pending_polls (zalo_user_id, chat_id, user_id, title, days,
-                 nudge_time, expires_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $7)
+                 nudge_time, expires_at, play_time)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
              ON CONFLICT (zalo_user_id, chat_id) DO UPDATE SET
                  user_id = EXCLUDED.user_id, title = EXCLUDED.title, days = EXCLUDED.days,
-                 nudge_time = EXCLUDED.nudge_time, expires_at = EXCLUDED.expires_at",
+                 nudge_time = EXCLUDED.nudge_time, expires_at = EXCLUDED.expires_at,
+                 play_time = EXCLUDED.play_time",
         )
         .bind(&pending.zalo_user_id)
         .bind(&pending.chat_id)
@@ -89,6 +100,7 @@ impl PollRepository for PgBotRepository {
         .bind(&pending.plan.days)
         .bind(pending.plan.nudge_time)
         .bind(pending.expires_at)
+        .bind(pending.plan.play_time)
         .execute(&mut *tx)
         .await
         .map_err(poll_error)?;
@@ -103,26 +115,27 @@ impl PollRepository for PgBotRepository {
     ) -> Result<Option<PendingPoll>, PollRepoError> {
         let row: Option<PendingPollRow> = sqlx::query_as(
             "DELETE FROM bot_pending_polls WHERE zalo_user_id = $1 AND chat_id = $2
-                 RETURNING user_id, title, days, nudge_time, expires_at",
+                 RETURNING user_id, title, days, play_time, nudge_time, expires_at",
         )
         .bind(zalo_user_id)
         .bind(chat_id)
         .fetch_optional(self.pool())
         .await
         .map_err(poll_error)?;
-        Ok(row
-            .filter(|row| row.4 > now)
-            .map(|(user, title, days, nudge_time, expires_at)| PendingPoll {
+        Ok(row.filter(|row| row.5 > now).map(
+            |(user, title, days, play_time, nudge_time, expires_at)| PendingPoll {
                 zalo_user_id: zalo_user_id.to_owned(),
                 chat_id: chat_id.to_owned(),
                 user: UserId(user),
                 plan: PollPlan {
                     title,
                     days,
+                    play_time,
                     nudge_time,
                 },
                 expires_at,
-            }))
+            },
+        ))
     }
 
     async fn add_poll(
@@ -153,8 +166,8 @@ impl PollRepository for PgBotRepository {
         }
         let row: PollRow = sqlx::query_as(&format!(
             "INSERT INTO bot_polls (share_id, chat_id, user_id, title, days, nudge_time,
-                 next_nudge_at, closes_at, created_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                 next_nudge_at, closes_at, created_at, play_time)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
              RETURNING {POLL_COLUMNS}"
         ))
         .bind(share_id.as_str())
@@ -166,6 +179,7 @@ impl PollRepository for PgBotRepository {
         .bind(plan.next_nudge(now))
         .bind(plan.closes_at())
         .bind(now)
+        .bind(plan.play_time)
         .fetch_one(&mut *tx)
         .await
         .map_err(poll_error)?;
@@ -317,8 +331,10 @@ impl PollRepository for PgBotRepository {
         .await
         .map_err(poll_error)?;
         let mut due = Vec::with_capacity(rows.len());
-        for (id, share_id, chat_id, title, days, nudge_time, closes_at, due_at) in rows {
-            let poll = poll_from_row((id, share_id, chat_id, title, days, nudge_time, closes_at))?;
+        for (id, share_id, chat_id, title, days, nudge_time, play_time, closes_at, due_at) in rows {
+            let poll = poll_from_row((
+                id, share_id, chat_id, title, days, nudge_time, play_time, closes_at,
+            ))?;
             sqlx::query("UPDATE bot_polls SET next_nudge_at = $2 WHERE id = $1")
                 .bind(poll.id)
                 .bind(poll.plan.next_nudge(now))

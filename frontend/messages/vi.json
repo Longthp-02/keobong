@@ -431,6 +431,7 @@
   "poll": {
     "pageTitle": "Bảng điểm danh",
     "notFound": "Không tìm thấy bảng điểm danh này. Có thể link bị sai.",
+    "playTime": "⏰ Chơi lúc {time}",
     "weekdays": [
       "CN",
       "T2",

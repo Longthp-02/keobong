@@ -352,6 +352,8 @@ export type PollView = {
   title: string;
   /** YYYY-MM-DD, Ho Chi Minh City days. */
   days: string[];
+  /** HH:MM; `null` for polls made before the play time was asked. */
+  playTime: string | null;
   closesAt: string;
   closed: boolean;
   counts: { day: string; yes: number }[];

@@ -23,6 +23,11 @@ pub const MAX_TITLE_CHARS: usize = 120;
 /// answering one of its polls) within this many days; people who left stop
 /// being named.
 pub const MEMBER_DAYS: i64 = 60;
+/// When the daily nudge is posted unless the request says otherwise.
+pub const DEFAULT_NUDGE_TIME: NaiveTime = match NaiveTime::from_hms_opt(20, 0, 0) {
+    Some(time) => time,
+    None => panic!("20:00 is a valid time"),
+};
 /// Names listed in a nudge; the rest are counted ("và 4 người khác").
 pub const MAX_NAMES_IN_NUDGE: usize = 15;
 
@@ -32,7 +37,10 @@ pub struct RawPoll {
     pub title: Option<String>,
     /// YYYY-MM-DD.
     pub days: Vec<String>,
-    /// HH:MM, 24-hour: when the daily nudge is posted.
+    /// HH:MM, 24-hour: when the players play.
+    pub play_time: Option<String>,
+    /// HH:MM, 24-hour: when the daily nudge is posted; `DEFAULT_NUDGE_TIME`
+    /// when the request does not say.
     pub nudge_time: Option<String>,
 }
 
@@ -42,6 +50,8 @@ pub struct PollPlan {
     pub title: String,
     /// Sorted, without repeats.
     pub days: Vec<NaiveDate>,
+    /// Always set for new polls; `None` for polls made before it was asked.
+    pub play_time: Option<NaiveTime>,
     pub nudge_time: NaiveTime,
 }
 
@@ -49,6 +59,7 @@ pub struct PollPlan {
 pub enum PollGap {
     Title,
     Days,
+    PlayTime,
     NudgeTime,
 }
 
@@ -57,6 +68,7 @@ impl PollGap {
         match self {
             Self::Title => "title",
             Self::Days => "days",
+            Self::PlayTime => "playTime",
             Self::NudgeTime => "nudgeTime",
         }
     }
@@ -88,19 +100,25 @@ impl RawPoll {
                         *day >= today && *day <= today + Duration::days(MAX_POLL_DAYS_AHEAD)
                     })
             });
-        let nudge_time = self
-            .nudge_time
-            .as_deref()
-            .and_then(|time| NaiveTime::parse_from_str(time, "%H:%M").ok());
-        match (title, days, nudge_time) {
-            (Some(title), Some(days), Some(nudge_time)) => Ok(PollPlan {
+        let time = |value: &str| NaiveTime::parse_from_str(value, "%H:%M").ok();
+        let play_time = self.play_time.as_deref().and_then(time);
+        // The nudge defaults to the evening (Long, 2026-10-26); a stated time
+        // that cannot be read is asked again.
+        let nudge_time = match self.nudge_time.as_deref() {
+            None => Some(DEFAULT_NUDGE_TIME),
+            Some(value) => time(value),
+        };
+        match (title, days, play_time, nudge_time) {
+            (Some(title), Some(days), Some(play_time), Some(nudge_time)) => Ok(PollPlan {
                 title,
                 days,
+                play_time: Some(play_time),
                 nudge_time,
             }),
-            (title, days, nudge_time) => Err([
+            (title, days, play_time, nudge_time) => Err([
                 (title.is_none(), PollGap::Title),
                 (days.is_none(), PollGap::Days),
+                (play_time.is_none(), PollGap::PlayTime),
                 (nudge_time.is_none(), PollGap::NudgeTime),
             ]
             .into_iter()
@@ -325,7 +343,8 @@ mod tests {
         RawPoll {
             title: Some("Ai chơi bóng rổ cuối tuần này?".to_owned()),
             days: vec!["2099-10-04".to_owned(), "2099-10-03".to_owned()],
-            nudge_time: Some("20:00".to_owned()),
+            play_time: Some("18:00".to_owned()),
+            nudge_time: None,
         }
     }
 
@@ -333,17 +352,35 @@ mod tests {
     fn checks_a_complete_request_and_sorts_the_days() {
         let plan = raw().checked(today()).unwrap();
         assert_eq!(plan.days, vec![day("2099-10-03"), day("2099-10-04")]);
+        assert_eq!(plan.play_time, NaiveTime::from_hms_opt(18, 0, 0));
+        // No nudge time stated: 20:00.
         assert_eq!(plan.nudge_time, NaiveTime::from_hms_opt(20, 0, 0).unwrap());
+        let stated = RawPoll {
+            nudge_time: Some("09:30".to_owned()),
+            ..raw()
+        };
+        assert_eq!(
+            stated.checked(today()).unwrap().nudge_time,
+            NaiveTime::from_hms_opt(9, 30, 0).unwrap()
+        );
     }
 
     #[test]
     fn lists_what_is_missing_or_out_of_range() {
-        let no_time = RawPoll {
-            nudge_time: None,
+        let no_play_time = RawPoll {
+            play_time: None,
             ..raw()
         };
         assert_eq!(
-            no_time.checked(today()).unwrap_err(),
+            no_play_time.checked(today()).unwrap_err(),
+            vec![PollGap::PlayTime]
+        );
+        let unreadable_nudge = RawPoll {
+            nudge_time: Some("tối".to_owned()),
+            ..raw()
+        };
+        assert_eq!(
+            unreadable_nudge.checked(today()).unwrap_err(),
             vec![PollGap::NudgeTime]
         );
         for days in [
@@ -359,11 +396,17 @@ mod tests {
         let empty = RawPoll {
             title: Some("  ".to_owned()),
             days: vec![],
+            play_time: None,
             nudge_time: Some("8pm".to_owned()),
         };
         assert_eq!(
             empty.checked(today()).unwrap_err(),
-            vec![PollGap::Title, PollGap::Days, PollGap::NudgeTime]
+            vec![
+                PollGap::Title,
+                PollGap::Days,
+                PollGap::PlayTime,
+                PollGap::NudgeTime
+            ]
         );
     }
 
