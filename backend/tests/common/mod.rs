@@ -14,6 +14,8 @@ use daghep_api::Deps;
 use daghep_api::auth::domain::{
     IdentityProvider, LoginAttempt, Provider, ProviderError, ProviderFuture, ProviderIdentity,
 };
+use daghep_api::bot::ZaloSettings;
+use daghep_api::bot::domain::{ChatReply, SendFuture};
 use daghep_api::clock::Clock;
 use daghep_api::drafts::domain::{
     MatchTextReader, RawDraft, ReadRequest, ReaderError, ReaderFuture,
@@ -98,6 +100,7 @@ pub fn app_with(pool: PgPool, clock: TestClock, frontend_origin: &str) -> Router
         google: Some(Arc::new(FakeGoogle)),
         frontend_origin: frontend_origin.to_owned(),
         reader: None,
+        zalo: None,
     })
 }
 
@@ -138,6 +141,40 @@ pub fn app_with_reader(pool: PgPool, clock: TestClock, reader: FakeReader) -> Ro
         google: Some(Arc::new(FakeGoogle)),
         frontend_origin: FRONTEND.to_owned(),
         reader: Some(Arc::new(reader)),
+        zalo: None,
+    })
+}
+
+/// Fake Zalo: records every reply the bot sends as (chat id, text).
+#[derive(Clone, Default)]
+pub struct FakeChat {
+    pub sent: Arc<Mutex<Vec<(String, String)>>>,
+}
+
+impl ChatReply for FakeChat {
+    fn send<'a>(&'a self, chat_id: &'a str, text: &'a str) -> SendFuture<'a> {
+        self.sent
+            .lock()
+            .unwrap()
+            .push((chat_id.to_owned(), text.to_owned()));
+        Box::pin(async { Ok(()) })
+    }
+}
+
+pub const BOT_SECRET: &str = "test-webhook-secret-123";
+
+pub fn app_with_bot(pool: PgPool, clock: TestClock, reader: FakeReader, chat: FakeChat) -> Router {
+    daghep_api::app(Deps {
+        pool,
+        clock: Arc::new(clock),
+        google: Some(Arc::new(FakeGoogle)),
+        frontend_origin: FRONTEND.to_owned(),
+        reader: Some(Arc::new(reader)),
+        zalo: Some(Arc::new(ZaloSettings {
+            reply: Arc::new(chat),
+            webhook_secret: daghep_api::config::Secret::new(BOT_SECRET.to_owned()),
+            bot_name: "Bot DaGhep".to_owned(),
+        })),
     })
 }
 
@@ -148,6 +185,7 @@ pub fn app_without_google(pool: PgPool) -> Router {
         google: None,
         frontend_origin: FRONTEND.to_owned(),
         reader: None,
+        zalo: None,
     })
 }
 

@@ -34,4 +34,11 @@ describe("privacy policy", () => {
     expect(text).toContain("Anthropic");
     expect(text).toContain("Chúng tôi không lưu nội dung này");
   });
+
+  it("tells organisers what the Zalo bot stores and reads", () => {
+    const text = JSON.stringify(messages.legal.privacy);
+
+    expect(text).toContain("Bot DaGhep");
+    expect(text).toContain("mã tài khoản Zalo");
+  });
 });

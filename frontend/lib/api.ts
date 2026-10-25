@@ -324,3 +324,26 @@ export async function browserReadDraft(
   }
   return { ok: false, error: "failed" };
 }
+
+export type LinkZaloResult = "linked" | "invalid" | "signed_out" | "failed";
+
+/** Links the Zalo account behind a one-time code from Bot DaGhep to the signed-in user. */
+export async function browserLinkZalo(
+  code: string,
+  fetchImpl: typeof fetch = (...args) => fetch(...args),
+): Promise<LinkZaloResult> {
+  try {
+    const response = await fetchImpl("/api/bot/link", {
+      method: "POST",
+      headers: { "content-type": "application/json", accept: "application/json" },
+      body: JSON.stringify({ code }),
+      cache: "no-store",
+    });
+    if (response.ok) return "linked";
+    if (response.status === 401) return "signed_out";
+    if (response.status === 410 || response.status === 400) return "invalid";
+    return "failed";
+  } catch {
+    return "failed";
+  }
+}

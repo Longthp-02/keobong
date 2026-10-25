@@ -171,6 +171,11 @@ pub fn local_date(now: DateTime<Utc>) -> NaiveDate {
     now.with_timezone(&LOCAL_OFFSET).date_naive()
 }
 
+/// `at` on the Ho Chi Minh City clock.
+pub fn local_time(at: DateTime<Utc>) -> DateTime<FixedOffset> {
+    at.with_timezone(&LOCAL_OFFSET)
+}
+
 /// The instant of a local date and time in Ho Chi Minh City.
 pub fn local_instant(day: NaiveDate, time: NaiveTime) -> DateTime<Utc> {
     day.and_time(time)
