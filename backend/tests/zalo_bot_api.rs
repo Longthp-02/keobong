@@ -1135,6 +1135,10 @@ async fn the_daily_nudge_counts_and_names_who_has_not_answered(pool: PgPool) {
     assert_eq!(bot.run_nudges().await, 1);
     let (chat, nudge) = bot.last_sent();
     assert_eq!(chat, GROUP);
+    assert!(
+        nudge.contains("Ai chơi bóng rổ cuối tuần này? · chơi lúc 18:00"),
+        "{nudge}"
+    );
     assert!(nudge.contains("Thứ 7 03/10: 1 người có"), "{nudge}");
     assert!(nudge.contains("Chủ nhật 04/10: 1 người có"), "{nudge}");
     // The host tagged the bot in the group; Huy left a day out.

@@ -919,10 +919,17 @@ async fn nudge_text<B: PollRepository>(
         };
         fill(&COPY.poll_missing_names, &[("names", &names)])
     };
+    let play = poll.plan.play_time.map_or_else(String::new, |time| {
+        fill(
+            &COPY.poll_play_suffix,
+            &[("time", &time.format("%H:%M").to_string())],
+        )
+    });
     Ok(fill(
         &COPY.poll_nudge,
         &[
             ("title", &poll.plan.title),
+            ("play", &play),
             ("counts", &counts),
             ("missing", &missing),
             ("url", &poll_url(frontend_origin, poll)),

@@ -340,6 +340,7 @@ pub struct BotCopy {
     pub poll_nudge: String,
     pub poll_count: String,
     pub poll_days_with_time: String,
+    pub poll_play_suffix: String,
     pub poll_missing_names: String,
     pub poll_more_names: String,
     pub player_name: String,
