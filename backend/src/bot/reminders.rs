@@ -9,7 +9,7 @@ use chrono::{DateTime, Datelike, Duration, NaiveDate, NaiveTime, Utc};
 use crate::auth::UserId;
 use crate::matches::domain::{local_date, local_instant};
 
-/// Reminders one chat may have at a time (proposed 2026-10-25, see the PR).
+/// Reminders one chat may have at a time (approved by Long 2026-10-25).
 pub const MAX_REMINDERS_PER_CHAT: i64 = 3;
 /// Longest reminder text, in characters.
 pub const MAX_REMINDER_CHARS: usize = 200;
