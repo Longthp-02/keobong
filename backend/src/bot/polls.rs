@@ -273,7 +273,9 @@ pub fn first_week(
     // this first poll covers next week too.
     if post_at(weekdays, nudge_time, next) <= now {
         days.extend(week_days(weekdays, next));
-        days.truncate(MAX_POLL_DAYS);
+        // A poll holds at most 7 days: keep next week's whole, drop the earliest.
+        let extra = days.len().saturating_sub(MAX_POLL_DAYS);
+        days.drain(..extra);
         next += Duration::days(7);
     }
     (days, post_at(weekdays, nudge_time, next))
@@ -603,6 +605,11 @@ mod tests {
         );
         // Sunday 11 at 21:00 for Mon + Wed: next week's post has passed, so the
         // first poll covers next week.
+        // Every day, made Sunday 11 at 21:00: next week's 7 days, nothing lost.
+        let every_day = first_week(0b111_1111, eight_pm(), at("2099-10-11T14:00:00Z"));
+        assert_eq!(every_day.0.first(), Some(&day("2099-10-12")));
+        assert_eq!(every_day.0.last(), Some(&day("2099-10-18")));
+        assert_eq!(every_day.1, at("2099-10-18T13:00:00Z"));
         assert_eq!(
             first_week(MON_WED, eight_pm(), at("2099-10-11T14:00:00Z")),
             (
