@@ -15,6 +15,7 @@ as it does today for everyone who prefers the link.
 - A group message without the tag does not arrive (two tries, no update within the wait). So the bot only ever sees messages that tag it.
 - A private message arrives with `chat_type` `PRIVATE`; `chat.id` equals the sender's `from.id`.
 - Docs: webhook POST with header `X-Bot-Api-Secret-Token`; `sendMessage` 1–2,000 characters; `sendPhoto` takes an image URL; webhook and getUpdates are exclusive; group support is Beta.
+- Live webhook (2026-10-25): Zalo posts the update itself (`{"event_name", "message"}`), not the `{"ok", "result"}` envelope that getUpdates returns. Our webhook accepts both. `setWebhook` checks the endpoint right away (`"outcome":"webhook.ok"`).
 - The same person has the same `from.id` in a group and in a private chat (Long's test, 2026-10-12: `815bb2…` in both), so a link made privately works in groups.
 - TODO: verify whether the bot can message a user privately before that user has written to it, and Zalo's webhook timeout and retry policy.
 - TODO: verify free-plan limits.

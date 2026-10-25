@@ -73,8 +73,13 @@ fn same_secret(given: &[u8], expected: &str) -> bool {
 }
 
 /// Reads a text message out of a webhook body; anything else is ignored.
+/// Zalo's webhook sends the update itself; `getUpdates` wraps it in
+/// `{"ok": true, "result": ...}`. Both are accepted.
 fn incoming(body: &Value) -> Option<Incoming> {
-    let result = &body["result"];
+    let result = match body.get("result") {
+        Some(result) if body["ok"] == true => result,
+        _ => body,
+    };
     if result["event_name"] != "message.text.received" {
         return None;
     }
@@ -125,6 +130,10 @@ async fn webhook(State(state): State<BotState>, headers: HeaderMap, body: Bytes)
         .ok()
         .and_then(|body| incoming(&body))
     else {
+        tracing::info!(
+            event = body_event(&body),
+            "ignoring a Zalo webhook body the bot does not answer"
+        );
         return Json(json!({ "ok": true })).into_response();
     };
     let ctx = BotContext {
@@ -201,6 +210,19 @@ async fn link(
     }
 }
 
+/// The event name of a webhook body, for logs; never the message itself.
+fn body_event(body: &[u8]) -> String {
+    let Ok(body) = serde_json::from_slice::<Value>(body) else {
+        return "invalid_json".to_owned();
+    };
+    let update = match body.get("result") {
+        Some(result) if body["ok"] == true => result,
+        _ => &body,
+    };
+    let event = update["event_name"].as_str().unwrap_or("missing");
+    event.chars().take(64).collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -238,6 +260,12 @@ mod tests {
         let mut from_bot = body.clone();
         from_bot["result"]["message"]["from"]["is_bot"] = json!(true);
         assert_eq!(incoming(&from_bot), None);
+        let bare = body["result"].clone();
+        assert_eq!(incoming(&bare), incoming(&body));
+        assert!(incoming(&bare).is_some());
+        let not_ok = json!({ "ok": false, "result": bare });
+        assert_eq!(incoming(&not_ok), None);
+        assert_eq!(incoming(&json!(["not", "an", "object"])), None);
         let mut odd_chat = body;
         odd_chat["result"]["message"]["chat"]["chat_type"] = json!("CHANNEL");
         assert_eq!(incoming(&odd_chat), None);
