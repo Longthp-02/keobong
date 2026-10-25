@@ -130,9 +130,9 @@ async fn webhook(State(state): State<BotState>, headers: HeaderMap, body: Bytes)
         .ok()
         .and_then(|body| incoming(&body))
     else {
-        tracing::warn!(
+        tracing::info!(
             event = body_event(&body),
-            "ignoring a Zalo webhook body that is not a text message"
+            "ignoring a Zalo webhook body the bot does not answer"
         );
         return Json(json!({ "ok": true })).into_response();
     };
@@ -215,11 +215,11 @@ fn body_event(body: &[u8]) -> String {
     let Ok(body) = serde_json::from_slice::<Value>(body) else {
         return "invalid_json".to_owned();
     };
-    let event = body
-        .get("event_name")
-        .or_else(|| body["result"].get("event_name"))
-        .and_then(Value::as_str)
-        .unwrap_or("missing");
+    let update = match body.get("result") {
+        Some(result) if body["ok"] == true => result,
+        _ => &body,
+    };
+    let event = update["event_name"].as_str().unwrap_or("missing");
     event.chars().take(64).collect()
 }
 
@@ -263,6 +263,9 @@ mod tests {
         let bare = body["result"].clone();
         assert_eq!(incoming(&bare), incoming(&body));
         assert!(incoming(&bare).is_some());
+        let not_ok = json!({ "ok": false, "result": bare });
+        assert_eq!(incoming(&not_ok), None);
+        assert_eq!(incoming(&json!(["not", "an", "object"])), None);
         let mut odd_chat = body;
         odd_chat["result"]["message"]["chat"]["chat_type"] = json!("CHANNEL");
         assert_eq!(incoming(&odd_chat), None);
