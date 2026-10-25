@@ -1193,3 +1193,147 @@ async fn only_linked_senders_make_polls_and_cancel_drops_a_pending_one(pool: PgP
     let ok = bot.in_group(HOST, "ok").await.unwrap();
     assert!(ok.contains("Không có kèo nào đang chờ"), "{ok}");
 }
+
+#[sqlx::test]
+async fn a_poll_replaces_a_pending_draft_and_reminder_and_the_other_way_round(pool: PgPool) {
+    let bot = bot(pool.clone(), tonight());
+    let session = bot.link(HOST, "host").await;
+    add_payout(&bot.app, &session).await;
+    bot.poll_answer(Some(weekend_poll()));
+    bot.reminder_answer(Some(weekend_reminder()));
+
+    // A draft, then a poll: "ok" saves the poll, and nothing is left after it.
+    bot.in_group(HOST, "tối nay 19h SSA sân 7 thiếu 3, 60k")
+        .await
+        .unwrap();
+    bot.in_group(HOST, "tạo bảng điểm danh T7, CN")
+        .await
+        .unwrap();
+    let posted = bot.in_group(HOST, "ok").await.unwrap();
+    assert!(posted.contains("/p/"), "{posted}");
+    assert_eq!(matches_in_db(&pool).await, 0);
+    let again = bot.in_group(HOST, "ok").await.unwrap();
+    assert!(again.contains("Không có kèo nào đang chờ"), "{again}");
+
+    // A poll, then a reminder: "ok" saves only the reminder.
+    bot.in_group(HOST, "tạo bảng điểm danh T7, CN")
+        .await
+        .unwrap();
+    bot.in_group(HOST, "nhắc t7 cn 8h").await.unwrap();
+    let saved = bot.in_group(HOST, "ok").await.unwrap();
+    assert!(saved.contains("Đã lưu lịch nhắc"), "{saved}");
+    let again = bot.in_group(HOST, "ok").await.unwrap();
+    assert!(again.contains("Không có kèo nào đang chờ"), "{again}");
+
+    // A poll, then a match draft: "ok" creates only the match.
+    bot.in_group(HOST, "tạo bảng điểm danh T7, CN")
+        .await
+        .unwrap();
+    bot.in_group(HOST, "tối nay 19h SSA sân 7 thiếu 3, 60k")
+        .await
+        .unwrap();
+    let created = bot.in_group(HOST, "ok").await.unwrap();
+    assert!(created.contains("Đã tạo kèo"), "{created}");
+    let again = bot.in_group(HOST, "ok").await.unwrap();
+    assert!(again.contains("Không có kèo nào đang chờ"), "{again}");
+}
+
+#[sqlx::test]
+async fn relinking_drops_a_pending_poll(pool: PgPool) {
+    let bot = bot(pool.clone(), tonight());
+    bot.link(HOST, "host").await;
+    bot.poll_answer(Some(weekend_poll()));
+    bot.in_group(HOST, "tạo bảng điểm danh T7, CN")
+        .await
+        .unwrap();
+    bot.link(HOST, "someone-else").await;
+    let left: i64 = sqlx::query_scalar("SELECT count(*) FROM bot_pending_polls")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(left, 0);
+}
+
+#[sqlx::test]
+async fn the_scheduler_clears_an_unconfirmed_poll_after_thirty_minutes(pool: PgPool) {
+    let bot = bot(pool.clone(), tonight());
+    bot.link(HOST, "host").await;
+    bot.poll_answer(Some(weekend_poll()));
+    bot.in_group(HOST, "tạo bảng điểm danh T7, CN")
+        .await
+        .unwrap();
+    bot.clock.advance(Duration::minutes(31));
+    bot.run_reminders().await;
+    let left: i64 = sqlx::query_scalar("SELECT count(*) FROM bot_pending_polls")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(left, 0);
+}
+
+#[sqlx::test]
+async fn poll_responses_are_never_cached_and_late_or_closed_nudges_are_skipped(pool: PgPool) {
+    let bot = bot(pool, tonight());
+    bot.link(HOST, "host").await;
+    let share_id = bot.add_weekend_poll().await;
+
+    let response = call(
+        &bot.app,
+        Request::get(format!("/api/polls/{share_id}"))
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(
+        response.headers().get("cache-control").unwrap(),
+        "private, no-store"
+    );
+
+    // Thursday 20:00 is due, but the scheduler only runs at 22:00: skipped.
+    bot.clock.advance(Duration::hours(15));
+    assert_eq!(bot.run_nudges().await, 0);
+    // Friday 20:00 posts as usual.
+    bot.clock.advance(Duration::hours(22));
+    assert_eq!(bot.run_nudges().await, 1);
+}
+
+#[sqlx::test]
+async fn a_nudge_due_on_the_last_evening_is_not_posted_after_the_poll_closes(pool: PgPool) {
+    let bot = bot(pool, tonight());
+    bot.link(HOST, "host").await;
+    bot.poll_answer(Some(RawPoll {
+        days: vec!["2099-10-01".to_owned()],
+        nudge_time: Some("23:50".to_owned()),
+        ..weekend_poll()
+    }));
+    bot.in_group(HOST, "tạo bảng điểm danh tối nay")
+        .await
+        .unwrap();
+    bot.in_group(HOST, "ok").await.unwrap();
+    // Thursday 23:50 is due; the run comes at Friday 00:05, after the close.
+    bot.clock
+        .advance(Duration::hours(17) + Duration::minutes(5));
+    assert_eq!(bot.run_nudges().await, 0);
+}
+
+#[sqlx::test]
+async fn people_not_seen_for_sixty_days_are_no_longer_named(pool: PgPool) {
+    let bot = bot(pool, tonight());
+    bot.link(HOST, "host").await;
+    bot.link(OTHER, "other").await;
+    bot.in_group(OTHER, "hi").await;
+    bot.clock.advance(Duration::days(61));
+    bot.reminder_answer(None);
+    bot.poll_answer(Some(RawPoll {
+        days: vec!["2099-12-02".to_owned()],
+        ..weekend_poll()
+    }));
+    bot.in_group(HOST, "tạo bảng điểm danh").await.unwrap();
+    bot.in_group(HOST, "ok").await.unwrap();
+    // 2099-12-01 07:00 local; the nudge is at 20:00.
+    bot.clock.advance(Duration::hours(13));
+    assert_eq!(bot.run_nudges().await, 1);
+    let (_, nudge) = bot.last_sent();
+    assert!(nudge.contains("Player host"), "{nudge}");
+    assert!(!nudge.contains("Player other"), "{nudge}");
+}

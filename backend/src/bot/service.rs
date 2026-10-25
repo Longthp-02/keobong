@@ -13,7 +13,8 @@ use super::domain::{
     UpdateOutcome, entry, fill, parse_command,
 };
 use super::polls::{
-    MAX_NAMES_IN_NUDGE, PendingPoll, Poll, PollPlan, PollReader, PollRepository, PollRequest, tally,
+    MAX_NAMES_IN_NUDGE, MEMBER_DAYS, PendingPoll, Poll, PollPlan, PollReader, PollRepository,
+    PollRequest, tally,
 };
 use super::reminders::{
     EVERY_DAY, MAX_LATE_MINUTES, PendingReminder, ReminderReader, ReminderRequest, Repeat, Schedule,
@@ -89,9 +90,11 @@ where
             .await
             .map_err(fail)?
     {
-        PollRepository::note_member(ctx.bot, &message.chat_id, user, now)
-            .await
-            .map_err(fail)?;
+        // Bookkeeping for nudges only: a failure must not block the command.
+        if let Err(error) = PollRepository::note_member(ctx.bot, &message.chat_id, user, now).await
+        {
+            tracing::warn!(error = %error, "could not note a chat member");
+        }
     }
     // In groups every command must tag the bot, so the examples do too.
     let mention = match message.chat_kind {
@@ -843,7 +846,7 @@ pub async fn run_due_polls<B: PollRepository>(
             tracing::info!(poll = poll.id, "skipping a poll nudge that is too late");
             continue;
         }
-        let text = match nudge_text(bot, &poll, frontend_origin).await {
+        let text = match nudge_text(bot, &poll, frontend_origin, now).await {
             Ok(text) => text,
             Err(error) => {
                 tracing::error!(error = %error, poll = poll.id, "could not build a poll nudge");
@@ -864,9 +867,11 @@ async fn nudge_text<B: PollRepository>(
     bot: &B,
     poll: &Poll,
     frontend_origin: &str,
+    now: DateTime<Utc>,
 ) -> Result<String, BotError> {
     let answers = bot.answers(poll.id).await.map_err(fail)?;
-    let members = bot.members(&poll.chat_id).await.map_err(fail)?;
+    let since = now - Duration::days(MEMBER_DAYS);
+    let members = bot.members(&poll.chat_id, since).await.map_err(fail)?;
     let tally = tally(&poll.plan, &answers, &members);
     let counts = tally
         .yes_per_day

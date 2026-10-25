@@ -270,18 +270,24 @@ impl PollRepository for PgBotRepository {
         Ok(())
     }
 
-    async fn members(&self, chat_id: &str) -> Result<Vec<Member>, PollRepoError> {
+    async fn members(
+        &self,
+        chat_id: &str,
+        since: DateTime<Utc>,
+    ) -> Result<Vec<Member>, PollRepoError> {
         let rows: Vec<(i64, Option<String>)> = sqlx::query_as(
             "SELECT u.id, u.display_name FROM users u
              WHERE u.id IN (
-                 SELECT user_id FROM bot_chat_members WHERE chat_id = $1
+                 SELECT user_id FROM bot_chat_members WHERE chat_id = $1 AND last_seen_at >= $2
                  UNION
                  SELECT a.user_id FROM bot_poll_answers a
-                 JOIN bot_polls p ON p.id = a.poll_id WHERE p.chat_id = $1
+                 JOIN bot_polls p ON p.id = a.poll_id
+                 WHERE p.chat_id = $1 AND a.answered_at >= $2
              )
              ORDER BY u.id",
         )
         .bind(chat_id)
+        .bind(since)
         .fetch_all(self.pool())
         .await
         .map_err(poll_error)?;
@@ -302,7 +308,7 @@ impl PollRepository for PgBotRepository {
         // SKIP LOCKED lets an overlapping run take other polls, never these.
         let rows: Vec<DueRow> = sqlx::query_as(&format!(
             "SELECT {POLL_COLUMNS}, next_nudge_at FROM bot_polls
-                 WHERE next_nudge_at <= $1
+                 WHERE next_nudge_at <= $1 AND closes_at > $1
                  ORDER BY next_nudge_at LIMIT $2 FOR UPDATE SKIP LOCKED"
         ))
         .bind(now)

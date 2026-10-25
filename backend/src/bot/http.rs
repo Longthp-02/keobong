@@ -309,7 +309,17 @@ async fn get_poll(
         Ok(None) => return private(StatusCode::NOT_FOUND, json!({ "error": "not_found" })),
         Err(response) => return response,
     };
-    let viewer = viewer.ok().map(|AuthenticatedUser(user)| user.id);
+    // A failed session lookup must not show a signed-in player as signed out.
+    let viewer = match viewer {
+        Ok(AuthenticatedUser(user)) => Some(user.id),
+        Err(AuthRejection::Unauthenticated) => None,
+        Err(AuthRejection::Internal) => {
+            return private(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                json!({ "error": "internal_error" }),
+            );
+        }
+    };
     match poll_view(&state, &poll, viewer).await {
         Ok(view) => private(StatusCode::OK, view),
         Err(error) => {

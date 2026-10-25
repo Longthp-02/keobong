@@ -63,7 +63,8 @@ export function PollBoard({ shareId, initial, answer = browserAnswerPoll }: Prop
   return (
     <section className="poll">
       <h1 className="create-form__title">{poll.title}</h1>
-      <div className="poll__scroll">
+      {/* Focusable so keyboard users can scroll a wide table on phones. */}
+      <div className="poll__scroll" role="region" aria-label={poll.title} tabIndex={0}>
         <table className="poll__table">
           <thead>
             <tr>

@@ -14,7 +14,12 @@ export const dynamic = "force-dynamic";
 // Link previews read these tags; they show only the poll's title.
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { shareId } = await params;
-  const poll = isApiConfigured() ? await getPoll(shareId).catch(() => null) : null;
+  const poll = isApiConfigured()
+    ? await getPoll(shareId).catch((error: unknown) => {
+        console.error("poll unavailable for metadata", error);
+        return null;
+      })
+    : null;
   const title = poll ? poll.title : messages.poll.pageTitle;
   return { title, robots: { index: false }, openGraph: { title, siteName: messages.app.name } };
 }

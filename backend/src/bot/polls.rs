@@ -19,6 +19,10 @@ pub const MAX_POLL_DAYS: usize = 7;
 pub const MAX_POLL_DAYS_AHEAD: i64 = 14;
 /// Longest poll title, in characters.
 pub const MAX_TITLE_CHARS: usize = 120;
+/// A member counts for nudges while seen in the chat (tagging the bot, or
+/// answering one of its polls) within this many days; people who left stop
+/// being named.
+pub const MEMBER_DAYS: i64 = 60;
 /// Names listed in a nudge; the rest are counted ("và 4 người khác").
 pub const MAX_NAMES_IN_NUDGE: usize = 15;
 
@@ -285,10 +289,11 @@ pub trait PollRepository: Send + Sync {
         now: DateTime<Utc>,
     ) -> impl Future<Output = Result<(), PollRepoError>> + Send;
 
-    /// Everyone known in the chat, oldest first.
+    /// Everyone seen in the chat since `since`, oldest first.
     fn members(
         &self,
         chat_id: &str,
+        since: DateTime<Utc>,
     ) -> impl Future<Output = Result<Vec<Member>, PollRepoError>> + Send;
 
     /// Takes the polls whose nudge is due and moves each to its next nudge (or
