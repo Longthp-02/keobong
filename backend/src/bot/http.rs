@@ -286,16 +286,13 @@ async fn poll_view(
     }))
 }
 
-async fn load_poll(state: &BotState, share_id: &str) -> Result<Option<Poll>, Response> {
+/// The poll behind a share id; `Err` is a storage error, already logged.
+async fn load_poll(state: &BotState, share_id: &str) -> Result<Option<Poll>, ()> {
     let Some(share_id) = ShareId::parse(share_id) else {
         return Ok(None);
     };
     state.bot.poll(&share_id).await.map_err(|error| {
         tracing::error!(error = %error, "failed to load a poll");
-        private(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            json!({ "error": "internal_error" }),
-        )
     })
 }
 
@@ -307,7 +304,12 @@ async fn get_poll(
     let poll = match load_poll(&state, &share_id).await {
         Ok(Some(poll)) => poll,
         Ok(None) => return private(StatusCode::NOT_FOUND, json!({ "error": "not_found" })),
-        Err(response) => return response,
+        Err(()) => {
+            return private(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                json!({ "error": "internal_error" }),
+            );
+        }
     };
     // A failed session lookup must not show a signed-in player as signed out.
     let viewer = match viewer {
