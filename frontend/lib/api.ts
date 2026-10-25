@@ -347,3 +347,60 @@ export async function browserLinkZalo(
     return "failed";
   }
 }
+
+export type PollView = {
+  title: string;
+  /** YYYY-MM-DD, Ho Chi Minh City days. */
+  days: string[];
+  closesAt: string;
+  closed: boolean;
+  counts: { day: string; yes: number }[];
+  /** Everyone who answered, in the order they first answered. */
+  players: { name: string | null; answers: Record<string, boolean> }[];
+  /** The viewer's own answers; `null` when signed out. */
+  mine: Record<string, boolean> | null;
+};
+
+/** The poll with the viewer's answers; `null` when it does not exist. Never cached. */
+export async function getPoll(shareId: string, options: Options = {}): Promise<PollView | null> {
+  const baseUrl = options.baseUrl ?? apiBaseUrl();
+  const fetchImpl = options.fetchImpl ?? fetch;
+
+  const response = await fetchImpl(`${baseUrl}/api/polls/${encodeURIComponent(shareId)}`, {
+    headers: { accept: "application/json", cookie: options.cookie ?? "" },
+    cache: "no-store",
+  });
+
+  if (response.status === 404) {
+    return null;
+  }
+  if (!response.ok) {
+    throw new Error(`Poll API failed with status ${response.status}`);
+  }
+  return (await response.json()) as PollView;
+}
+
+export type PollAnswer = { day: string; attending: boolean };
+export type AnswerPollResult = { ok: true; poll: PollView } | { ok: false; error: "signed_out" | "closed" | "failed" };
+
+/** Saves the signed-in player's answers and returns the updated poll. */
+export async function browserAnswerPoll(
+  shareId: string,
+  answers: PollAnswer[],
+  fetchImpl: typeof fetch = (...args) => fetch(...args),
+): Promise<AnswerPollResult> {
+  try {
+    const response = await fetchImpl(`/api/polls/${encodeURIComponent(shareId)}/answers`, {
+      method: "PUT",
+      headers: { "content-type": "application/json", accept: "application/json" },
+      body: JSON.stringify({ answers }),
+      cache: "no-store",
+    });
+    if (response.ok) return { ok: true, poll: (await response.json()) as PollView };
+    if (response.status === 401) return { ok: false, error: "signed_out" };
+    if (response.status === 409) return { ok: false, error: "closed" };
+    return { ok: false, error: "failed" };
+  } catch {
+    return { ok: false, error: "failed" };
+  }
+}

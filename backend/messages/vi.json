@@ -72,6 +72,20 @@
   "everyDay": "mỗi ngày",
   "onWeekdays": "mỗi {days}",
   "monthDay": "ngày {day} hằng tháng",
+  "pollSummary": "📋 {title}\n{days}\nMỗi ngày lúc {time}, mình nhắc người chưa trả lời cho tới hết {lastDay}.",
+  "pollMissing": "Mình chưa rõ: {fields}.\nGửi lại giúp mình nhé, ví dụ:\n{mention}tạo bảng điểm danh T7, CN tuần này, nhắc lúc 20h",
+  "pollGaps": {
+    "title": "bảng hỏi về việc gì",
+    "days": "những ngày cần điểm danh (tối đa 7 ngày, trong 14 ngày tới)",
+    "nudgeTime": "mấy giờ nhắc người chưa trả lời"
+  },
+  "pollPosted": "📋 {title}\n{days}\nMọi người bấm vào đây, đăng nhập rồi chọn Có/Không cho từng ngày nhé:\n{url}",
+  "pollLimit": "Ở đây đã có 3 bảng điểm danh đang mở. Đợi bảng cũ đóng rồi tạo thêm nhé.",
+  "pollNudge": "📋 {title}\n{counts}\n{missing}👉 {url}",
+  "pollCount": "{day}: {n} người có",
+  "pollMissingNames": "Chưa trả lời: {names}\n",
+  "pollMoreNames": "{names} và {n} người khác",
+  "playerName": "Người chơi",
   "commands": {
     "help": [
       "",
@@ -144,6 +158,16 @@
       "huy nhac",
       "dừng nhắc",
       "dung nhac"
+    ],
+    "poll": [
+      "tạo bảng điểm danh",
+      "tao bang diem danh",
+      "tạo bảng",
+      "tao bang",
+      "bảng điểm danh",
+      "bang diem danh",
+      "tạo điểm danh",
+      "tao diem danh"
     ]
   }
 }

@@ -157,6 +157,10 @@ User rows are kept anonymised, so `ON DELETE CASCADE` does not remove bot data. 
 ```sql
 BEGIN;
 DELETE FROM bot_reminders WHERE user_id = :uid;
+DELETE FROM bot_polls WHERE user_id = :uid;
+DELETE FROM bot_pending_polls WHERE user_id = :uid;
+DELETE FROM bot_chat_members WHERE user_id = :uid;
+DELETE FROM bot_poll_answers WHERE user_id = :uid;
 DELETE FROM bot_pending_reminders WHERE user_id = :uid;
 DELETE FROM bot_drafts WHERE user_id = :uid;
 DELETE FROM zalo_link_codes WHERE zalo_user_id IN (SELECT zalo_user_id FROM zalo_links WHERE user_id = :uid);

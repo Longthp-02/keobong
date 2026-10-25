@@ -10,7 +10,8 @@ use daghep_api::Deps;
 use daghep_api::auth::domain::IdentityProvider;
 use daghep_api::auth::google::GoogleProvider;
 use daghep_api::bot::ZaloSettings;
-use daghep_api::bot::anthropic::AnthropicReminderReader;
+use daghep_api::bot::anthropic::AnthropicBotReader;
+use daghep_api::bot::polls::PollReader;
 use daghep_api::bot::reminders::ReminderReader;
 use daghep_api::bot::zalo::ZaloReply;
 use daghep_api::clock::{Clock, SystemClock};
@@ -89,19 +90,18 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         }
         None => None,
     };
-    let (reader, reminder_reader) = match config.anthropic {
+    let (reader, reminder_reader, poll_reader) = match config.anthropic {
         Some(anthropic) => {
             let reader: Arc<dyn MatchTextReader> = Arc::new(AnthropicReader::new(
                 anthropic.api_key.clone(),
                 anthropic.model.clone(),
             )?);
-            let reminders: Arc<dyn ReminderReader> = Arc::new(AnthropicReminderReader::new(
-                anthropic.api_key,
-                anthropic.model,
-            )?);
-            (Some(reader), Some(reminders))
+            let bot_reader = Arc::new(AnthropicBotReader::new(anthropic.api_key, anthropic.model)?);
+            let reminders: Arc<dyn ReminderReader> = bot_reader.clone();
+            let polls: Arc<dyn PollReader> = bot_reader;
+            (Some(reader), Some(reminders), Some(polls))
         }
-        None => (None, None),
+        None => (None, None, None),
     };
     // A broken copy file stops the server here, not on the first message.
     daghep_api::bot::domain::check_copy()?;
@@ -111,6 +111,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
             webhook_secret: bot.webhook_secret,
             bot_name: bot.bot_name,
             reminder_reader,
+            poll_reader,
             cron_secret: bot.cron_secret,
         })),
         None => None,
