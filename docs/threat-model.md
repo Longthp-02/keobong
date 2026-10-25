@@ -47,4 +47,4 @@ Auth failures, 403s, slot conflicts, match creation rate per user, no-show marki
 Other users' emails and provider ids, internal database ids, secrets, bank details or VietQR payloads to anyone not currently holding a slot in that match.
 
 ## TODO: verify
-Rate limits, scam-host reporting. Account deletion must also delete `zalo_links`, `bot_drafts`, `bot_pending_reminders`, `bot_reminders` and the user's `zalo_link_codes` (today only `ON DELETE CASCADE` covers them, and user rows are kept anonymised). Zalo's webhook timeout and retry policy.
+Rate limits, scam-host reporting. Account deletion must also delete the user's bot data; the SQL is in `docs/deploy.md` ("Account deletion request: Zalo bot data"), and the rest of the procedure is not written yet. Zalo's webhook timeout and retry policy.

@@ -95,19 +95,40 @@ pub fn parse_command(text: &str, kind: ChatKind, bot_name: &str) -> Option<Comma
     } else if is(&commands.cancel) {
         Command::Cancel
     } else if let Some(after) = stop {
-        // "tắt nhắc 2", "tắt nhắc số 2", "tắt nhắc #2".
-        let digits: String = after.chars().filter(char::is_ascii_digit).collect();
+        // "tắt nhắc 2", "tắt nhắc số 2", "tắt nhắc #2": the first number only.
+        let digits: String = after
+            .chars()
+            .skip_while(|c| !c.is_ascii_digit())
+            .take_while(char::is_ascii_digit)
+            .collect();
         Command::StopReminder(digits.parse().ok())
     } else if is(&commands.list_reminders) {
         Command::ListReminders
-    } else if word
-        .split(|c: char| !c.is_alphanumeric())
-        .any(|token| commands.remind.iter().any(|remind| remind == token))
-    {
+    } else if asks_for_reminder(&word) {
         Command::Remind(rest.to_owned())
     } else {
         Command::Describe(rest.to_owned())
     })
+}
+
+/// A reminder request starts with "nhắc", possibly after "đặt lịch" or "đặt"
+/// ("đặt lịch nhắc …"). A match post that mentions "nhắc" later ("…, nhắc ae
+/// mang áo trắng") stays a match.
+fn asks_for_reminder(word: &str) -> bool {
+    let tokens: Vec<&str> = word
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|token| !token.is_empty())
+        .collect();
+    let commands = &COPY.commands;
+    let lead = commands
+        .remind_lead
+        .iter()
+        .map(|lead| lead.split_whitespace().collect::<Vec<_>>())
+        .find(|lead| tokens.starts_with(lead))
+        .map_or(0, |lead| lead.len());
+    tokens
+        .get(lead)
+        .is_some_and(|first| commands.remind.iter().any(|remind| remind == first))
 }
 
 /// Strips the tag when the text starts with it as a whole word, ignoring case.
@@ -309,8 +330,10 @@ pub struct Commands {
     pub link: Vec<String>,
     pub confirm: Vec<String>,
     pub cancel: Vec<String>,
-    /// A message containing one of these words asks for a reminder.
+    /// A message whose first word is one of these asks for a reminder.
     pub remind: Vec<String>,
+    /// Words that may come before it ("đặt lịch", "đặt"), longest first.
+    pub remind_lead: Vec<String>,
     pub list_reminders: Vec<String>,
     /// Prefixes; a number may follow ("tắt nhắc 2").
     pub stop_reminder: Vec<String>,
@@ -464,10 +487,15 @@ mod tests {
             parse_command("xem nhắc", ChatKind::Private, BOT),
             Some(Command::ListReminders)
         );
-        // "nhắc" inside another word is not a reminder.
+        // A match post that mentions "nhắc" later is still a match.
+        let post = "tối nay 19h SSA sân 7 thiếu 3, nhắc ae mang áo trắng";
         assert_eq!(
-            parse_command("tối nay 19h SSA", ChatKind::Private, BOT),
-            Some(Command::Describe("tối nay 19h SSA".to_owned()))
+            parse_command(post, ChatKind::Private, BOT),
+            Some(Command::Describe(post.to_owned()))
+        );
+        assert_eq!(
+            parse_command("tắt nhắc 1, 2", ChatKind::Private, BOT),
+            Some(Command::StopReminder(Some(1)))
         );
         // "huỷ" alone still cancels.
         assert_eq!(

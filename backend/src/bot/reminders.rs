@@ -18,8 +18,12 @@ pub const MONTH_DAYS: std::ops::RangeInclusive<i16> = 1..=28;
 /// Failed sends in a row after which a reminder is dropped (the bot was
 /// probably removed from the group).
 pub const MAX_SEND_FAILURES: i16 = 3;
-/// Reminders posted per scheduler run; later ones wait for the next run.
-pub const REMINDERS_PER_RUN: i64 = 50;
+/// Reminders posted per scheduler run; later ones wait for the next run. Small
+/// enough that a run (10 s Zalo timeout each) ends within the scheduler's deadline.
+pub const REMINDERS_PER_RUN: i64 = 20;
+/// A reminder more than this late (the scheduler or the API was down) is
+/// skipped rather than posted at an odd hour.
+pub const MAX_LATE_MINUTES: i64 = 60;
 
 /// When a reminder repeats, in Ho Chi Minh City time.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

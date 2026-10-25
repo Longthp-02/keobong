@@ -471,6 +471,15 @@ impl BotRepository for PgBotRepository {
     }
 
     async fn claim_due_reminders(&self, now: DateTime<Utc>) -> Result<Vec<Reminder>, RepoError> {
+        // Every run also clears pending items nobody confirmed, so their text
+        // does not stay longer than the 30 minutes they wait.
+        for table in ["bot_pending_reminders", "bot_drafts"] {
+            sqlx::query(&format!("DELETE FROM {table} WHERE expires_at <= $1"))
+                .bind(now)
+                .execute(&self.pool)
+                .await
+                .map_err(repo_error)?;
+        }
         let mut tx = self.pool.begin().await.map_err(repo_error)?;
         // SKIP LOCKED lets an overlapping run take other reminders, never these.
         let rows: Vec<ReminderRow> = sqlx::query_as(

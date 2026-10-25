@@ -13,7 +13,7 @@ use super::domain::{
     UpdateOutcome, entry, fill, parse_command,
 };
 use super::reminders::{
-    EVERY_DAY, PendingReminder, ReminderReader, ReminderRequest, Repeat, Schedule,
+    EVERY_DAY, MAX_LATE_MINUTES, PendingReminder, ReminderReader, ReminderRequest, Repeat, Schedule,
 };
 use crate::auth::UserId;
 use crate::clock::Clock;
@@ -643,9 +643,19 @@ pub async fn run_due_reminders<B: BotRepository>(
     clock: &dyn Clock,
     chat: &dyn ChatReply,
 ) -> Result<usize, BotError> {
-    let due = bot.claim_due_reminders(clock.now()).await.map_err(fail)?;
+    let now = clock.now();
+    let due = bot.claim_due_reminders(now).await.map_err(fail)?;
     let mut delivered = 0;
     for reminder in due {
+        // After an outage, "ai đá tối nay?" at 3 am helps nobody: skip it; the
+        // claim already moved it to its next time.
+        if now - reminder.next_run_at > Duration::minutes(MAX_LATE_MINUTES) {
+            tracing::info!(
+                reminder = reminder.id,
+                "skipping a reminder that is too late"
+            );
+            continue;
+        }
         let text = fill(&COPY.reminder_post, &[("text", &reminder.plan.text)]);
         let sent = match chat.send(&reminder.chat_id, &text).await {
             Ok(()) => true,
@@ -655,9 +665,10 @@ pub async fn run_due_reminders<B: BotRepository>(
             }
         };
         delivered += usize::from(sent);
-        bot.record_reminder_send(reminder.id, sent)
-            .await
-            .map_err(fail)?;
+        // One failed write must not stop the rest of the batch from posting.
+        if let Err(error) = bot.record_reminder_send(reminder.id, sent).await {
+            tracing::error!(error = %error, reminder = reminder.id, "could not record a reminder send");
+        }
     }
     Ok(delivered)
 }
