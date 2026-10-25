@@ -86,8 +86,8 @@
   "pollCount": "{day}: {n} người có",
   "pollDaysWithTime": "{days} · chơi lúc {time}",
   "pollPlaySuffix": " · chơi lúc {time}",
-  "pollWeeklySummary": "🔁 Hằng tuần: mỗi Thứ 2 lúc {time} mình đăng bảng mới cho tuần đó, tới khi có người gõ \"{mention}tắt bảng\".",
-  "pollWeeklySaved": "🔁 Mỗi Thứ 2 lúc {time} mình sẽ đăng bảng mới. Gõ \"{mention}tắt bảng\" để dừng.",
+  "pollWeeklySummary": "🔁 Hằng tuần: mình đăng bảng mới cho mỗi tuần lúc {time} tối Thứ 2 (tối Chủ nhật nếu có chơi Thứ 2), tới khi có người gõ \"{mention}tắt bảng\".",
+  "pollWeeklySaved": "🔁 Mỗi tuần mình sẽ tự đăng bảng mới lúc {time}. Gõ \"{mention}tắt bảng\" để dừng.",
   "seriesLimit": "Ở đây đã có 3 bảng hằng tuần, nên bảng này chỉ cho tuần này. Gõ \"{mention}tắt bảng\" để tắt bớt.",
   "seriesList": "Bảng hằng tuần ở đây:\n{items}\nGõ \"{mention}tắt bảng 1\" để dừng bảng số 1.",
   "seriesListItem": "{n}. {when}: \"{title}\"",
@@ -187,10 +187,15 @@
       "dung bang",
       "xoá bảng",
       "xóa bảng",
-      "xoa bang",
-      "huỷ bảng",
-      "hủy bảng",
-      "huy bang"
+      "xoa bang"
+    ],
+    "weekly": [
+      "hằng tuần",
+      "hàng tuần",
+      "mỗi tuần",
+      "tuần nào cũng",
+      "hang tuan",
+      "moi tuan"
     ]
   }
 }

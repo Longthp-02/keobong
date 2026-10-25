@@ -3,8 +3,9 @@
 use chrono::{DateTime, NaiveDate, NaiveTime, Utc};
 
 use super::polls::{
-    AnswerOutcome, MAX_OPEN_POLLS_PER_CHAT, MAX_SERIES_PER_CHAT, Member, PendingPoll, Poll,
-    PollAnswer, PollPlan, PollRepoError, PollRepository, PollSeries,
+    AnswerOutcome, MAX_OPEN_POLLS_PER_CHAT, MAX_SERIES_FAILURES, MAX_SERIES_PER_CHAT, Member,
+    PendingPoll, Poll, PollAnswer, PollPlan, PollRepoError, PollRepository, PollSeries, post_at,
+    week_posted_at,
 };
 use super::repo::PgBotRepository;
 use crate::auth::UserId;
@@ -459,10 +460,12 @@ impl PollRepository for PgBotRepository {
         let mut due = Vec::with_capacity(rows.len());
         for row in rows {
             let series = series_from_row(row)?;
-            // A week on from the due time, skipping weeks missed in an outage.
-            let mut next = series.next_post_at + chrono::Duration::days(7);
+            // The next week's post after now, skipping weeks missed in an outage.
+            let mut week = week_posted_at(series.next_post_at) + chrono::Duration::days(7);
+            let mut next = post_at(series.weekdays, series.nudge_time, week);
             while next <= now {
-                next += chrono::Duration::days(7);
+                week += chrono::Duration::days(7);
+                next = post_at(series.weekdays, series.nudge_time, week);
             }
             sqlx::query("UPDATE bot_poll_series SET next_post_at = $2 WHERE id = $1")
                 .bind(series.id)
@@ -474,5 +477,29 @@ impl PollRepository for PgBotRepository {
         }
         tx.commit().await.map_err(poll_error)?;
         Ok(due)
+    }
+
+    async fn record_series_post(&self, id: i64, delivered: bool) -> Result<(), PollRepoError> {
+        if delivered {
+            sqlx::query("UPDATE bot_poll_series SET failures = 0 WHERE id = $1 AND failures > 0")
+                .bind(id)
+                .execute(self.pool())
+                .await
+                .map_err(poll_error)?;
+            return Ok(());
+        }
+        // Postgres applies only one change per row per statement: two statements.
+        sqlx::query("UPDATE bot_poll_series SET failures = failures + 1 WHERE id = $1")
+            .bind(id)
+            .execute(self.pool())
+            .await
+            .map_err(poll_error)?;
+        sqlx::query("DELETE FROM bot_poll_series WHERE id = $1 AND failures >= $2")
+            .bind(id)
+            .bind(MAX_SERIES_FAILURES)
+            .execute(self.pool())
+            .await
+            .map_err(poll_error)?;
+        Ok(())
     }
 }

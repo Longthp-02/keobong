@@ -1373,7 +1373,7 @@ impl Bot {
             .await
             .unwrap();
         assert!(
-            summary.contains("🔁 Hằng tuần: mỗi Thứ 2 lúc 20:00"),
+            summary.contains("🔁 Hằng tuần") && summary.contains("lúc 20:00 tối Thứ 2"),
             "{summary}"
         );
         self.in_group(HOST, "ok").await.unwrap()
@@ -1387,7 +1387,7 @@ async fn a_weekly_poll_posts_a_new_poll_every_monday_evening(pool: PgPool) {
     let posted = bot.add_weekly_poll().await;
     assert!(posted.contains("Thứ 7 03/10 · Chủ nhật 04/10"), "{posted}");
     assert!(
-        posted.contains("Mỗi Thứ 2 lúc 20:00 mình sẽ đăng bảng mới"),
+        posted.contains("Mỗi tuần mình sẽ tự đăng bảng mới lúc 20:00"),
         "{posted}"
     );
     let first = poll_share_id(&posted);
@@ -1472,4 +1472,136 @@ async fn help_lists_every_command(pool: PgPool) {
     ] {
         assert!(help.contains(command), "{command} in {help}");
     }
+}
+
+async fn insert_series(pool: &PgPool, chat: &str, count: i64) {
+    for _ in 0..count {
+        sqlx::query(
+            "INSERT INTO bot_poll_series (chat_id, user_id, title, weekdays, nudge_time,
+                 next_post_at, created_at)
+             VALUES ($1, (SELECT min(id) FROM users), 'Khác', 1, '20:00', '2100-01-01', now())",
+        )
+        .bind(chat)
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+}
+
+#[sqlx::test]
+async fn a_weekly_post_missed_by_an_outage_is_skipped_once_then_resumes(pool: PgPool) {
+    let bot = bot(pool, tonight());
+    bot.link(HOST, "host").await;
+    bot.add_weekly_poll().await;
+    // Due Monday 05 at 20:00; the scheduler is down until Tuesday 10:00 (14 h late).
+    bot.clock.advance(Duration::days(5) + Duration::hours(3));
+    assert_eq!(bot.run_weekly().await, 0);
+    assert_eq!(bot.run_weekly().await, 0);
+    // Three more weeks of outage: nothing late is posted.
+    bot.clock.advance(Duration::days(21));
+    assert_eq!(bot.run_weekly().await, 0);
+    // The next Monday at 20:00 it posts that week's poll, once.
+    bot.clock.advance(Duration::days(6) + Duration::hours(10));
+    assert_eq!(bot.run_weekly().await, 1);
+    assert!(bot.last_sent().1.contains("Thứ 7 07/11 · Chủ nhật 08/11"));
+    assert_eq!(bot.run_weekly().await, 0);
+}
+
+#[sqlx::test]
+async fn a_chat_keeps_at_most_three_weekly_polls(pool: PgPool) {
+    let bot = bot(pool.clone(), tonight());
+    bot.link(HOST, "host").await;
+    insert_series(&pool, GROUP, 3).await;
+    let posted = bot.add_weekly_poll().await;
+    assert!(posted.contains("đã có 3 bảng hằng tuần"), "{posted}");
+    assert!(posted.contains("/p/"), "{posted}");
+}
+
+#[sqlx::test]
+async fn a_weekly_post_is_skipped_when_the_chat_has_three_open_polls(pool: PgPool) {
+    let bot = bot(pool, tonight());
+    bot.link(HOST, "host").await;
+    bot.add_weekly_poll().await;
+    // Three polls for next Saturday, still open on Monday.
+    bot.poll_answer(Some(RawPoll {
+        days: vec!["2099-10-10".to_owned()],
+        ..weekend_poll()
+    }));
+    for _ in 0..2 {
+        bot.in_group(HOST, "tạo bảng điểm danh T7 tuần sau")
+            .await
+            .unwrap();
+        bot.in_group(HOST, "ok").await.unwrap();
+    }
+    // Monday 05: this week's weekly poll closed, so 2 are open: it posts.
+    bot.clock.advance(Duration::days(4) + Duration::hours(13));
+    assert_eq!(bot.run_weekly().await, 1);
+    // Now 3 are open (2 for Saturday 10 + the new weekly one). Make the next
+    // Monday's slot full too: polls for Saturday 17.
+    bot.poll_answer(Some(RawPoll {
+        days: vec!["2099-10-17".to_owned()],
+        ..weekend_poll()
+    }));
+    // Monday 12 at 08:00: last week's polls are closed; three for Saturday 17
+    // are opened.
+    bot.clock.advance(Duration::days(6) + Duration::hours(12));
+    for _ in 0..3 {
+        bot.in_group(HOST, "tạo bảng điểm danh T7").await.unwrap();
+        let posted = bot.in_group(HOST, "ok").await.unwrap();
+        assert!(posted.contains("/p/"), "{posted}");
+    }
+    // Monday 12 at 20:00: three open polls, so the weekly post waits.
+    bot.clock.advance(Duration::hours(12));
+    assert_eq!(bot.run_weekly().await, 0);
+}
+
+#[sqlx::test]
+async fn a_weekly_poll_that_cannot_be_posted_three_times_is_dropped(pool: PgPool) {
+    let bot = bot(pool, tonight());
+    bot.link(HOST, "host").await;
+    bot.add_weekly_poll().await;
+    *bot.chat.failing.lock().unwrap() = true;
+    bot.clock.advance(Duration::days(4) + Duration::hours(13));
+    for _ in 0..3 {
+        assert_eq!(bot.run_weekly().await, 0);
+        bot.clock.advance(Duration::days(7));
+    }
+    *bot.chat.failing.lock().unwrap() = false;
+    let list = bot.in_group(HOST, "tắt bảng").await.unwrap();
+    assert!(list.contains("chưa có bảng hằng tuần"), "{list}");
+}
+
+#[sqlx::test]
+async fn a_poll_repeats_only_when_the_request_says_so(pool: PgPool) {
+    let bot = bot(pool, tonight());
+    bot.link(HOST, "host").await;
+    // The reader says weekly, but the request never asked for it.
+    bot.poll_answer(Some(RawPoll {
+        weekly: true,
+        ..weekend_poll()
+    }));
+    let summary = bot
+        .in_group(HOST, "tạo bảng điểm danh T7, CN, chơi lúc 18h")
+        .await
+        .unwrap();
+    assert!(!summary.contains("🔁"), "{summary}");
+    let posted = bot.in_group(HOST, "ok").await.unwrap();
+    assert!(!posted.contains("🔁"), "{posted}");
+    let list = bot.in_group(HOST, "tắt bảng").await.unwrap();
+    assert!(list.contains("chưa có bảng hằng tuần"), "{list}");
+}
+
+#[sqlx::test]
+async fn huy_cancels_a_pending_weekly_poll(pool: PgPool) {
+    let bot = bot(pool, tonight());
+    bot.link(HOST, "host").await;
+    bot.poll_answer(Some(RawPoll {
+        weekly: true,
+        ..weekend_poll()
+    }));
+    bot.in_group(HOST, "tạo bảng điểm danh T7, CN hằng tuần, chơi lúc 18h")
+        .await
+        .unwrap();
+    let cancelled = bot.in_group(HOST, "huỷ").await.unwrap();
+    assert!(cancelled.contains("Đã huỷ"), "{cancelled}");
 }

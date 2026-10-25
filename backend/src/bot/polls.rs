@@ -199,6 +199,9 @@ pub struct PollSeries {
 pub const MAX_SERIES_PER_CHAT: i64 = 3;
 /// A weekly post more than this late (an outage) is skipped until next week.
 pub const MAX_SERIES_LATE_HOURS: i64 = 12;
+/// Failed weekly posts in a row after which a series is dropped (the bot was
+/// probably removed from the group).
+pub const MAX_SERIES_FAILURES: i16 = 3;
 
 /// The weekdays of a poll's days, as series bits.
 pub fn weekday_bits(days: &[NaiveDate]) -> u8 {
@@ -207,26 +210,85 @@ pub fn weekday_bits(days: &[NaiveDate]) -> u8 {
     })
 }
 
-/// The Monday at `time` (Ho Chi Minh City) at or after `from`.
-pub fn monday_at_or_after(from: DateTime<Utc>, time: NaiveTime) -> DateTime<Utc> {
-    let today = local_date(from);
-    (0..=7)
-        .map(|offset| today + Duration::days(offset))
-        .filter(|day| day.weekday() == chrono::Weekday::Mon)
-        .map(|day| local_instant(day, time))
-        .find(|at| *at >= from)
-        .unwrap_or_else(|| from + Duration::days(7))
+const MONDAY_BIT: u8 = 1 << 1;
+
+fn has_day(weekdays: u8, day: NaiveDate) -> bool {
+    weekdays & (1 << day.weekday().num_days_from_sunday()) != 0
+}
+
+/// The Monday of the Monday–Sunday week holding `day`.
+fn monday_of(day: NaiveDate) -> NaiveDate {
+    day - Duration::days(i64::from(day.weekday().num_days_from_monday()))
+}
+
+/// The days of the week starting `monday` that the series plays on.
+fn week_days(weekdays: u8, monday: NaiveDate) -> Vec<NaiveDate> {
+    (0..7)
+        .map(|offset| monday + Duration::days(offset))
+        .filter(|day| has_day(weekdays, *day))
+        .collect()
+}
+
+/// When the poll for the week starting `monday` is posted: that Monday at the
+/// nudge time, or the Sunday before when the series plays on Mondays, so a
+/// Monday game is never posted after it is played.
+pub fn post_at(weekdays: u8, nudge_time: NaiveTime, monday: NaiveDate) -> DateTime<Utc> {
+    let day = if weekdays & MONDAY_BIT != 0 {
+        monday - Duration::days(1)
+    } else {
+        monday
+    };
+    local_instant(day, nudge_time)
+}
+
+/// The week a post at `posted_at` is for (see `post_at`).
+pub fn week_posted_at(posted_at: DateTime<Utc>) -> NaiveDate {
+    let day = local_date(posted_at);
+    match day.weekday() {
+        chrono::Weekday::Sun => day + Duration::days(1),
+        _ => monday_of(day),
+    }
+}
+
+/// The first poll of a new weekly series made at `now`: the series' days still
+/// ahead this week (or all of next week's when none are left), and when the
+/// next week's poll is posted. Days run without gaps from one poll to the next.
+pub fn first_week(
+    weekdays: u8,
+    nudge_time: NaiveTime,
+    now: DateTime<Utc>,
+) -> (Vec<NaiveDate>, DateTime<Utc>) {
+    let today = local_date(now);
+    let mut monday = monday_of(today);
+    let mut days: Vec<NaiveDate> = week_days(weekdays, monday)
+        .into_iter()
+        .filter(|day| *day >= today)
+        .collect();
+    if days.is_empty() {
+        monday += Duration::days(7);
+        days = week_days(weekdays, monday);
+    }
+    let mut next = monday + Duration::days(7);
+    // Too late for next week's post (a Sunday-evening post that has passed):
+    // this first poll covers next week too.
+    if post_at(weekdays, nudge_time, next) <= now {
+        days.extend(week_days(weekdays, next));
+        days.truncate(MAX_POLL_DAYS);
+        next += Duration::days(7);
+    }
+    (days, post_at(weekdays, nudge_time, next))
 }
 
 impl PollSeries {
-    /// The poll for the week starting on the local day of `posted_at` (a Monday).
-    pub fn plan_for_week(&self, posted_at: DateTime<Utc>) -> PollPlan {
-        let monday = local_date(posted_at);
+    /// The poll for the week the post at `posted_at` is for, without days that
+    /// have already passed by `now` (a late post).
+    pub fn plan_for_week(&self, posted_at: DateTime<Utc>, now: DateTime<Utc>) -> PollPlan {
+        let today = local_date(now);
         PollPlan {
             title: self.title.clone(),
-            days: (0..7)
-                .map(|offset| monday + Duration::days(offset))
-                .filter(|day| self.weekdays & (1 << day.weekday().num_days_from_sunday()) != 0)
+            days: week_days(self.weekdays, week_posted_at(posted_at))
+                .into_iter()
+                .filter(|day| *day >= today)
                 .collect(),
             play_time: self.play_time,
             nudge_time: self.nudge_time,
@@ -392,12 +454,21 @@ pub trait PollRepository: Send + Sync {
         id: i64,
     ) -> impl Future<Output = Result<bool, PollRepoError>> + Send;
 
-    /// Takes the series whose weekly post is due and moves each a week on
-    /// before returning them, so a week's poll is posted at most once.
+    /// Takes the series whose weekly post is due and moves each to its next
+    /// post after `now` before returning them, so a week's poll is posted at
+    /// most once.
     fn claim_due_series(
         &self,
         now: DateTime<Utc>,
     ) -> impl Future<Output = Result<Vec<PollSeries>, PollRepoError>> + Send;
+
+    /// Records a weekly post's result; a series that failed
+    /// `MAX_SERIES_FAILURES` times in a row is deleted.
+    fn record_series_post(
+        &self,
+        id: i64,
+        delivered: bool,
+    ) -> impl Future<Output = Result<(), PollRepoError>> + Send;
 
     /// Takes the polls whose nudge is due and moves each to its next nudge (or
     /// none) before returning them, so a nudge is posted at most once.
@@ -497,34 +568,79 @@ mod tests {
         );
     }
 
+    const WEEKEND: u8 = 0b100_0001;
+    const MON_WED: u8 = 0b000_1010;
+
+    fn eight_pm() -> NaiveTime {
+        NaiveTime::from_hms_opt(20, 0, 0).unwrap()
+    }
+
     #[test]
-    fn a_weekly_series_posts_on_the_monday_after_its_first_poll() {
-        let plan = raw().checked(today()).unwrap();
-        // The first poll closes Monday 2099-10-05 00:00 local; the next post is
-        // that Monday at 20:00 local = 13:00 UTC.
+    fn a_weekly_series_starts_with_the_days_left_this_week() {
         assert_eq!(
-            monday_at_or_after(plan.closes_at(), plan.nudge_time),
-            at("2099-10-05T13:00:00Z")
+            weekday_bits(&[day("2099-10-03"), day("2099-10-04")]),
+            WEEKEND
         );
-        // From a Monday after 20:00, the next Monday.
+        // Thursday 07:00: Sat + Sun this week; next post Monday 05 20:00.
         assert_eq!(
-            monday_at_or_after(at("2099-10-05T14:00:00Z"), plan.nudge_time),
-            at("2099-10-12T13:00:00Z")
+            first_week(WEEKEND, eight_pm(), at("2099-10-01T00:00:00Z")),
+            (
+                vec![day("2099-10-03"), day("2099-10-04")],
+                at("2099-10-05T13:00:00Z")
+            )
         );
-        assert_eq!(weekday_bits(&plan.days), 0b100_0001);
+        // Sunday 04 morning: only Sunday is left, and next week starts on time
+        // (no Sunday 11 gap).
+        assert_eq!(
+            first_week(WEEKEND, eight_pm(), at("2099-10-04T01:00:00Z")),
+            (vec![day("2099-10-04")], at("2099-10-05T13:00:00Z"))
+        );
+        // Tuesday 06: Wednesday 07 this week; Monday 12 belongs to next week's
+        // poll, posted Sunday 11 at 20:00 (no Wednesday 14 gap).
+        assert_eq!(
+            first_week(MON_WED, eight_pm(), at("2099-10-06T01:00:00Z")),
+            (vec![day("2099-10-07")], at("2099-10-11T13:00:00Z"))
+        );
+        // Sunday 11 at 21:00 for Mon + Wed: next week's post has passed, so the
+        // first poll covers next week.
+        assert_eq!(
+            first_week(MON_WED, eight_pm(), at("2099-10-11T14:00:00Z")),
+            (
+                vec![day("2099-10-12"), day("2099-10-14")],
+                at("2099-10-18T13:00:00Z")
+            )
+        );
+    }
+
+    #[test]
+    fn a_weekly_poll_covers_the_week_it_is_posted_for_without_past_days() {
         let series = PollSeries {
             id: 1,
             chat_id: "zgr".to_owned(),
             user: UserId(1),
-            title: plan.title.clone(),
-            weekdays: 0b100_0001,
-            play_time: plan.play_time,
-            nudge_time: plan.nudge_time,
-            next_post_at: at("2099-10-05T13:00:00Z"),
+            title: "Ai chơi?".to_owned(),
+            weekdays: MON_WED,
+            play_time: None,
+            nudge_time: eight_pm(),
+            next_post_at: at("2099-10-11T13:00:00Z"),
         };
-        let week = series.plan_for_week(at("2099-10-05T13:00:00Z"));
-        assert_eq!(week.days, vec![day("2099-10-10"), day("2099-10-11")]);
-        assert_eq!(week.play_time, plan.play_time);
+        // Posted Sunday 11 for the week of Monday 12.
+        let posted = at("2099-10-11T13:00:00Z");
+        assert_eq!(
+            series.plan_for_week(posted, posted).days,
+            vec![day("2099-10-12"), day("2099-10-14")]
+        );
+        // Posted late, on Tuesday 13: Monday 12 is gone.
+        assert_eq!(
+            series
+                .plan_for_week(posted, at("2099-10-13T01:00:00Z"))
+                .days,
+            vec![day("2099-10-14")]
+        );
+        assert_eq!(
+            post_at(WEEKEND, eight_pm(), day("2099-10-12")),
+            at("2099-10-12T13:00:00Z")
+        );
     }
 
     #[test]

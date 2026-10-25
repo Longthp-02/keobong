@@ -14,7 +14,7 @@ use super::domain::{
 };
 use super::polls::{
     MAX_NAMES_IN_NUDGE, MAX_SERIES_LATE_HOURS, MEMBER_DAYS, PendingPoll, Poll, PollPlan,
-    PollReader, PollRepository, PollRequest, PollSeries, monday_at_or_after, tally, weekday_bits,
+    PollReader, PollRepository, PollRequest, PollSeries, first_week, tally, weekday_bits,
 };
 use super::reminders::{
     EVERY_DAY, MAX_LATE_MINUTES, PendingReminder, ReminderReader, ReminderRequest, Repeat, Schedule,
@@ -702,7 +702,9 @@ where
             return Ok(COPY.failed.clone());
         }
     };
-    let weekly = raw.weekly;
+    // The reader must say weekly and the request must too, so a poll never
+    // repeats unless someone asked for it.
+    let weekly = raw.weekly && asks_weekly(text);
     let plan = match raw.checked(today) {
         Ok(plan) => plan,
         Err(gaps) => {
@@ -717,6 +719,8 @@ where
             ));
         }
     };
+    // Pending keeps the reader's days, whose weekdays a weekly series repeats;
+    // the summary shows this week's first poll.
     let pending = PendingPoll {
         zalo_user_id: message.sender_id.clone(),
         chat_id: message.chat_id.clone(),
@@ -726,7 +730,12 @@ where
         expires_at: now + Duration::minutes(DRAFT_MINUTES),
     };
     ctx.bot.save_pending_poll(&pending).await.map_err(fail)?;
-    let plan = &pending.plan;
+    let first = if weekly {
+        weekly_first_plan(pending.plan.clone(), now)
+    } else {
+        pending.plan.clone()
+    };
+    let plan = &first;
     let last_day = plan
         .days
         .last()
@@ -772,16 +781,16 @@ where
     if linked != Some(pending.user) {
         return Ok(fill(&COPY.not_linked, &[("bot", ctx.bot_name)]));
     }
+    let weekdays = weekday_bits(&pending.plan.days);
+    let plan = if pending.weekly {
+        weekly_first_plan(pending.plan.clone(), now)
+    } else {
+        pending.plan.clone()
+    };
     let share_id = ShareId::generate().map_err(fail)?;
     let Some(poll) = ctx
         .bot
-        .add_poll(
-            &pending.chat_id,
-            pending.user,
-            &pending.plan,
-            &share_id,
-            now,
-        )
+        .add_poll(&pending.chat_id, pending.user, &plan, &share_id, now)
         .await
         .map_err(fail)?
     else {
@@ -794,11 +803,10 @@ where
             chat_id: poll.chat_id.clone(),
             user: pending.user,
             title: poll.plan.title.clone(),
-            weekdays: weekday_bits(&poll.plan.days),
+            weekdays,
             play_time: poll.plan.play_time,
             nudge_time: poll.plan.nudge_time,
-            // The Monday after this week's poll closes.
-            next_post_at: monday_at_or_after(poll.closes_at, poll.plan.nudge_time),
+            next_post_at: first_week(weekdays, poll.plan.nudge_time, now).1,
         };
         let saved = ctx.bot.add_series(&series, now).await.map_err(fail)?;
         let note = if saved {
@@ -816,6 +824,21 @@ where
         reply.push_str(&note);
     }
     Ok(reply)
+}
+
+/// A weekly series' first poll: the asked-for weekdays still ahead this week.
+fn weekly_first_plan(plan: PollPlan, now: DateTime<Utc>) -> PollPlan {
+    let (days, _) = first_week(weekday_bits(&plan.days), plan.nudge_time, now);
+    PollPlan { days, ..plan }
+}
+
+/// Whether the request itself says the poll repeats every week.
+fn asks_weekly(text: &str) -> bool {
+    let text = text.to_lowercase();
+    COPY.commands
+        .weekly
+        .iter()
+        .any(|words| text.contains(words.as_str()))
 }
 
 fn posted_text(frontend_origin: &str, poll: &Poll) -> String {
@@ -922,7 +945,10 @@ pub async fn run_due_series<B: PollRepository>(
             );
             continue;
         }
-        let plan = series.plan_for_week(series.next_post_at);
+        let plan = series.plan_for_week(series.next_post_at, now);
+        if plan.days.is_empty() {
+            continue;
+        }
         let share_id = ShareId::generate().map_err(fail)?;
         let poll = match bot
             .add_poll(&series.chat_id, series.user, &plan, &share_id, now)
@@ -941,14 +967,19 @@ pub async fn run_due_series<B: PollRepository>(
                 continue;
             }
         };
-        match chat
+        let delivered = match chat
             .send(&poll.chat_id, &posted_text(frontend_origin, &poll))
             .await
         {
-            Ok(()) => posted += 1,
+            Ok(()) => true,
             Err(error) => {
                 tracing::warn!(error = %error, series = series.id, "could not post a weekly poll");
+                false
             }
+        };
+        posted += usize::from(delivered);
+        if let Err(error) = bot.record_series_post(series.id, delivered).await {
+            tracing::error!(error = %error, series = series.id, "could not record a weekly post");
         }
     }
     Ok(posted)

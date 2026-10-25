@@ -388,6 +388,8 @@ pub struct Commands {
     pub poll: Vec<String>,
     /// Prefixes; a number may follow ("tắt bảng 1").
     pub stop_poll: Vec<String>,
+    /// Words that ask for a poll every week ("hằng tuần").
+    pub weekly: Vec<String>,
 }
 
 const COPY_JSON: &str = include_str!("../../messages/vi.json");

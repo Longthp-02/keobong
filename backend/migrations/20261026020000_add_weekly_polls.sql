@@ -4,7 +4,9 @@
 
 ALTER TABLE bot_pending_polls ADD COLUMN weekly boolean NOT NULL DEFAULT false;
 
--- At most 3 per chat. Deleted with the account that created it.
+-- At most 3 per chat. Deleted with the account that created it, or after 3
+-- failed posts in a row. A series that plays on Mondays posts on the Sunday
+-- evening before, so the Monday game is in the poll before it is played.
 CREATE TABLE bot_poll_series (
     id bigserial PRIMARY KEY,
     chat_id text NOT NULL CHECK (char_length(chat_id) BETWEEN 1 AND 64),
@@ -15,6 +17,8 @@ CREATE TABLE bot_poll_series (
     play_time time,
     nudge_time time NOT NULL,
     next_post_at timestamptz NOT NULL,
+    -- Failed posts in a row; the series is deleted after 3.
+    failures smallint NOT NULL DEFAULT 0 CHECK (failures >= 0),
     created_at timestamptz NOT NULL
 );
 
