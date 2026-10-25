@@ -1,5 +1,5 @@
 {
-  "help": "Chào bạn! Mình là {bot} ⚽\nGửi tin kèo của bạn, ví dụ:\n{mention}tối nay 19h–20h30 SSA sân 7 thiếu 3, 60k/người\nMình sẽ tạo kèo và gửi link để mọi người giữ chỗ.\nLần đầu dùng, nhắn riêng cho mình chữ \"liên kết\".",
+  "help": "Chào bạn! Mình là {bot} ⚽ Mình giúp được mấy việc này:\n\n⚽ Tạo kèo:\n{mention}tối nay 19h–20h30 SSA sân 7 thiếu 3, 60k/người\n\n📋 Bảng điểm danh (ai chơi ngày nào):\n{mention}tạo bảng điểm danh T7, CN tuần này, chơi lúc 18h\nThêm \"hằng tuần\" để mỗi tối Thứ 2 mình tự đăng bảng mới. Tắt: {mention}tắt bảng\n\n⏰ Nhắc hẹn:\n{mention}nhắc mỗi thứ 5 lúc 20h: Cuối tuần này ai đá không?\nXem hoặc tắt: {mention}tắt nhắc\n\nSau khi mình tóm tắt, trả lời \"{mention}ok\" để lưu hoặc \"{mention}huỷ\".\nLần đầu dùng, nhắn riêng cho mình chữ \"liên kết\".",
   "linkInGroup": "Để bắt đầu, bạn nhắn riêng cho {bot} chữ \"liên kết\" nhé. Link liên kết chỉ gửi trong chat riêng để không ai dùng nhầm tài khoản của bạn.",
   "linkPrivate": "Bấm link này để liên kết Zalo với tài khoản Đá Ghép (đăng nhập bằng Google). Link dùng một lần, hết hạn sau 15 phút, đừng gửi cho ai:\n{url}",
   "linked": "✅ Đã liên kết Zalo với tài khoản Đá Ghép \"{name}\". Kèo bạn tạo qua bot sẽ đứng tên tài khoản này. Nếu không phải bạn, nhắn \"liên kết\" để liên kết lại.",
@@ -86,6 +86,14 @@
   "pollCount": "{day}: {n} người có",
   "pollDaysWithTime": "{days} · chơi lúc {time}",
   "pollPlaySuffix": " · chơi lúc {time}",
+  "pollWeeklySummary": "🔁 Hằng tuần: mỗi Thứ 2 lúc {time} mình đăng bảng mới cho tuần đó, tới khi có người gõ \"{mention}tắt bảng\".",
+  "pollWeeklySaved": "🔁 Mỗi Thứ 2 lúc {time} mình sẽ đăng bảng mới. Gõ \"{mention}tắt bảng\" để dừng.",
+  "seriesLimit": "Ở đây đã có 3 bảng hằng tuần, nên bảng này chỉ cho tuần này. Gõ \"{mention}tắt bảng\" để tắt bớt.",
+  "seriesList": "Bảng hằng tuần ở đây:\n{items}\nGõ \"{mention}tắt bảng 1\" để dừng bảng số 1.",
+  "seriesListItem": "{n}. {when}: \"{title}\"",
+  "noSeries": "Ở đây chưa có bảng hằng tuần nào. Ví dụ:\n{mention}tạo bảng điểm danh T7, CN hằng tuần, chơi lúc 18h",
+  "seriesStopped": "Đã dừng bảng hằng tuần số {n}. Bảng của tuần này vẫn mở tới hết ngày chơi.",
+  "seriesNotFound": "Không có bảng hằng tuần số {n}. Gõ \"{mention}tắt bảng\" để xem danh sách.",
   "pollMissingNames": "Chưa trả lời: {names}\n",
   "pollMoreNames": "{names} và {n} người khác",
   "playerName": "Người chơi",
@@ -171,6 +179,18 @@
       "bang diem danh",
       "tạo điểm danh",
       "tao diem danh"
+    ],
+    "stopPoll": [
+      "tắt bảng",
+      "tat bang",
+      "dừng bảng",
+      "dung bang",
+      "xoá bảng",
+      "xóa bảng",
+      "xoa bang",
+      "huỷ bảng",
+      "hủy bảng",
+      "huy bang"
     ]
   }
 }

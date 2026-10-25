@@ -931,6 +931,7 @@ fn weekend_poll() -> RawPoll {
         play_time: Some("18:00".to_owned()),
         // Not stated: the bot nudges at 20:00.
         nudge_time: None,
+        weekly: false,
     }
 }
 
@@ -1347,4 +1348,128 @@ async fn people_not_seen_for_sixty_days_are_no_longer_named(pool: PgPool) {
     let (_, nudge) = bot.last_sent();
     assert!(nudge.contains("Player host"), "{nudge}");
     assert!(!nudge.contains("Player other"), "{nudge}");
+}
+
+// ---- Weekly polls and help ----
+
+impl Bot {
+    /// Runs the scheduler once; returns how many weekly polls it posted.
+    async fn run_weekly(&self) -> i64 {
+        let response = call(&self.app, cron_request(Some(CRON_SECRET))).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        json_body(response).await["weeklyPolls"].as_i64().unwrap()
+    }
+
+    async fn add_weekly_poll(&self) -> String {
+        self.poll_answer(Some(RawPoll {
+            weekly: true,
+            ..weekend_poll()
+        }));
+        let summary = self
+            .in_group(
+                HOST,
+                "tạo bảng điểm danh bóng rổ T7, CN hằng tuần, chơi lúc 18h",
+            )
+            .await
+            .unwrap();
+        assert!(
+            summary.contains("🔁 Hằng tuần: mỗi Thứ 2 lúc 20:00"),
+            "{summary}"
+        );
+        self.in_group(HOST, "ok").await.unwrap()
+    }
+}
+
+#[sqlx::test]
+async fn a_weekly_poll_posts_a_new_poll_every_monday_evening(pool: PgPool) {
+    let bot = bot(pool, tonight());
+    bot.link(HOST, "host").await;
+    let posted = bot.add_weekly_poll().await;
+    assert!(posted.contains("Thứ 7 03/10 · Chủ nhật 04/10"), "{posted}");
+    assert!(
+        posted.contains("Mỗi Thứ 2 lúc 20:00 mình sẽ đăng bảng mới"),
+        "{posted}"
+    );
+    let first = poll_share_id(&posted);
+
+    // NOW is Thursday 07:00 local. Nothing new until Monday 20:00 local.
+    bot.clock.advance(Duration::days(4) + Duration::hours(12));
+    assert_eq!(bot.run_weekly().await, 0);
+    bot.clock.advance(Duration::hours(1));
+    assert_eq!(bot.run_weekly().await, 1);
+    let (chat, text) = bot.last_sent();
+    assert_eq!(chat, GROUP);
+    assert!(
+        text.contains("Thứ 7 10/10 · Chủ nhật 11/10 · chơi lúc 18:00"),
+        "{text}"
+    );
+    let second = poll_share_id(&text);
+    assert_ne!(first, second);
+    let (_, view) = bot.get_poll(&second, None).await;
+    assert_eq!(view["days"], json!(["2099-10-10", "2099-10-11"]));
+    assert_eq!(bot.run_weekly().await, 0);
+
+    // And the Monday after.
+    bot.clock.advance(Duration::days(7));
+    assert_eq!(bot.run_weekly().await, 1);
+    assert!(bot.last_sent().1.contains("Thứ 7 17/10"));
+}
+
+#[sqlx::test]
+async fn a_weekly_poll_is_listed_and_stopped(pool: PgPool) {
+    let bot = bot(pool, tonight());
+    bot.link(HOST, "host").await;
+    let none = bot.in_group(HOST, "tắt bảng").await.unwrap();
+    assert!(none.contains("chưa có bảng hằng tuần"), "{none}");
+
+    bot.add_weekly_poll().await;
+    let list = bot.in_group(HOST, "tắt bảng").await.unwrap();
+    assert!(
+        list.contains(
+            "1. mỗi Thứ 7, Chủ nhật · chơi lúc 18:00: \"Ai chơi bóng rổ cuối tuần này?\""
+        ),
+        "{list}"
+    );
+    let refused = bot.in_group(OTHER, "tắt bảng 1").await.unwrap();
+    assert!(refused.contains("liên kết"), "{refused}");
+    let missing = bot.in_group(HOST, "tắt bảng 2").await.unwrap();
+    assert!(
+        missing.contains("Không có bảng hằng tuần số 2"),
+        "{missing}"
+    );
+    let stopped = bot.in_group(HOST, "dừng bảng 1").await.unwrap();
+    assert!(stopped.contains("Đã dừng bảng hằng tuần số 1"), "{stopped}");
+
+    bot.clock.advance(Duration::days(5));
+    assert_eq!(bot.run_weekly().await, 0);
+}
+
+#[sqlx::test]
+async fn a_poll_for_this_week_only_does_not_repeat(pool: PgPool) {
+    let bot = bot(pool, tonight());
+    bot.link(HOST, "host").await;
+    let posted = bot.add_weekend_poll().await;
+    assert!(!posted.is_empty());
+    bot.clock.advance(Duration::days(5));
+    assert_eq!(bot.run_weekly().await, 0);
+    let list = bot.in_group(HOST, "tắt bảng").await.unwrap();
+    assert!(list.contains("chưa có bảng hằng tuần"), "{list}");
+}
+
+#[sqlx::test]
+async fn help_lists_every_command(pool: PgPool) {
+    let bot = bot(pool, tonight());
+    let help = bot.in_group(HOST, "help").await.unwrap();
+    for command in [
+        "@Bot DaGhep tối nay 19h",
+        "@Bot DaGhep tạo bảng điểm danh",
+        "hằng tuần",
+        "@Bot DaGhep tắt bảng",
+        "@Bot DaGhep nhắc mỗi thứ 5",
+        "@Bot DaGhep tắt nhắc",
+        "@Bot DaGhep ok",
+        "liên kết",
+    ] {
+        assert!(help.contains(command), "{command} in {help}");
+    }
 }

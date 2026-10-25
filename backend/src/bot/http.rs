@@ -19,7 +19,9 @@ use super::domain::{COPY, ChatKind, ChatReply, Incoming, fill};
 use super::polls::{AnswerOutcome, MAX_POLL_DAYS, Poll, PollReader, PollRepository};
 use super::reminders::ReminderReader;
 use super::repo::PgBotRepository;
-use super::service::{BotContext, handle_message, redeem_link, run_due_polls, run_due_reminders};
+use super::service::{
+    BotContext, handle_message, redeem_link, run_due_polls, run_due_reminders, run_due_series,
+};
 use crate::auth::{AuthRejection, AuthState, AuthenticatedUser};
 use crate::clock::Clock;
 use crate::config::Secret;
@@ -204,8 +206,19 @@ async fn run_reminders(State(state): State<BotState>, headers: HeaderMap) -> Res
         &state.frontend_origin,
     )
     .await;
-    match reminders.and_then(|reminders| polls.map(|polls| (reminders, polls))) {
-        Ok((sent, nudged)) => Json(json!({ "sent": sent, "nudged": nudged })).into_response(),
+    let weekly = run_due_series(
+        &state.bot,
+        state.clock.as_ref(),
+        zalo.reply.as_ref(),
+        &state.frontend_origin,
+    )
+    .await;
+    match reminders.and_then(|reminders| {
+        polls.and_then(|polls| weekly.map(|weekly| (reminders, polls, weekly)))
+    }) {
+        Ok((sent, nudged, weekly)) => {
+            Json(json!({ "sent": sent, "nudged": nudged, "weeklyPolls": weekly })).into_response()
+        }
         Err(error) => {
             tracing::error!(error = %error, "could not run reminders");
             (

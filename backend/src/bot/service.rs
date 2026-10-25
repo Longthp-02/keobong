@@ -13,8 +13,8 @@ use super::domain::{
     UpdateOutcome, entry, fill, parse_command,
 };
 use super::polls::{
-    MAX_NAMES_IN_NUDGE, MEMBER_DAYS, PendingPoll, Poll, PollPlan, PollReader, PollRepository,
-    PollRequest, tally,
+    MAX_NAMES_IN_NUDGE, MAX_SERIES_LATE_HOURS, MEMBER_DAYS, PendingPoll, Poll, PollPlan,
+    PollReader, PollRepository, PollRequest, PollSeries, monday_at_or_after, tally, weekday_bits,
 };
 use super::reminders::{
     EVERY_DAY, MAX_LATE_MINUTES, PendingReminder, ReminderReader, ReminderRequest, Repeat, Schedule,
@@ -139,11 +139,12 @@ where
                 .await
                 .map_err(fail)?
             {
-                Some(pending) => save_poll(ctx, message, pending, now).await?,
+                Some(pending) => save_poll(ctx, message, pending, &mention, now).await?,
                 None => confirm(ctx, message).await?,
             },
         },
         Command::Poll(text) => poll(ctx, message, &text, &mention, now).await?,
+        Command::StopPoll(number) => stop_poll_series(ctx, message, number, &mention).await?,
         Command::Remind(text) => remind(ctx, message, &text, &mention, now).await?,
         Command::ListReminders => list_reminders(ctx, message, &mention).await?,
         Command::StopReminder(number) => stop_reminder(ctx, message, number, &mention).await?,
@@ -701,6 +702,7 @@ where
             return Ok(COPY.failed.clone());
         }
     };
+    let weekly = raw.weekly;
     let plan = match raw.checked(today) {
         Ok(plan) => plan,
         Err(gaps) => {
@@ -720,6 +722,7 @@ where
         chat_id: message.chat_id.clone(),
         user,
         plan,
+        weekly,
         expires_at: now + Duration::minutes(DRAFT_MINUTES),
     };
     ctx.bot.save_pending_poll(&pending).await.map_err(fail)?;
@@ -729,25 +732,33 @@ where
         .last()
         .map(|day| day_label(*day))
         .unwrap_or_default();
-    Ok(format!(
-        "{}\n{}",
-        fill(
-            &COPY.poll_summary,
-            &[
-                ("title", &plan.title),
-                ("days", &days_line(plan)),
-                ("time", &plan.nudge_time.format("%H:%M").to_string()),
-                ("lastDay", &last_day),
-            ]
-        ),
-        fill(&COPY.reminder_confirm_hint, &[("mention", mention)])
-    ))
+    let nudge_time = plan.nudge_time.format("%H:%M").to_string();
+    let mut reply = fill(
+        &COPY.poll_summary,
+        &[
+            ("title", &plan.title),
+            ("days", &days_line(plan)),
+            ("time", &nudge_time),
+            ("lastDay", &last_day),
+        ],
+    );
+    if weekly {
+        reply.push('\n');
+        reply.push_str(&fill(
+            &COPY.poll_weekly_summary,
+            &[("time", &nudge_time), ("mention", mention)],
+        ));
+    }
+    reply.push('\n');
+    reply.push_str(&fill(&COPY.reminder_confirm_hint, &[("mention", mention)]));
+    Ok(reply)
 }
 
 async fn save_poll<B, D, M, P>(
     ctx: &BotContext<'_, B, D, M, P>,
     message: &Incoming,
     pending: PendingPoll,
+    mention: &str,
     now: DateTime<Utc>,
 ) -> Result<String, BotError>
 where
@@ -776,14 +787,171 @@ where
     else {
         return Ok(COPY.poll_limit.clone());
     };
-    Ok(fill(
+    let mut reply = posted_text(ctx.frontend_origin, &poll);
+    if pending.weekly {
+        let series = PollSeries {
+            id: 0,
+            chat_id: poll.chat_id.clone(),
+            user: pending.user,
+            title: poll.plan.title.clone(),
+            weekdays: weekday_bits(&poll.plan.days),
+            play_time: poll.plan.play_time,
+            nudge_time: poll.plan.nudge_time,
+            // The Monday after this week's poll closes.
+            next_post_at: monday_at_or_after(poll.closes_at, poll.plan.nudge_time),
+        };
+        let saved = ctx.bot.add_series(&series, now).await.map_err(fail)?;
+        let note = if saved {
+            fill(
+                &COPY.poll_weekly_saved,
+                &[
+                    ("time", &series.nudge_time.format("%H:%M").to_string()),
+                    ("mention", mention),
+                ],
+            )
+        } else {
+            fill(&COPY.series_limit, &[("mention", mention)])
+        };
+        reply.push('\n');
+        reply.push_str(&note);
+    }
+    Ok(reply)
+}
+
+fn posted_text(frontend_origin: &str, poll: &Poll) -> String {
+    fill(
         &COPY.poll_posted,
         &[
             ("title", &poll.plan.title),
             ("days", &days_line(&poll.plan)),
-            ("url", &poll_url(ctx.frontend_origin, &poll)),
+            ("url", &poll_url(frontend_origin, poll)),
         ],
-    ))
+    )
+}
+
+async fn stop_poll_series<B, D, M, P>(
+    ctx: &BotContext<'_, B, D, M, P>,
+    message: &Incoming,
+    number: Option<i64>,
+    mention: &str,
+) -> Result<String, BotError>
+where
+    B: BotRepository + PollRepository,
+{
+    let all = ctx.bot.series(&message.chat_id).await.map_err(fail)?;
+    let Some(number) = number else {
+        if all.is_empty() {
+            return Ok(fill(&COPY.no_series, &[("mention", mention)]));
+        }
+        let items = all
+            .iter()
+            .enumerate()
+            .map(|(index, series)| {
+                let mut when = describe_schedule(&Schedule {
+                    repeat: Repeat::Weekdays(series.weekdays),
+                    time: series.play_time.unwrap_or(series.nudge_time),
+                })
+                .0;
+                if let Some(time) = series.play_time {
+                    when.push_str(&fill(
+                        &COPY.poll_play_suffix,
+                        &[("time", &time.format("%H:%M").to_string())],
+                    ));
+                }
+                fill(
+                    &COPY.series_list_item,
+                    &[
+                        ("n", &(index + 1).to_string()),
+                        ("when", &when),
+                        ("title", &series.title),
+                    ],
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        return Ok(fill(
+            &COPY.series_list,
+            &[("items", &items), ("mention", mention)],
+        ));
+    };
+    // Only linked members may stop a group's weekly polls.
+    if ctx
+        .bot
+        .linked_user(&message.sender_id)
+        .await
+        .map_err(fail)?
+        .is_none()
+    {
+        return Ok(fill(&COPY.not_linked, &[("bot", ctx.bot_name)]));
+    }
+    let n = number.to_string();
+    let target = usize::try_from(number)
+        .ok()
+        .and_then(|number| number.checked_sub(1))
+        .and_then(|index| all.get(index));
+    let stopped = match target {
+        Some(series) => ctx
+            .bot
+            .delete_series(&message.chat_id, series.id)
+            .await
+            .map_err(fail)?,
+        None => false,
+    };
+    Ok(if stopped {
+        fill(&COPY.series_stopped, &[("n", &n)])
+    } else {
+        fill(&COPY.series_not_found, &[("n", &n), ("mention", mention)])
+    })
+}
+
+/// Posts each weekly series' new poll that is due. Returns how many were posted.
+pub async fn run_due_series<B: PollRepository>(
+    bot: &B,
+    clock: &dyn Clock,
+    chat: &dyn ChatReply,
+    frontend_origin: &str,
+) -> Result<usize, BotError> {
+    let now = clock.now();
+    let due = bot.claim_due_series(now).await.map_err(fail)?;
+    let mut posted = 0;
+    for series in due {
+        if now - series.next_post_at > Duration::hours(MAX_SERIES_LATE_HOURS) {
+            tracing::info!(
+                series = series.id,
+                "skipping a weekly poll that is too late"
+            );
+            continue;
+        }
+        let plan = series.plan_for_week(series.next_post_at);
+        let share_id = ShareId::generate().map_err(fail)?;
+        let poll = match bot
+            .add_poll(&series.chat_id, series.user, &plan, &share_id, now)
+            .await
+        {
+            Ok(Some(poll)) => poll,
+            Ok(None) => {
+                tracing::info!(
+                    series = series.id,
+                    "weekly poll skipped: the chat has 3 open polls"
+                );
+                continue;
+            }
+            Err(error) => {
+                tracing::error!(error = %error, series = series.id, "could not make a weekly poll");
+                continue;
+            }
+        };
+        match chat
+            .send(&poll.chat_id, &posted_text(frontend_origin, &poll))
+            .await
+        {
+            Ok(()) => posted += 1,
+            Err(error) => {
+                tracing::warn!(error = %error, series = series.id, "could not post a weekly poll");
+            }
+        }
+    }
+    Ok(posted)
 }
 
 /// Uses up one AI read; returns the reply to send when a daily limit is reached.

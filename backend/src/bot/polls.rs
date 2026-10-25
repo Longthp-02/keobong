@@ -6,7 +6,7 @@
 use std::future::Future;
 use std::pin::Pin;
 
-use chrono::{DateTime, Duration, NaiveDate, NaiveTime, Utc};
+use chrono::{DateTime, Datelike, Duration, NaiveDate, NaiveTime, Utc};
 
 use crate::auth::UserId;
 use crate::matches::domain::{ShareId, local_date, local_instant};
@@ -42,6 +42,8 @@ pub struct RawPoll {
     /// HH:MM, 24-hour: when the daily nudge is posted; `DEFAULT_NUDGE_TIME`
     /// when the request does not say.
     pub nudge_time: Option<String>,
+    /// "hằng tuần": a new poll for the same weekdays every week until stopped.
+    pub weekly: bool,
 }
 
 /// A poll that passed the rules.
@@ -173,7 +175,63 @@ pub struct PendingPoll {
     pub chat_id: String,
     pub user: UserId,
     pub plan: PollPlan,
+    /// Repeat every week until stopped.
+    pub weekly: bool,
     pub expires_at: DateTime<Utc>,
+}
+
+/// A poll that repeats every week: each Monday at its nudge time the bot posts a
+/// new poll for that week's chosen weekdays (Long, 2026-10-26).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PollSeries {
+    pub id: i64,
+    pub chat_id: String,
+    pub user: UserId,
+    pub title: String,
+    /// Bit `n` is set for weekday `n`, counted from Sunday = 0.
+    pub weekdays: u8,
+    pub play_time: Option<NaiveTime>,
+    pub nudge_time: NaiveTime,
+    pub next_post_at: DateTime<Utc>,
+}
+
+/// Weekly polls one chat may have at a time.
+pub const MAX_SERIES_PER_CHAT: i64 = 3;
+/// A weekly post more than this late (an outage) is skipped until next week.
+pub const MAX_SERIES_LATE_HOURS: i64 = 12;
+
+/// The weekdays of a poll's days, as series bits.
+pub fn weekday_bits(days: &[NaiveDate]) -> u8 {
+    days.iter().fold(0, |bits, day| {
+        bits | (1 << day.weekday().num_days_from_sunday())
+    })
+}
+
+/// The Monday at `time` (Ho Chi Minh City) at or after `from`.
+pub fn monday_at_or_after(from: DateTime<Utc>, time: NaiveTime) -> DateTime<Utc> {
+    let today = local_date(from);
+    (0..=7)
+        .map(|offset| today + Duration::days(offset))
+        .filter(|day| day.weekday() == chrono::Weekday::Mon)
+        .map(|day| local_instant(day, time))
+        .find(|at| *at >= from)
+        .unwrap_or_else(|| from + Duration::days(7))
+}
+
+impl PollSeries {
+    /// The poll for the week starting on the local day of `posted_at` (a Monday).
+    pub fn plan_for_week(&self, posted_at: DateTime<Utc>) -> PollPlan {
+        let monday = local_date(posted_at);
+        PollPlan {
+            title: self.title.clone(),
+            days: (0..7)
+                .map(|offset| monday + Duration::days(offset))
+                .filter(|day| self.weekdays & (1 << day.weekday().num_days_from_sunday()) != 0)
+                .collect(),
+            play_time: self.play_time,
+            nudge_time: self.nudge_time,
+        }
+    }
 }
 
 /// A saved poll.
@@ -314,6 +372,33 @@ pub trait PollRepository: Send + Sync {
         since: DateTime<Utc>,
     ) -> impl Future<Output = Result<Vec<Member>, PollRepoError>> + Send;
 
+    /// Saves a weekly series unless its chat already has `MAX_SERIES_PER_CHAT`;
+    /// returns whether it was saved.
+    fn add_series(
+        &self,
+        series: &PollSeries,
+        now: DateTime<Utc>,
+    ) -> impl Future<Output = Result<bool, PollRepoError>> + Send;
+
+    /// The chat's weekly series, oldest first (their list numbers).
+    fn series(
+        &self,
+        chat_id: &str,
+    ) -> impl Future<Output = Result<Vec<PollSeries>, PollRepoError>> + Send;
+
+    fn delete_series(
+        &self,
+        chat_id: &str,
+        id: i64,
+    ) -> impl Future<Output = Result<bool, PollRepoError>> + Send;
+
+    /// Takes the series whose weekly post is due and moves each a week on
+    /// before returning them, so a week's poll is posted at most once.
+    fn claim_due_series(
+        &self,
+        now: DateTime<Utc>,
+    ) -> impl Future<Output = Result<Vec<PollSeries>, PollRepoError>> + Send;
+
     /// Takes the polls whose nudge is due and moves each to its next nudge (or
     /// none) before returning them, so a nudge is posted at most once.
     fn claim_due_nudges(
@@ -345,6 +430,7 @@ mod tests {
             days: vec!["2099-10-04".to_owned(), "2099-10-03".to_owned()],
             play_time: Some("18:00".to_owned()),
             nudge_time: None,
+            weekly: false,
         }
     }
 
@@ -398,6 +484,7 @@ mod tests {
             days: vec![],
             play_time: None,
             nudge_time: Some("8pm".to_owned()),
+            weekly: false,
         };
         assert_eq!(
             empty.checked(today()).unwrap_err(),
@@ -408,6 +495,36 @@ mod tests {
                 PollGap::NudgeTime
             ]
         );
+    }
+
+    #[test]
+    fn a_weekly_series_posts_on_the_monday_after_its_first_poll() {
+        let plan = raw().checked(today()).unwrap();
+        // The first poll closes Monday 2099-10-05 00:00 local; the next post is
+        // that Monday at 20:00 local = 13:00 UTC.
+        assert_eq!(
+            monday_at_or_after(plan.closes_at(), plan.nudge_time),
+            at("2099-10-05T13:00:00Z")
+        );
+        // From a Monday after 20:00, the next Monday.
+        assert_eq!(
+            monday_at_or_after(at("2099-10-05T14:00:00Z"), plan.nudge_time),
+            at("2099-10-12T13:00:00Z")
+        );
+        assert_eq!(weekday_bits(&plan.days), 0b100_0001);
+        let series = PollSeries {
+            id: 1,
+            chat_id: "zgr".to_owned(),
+            user: UserId(1),
+            title: plan.title.clone(),
+            weekdays: 0b100_0001,
+            play_time: plan.play_time,
+            nudge_time: plan.nudge_time,
+            next_post_at: at("2099-10-05T13:00:00Z"),
+        };
+        let week = series.plan_for_week(at("2099-10-05T13:00:00Z"));
+        assert_eq!(week.days, vec![day("2099-10-10"), day("2099-10-11")]);
+        assert_eq!(week.play_time, plan.play_time);
     }
 
     #[test]

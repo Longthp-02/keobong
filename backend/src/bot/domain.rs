@@ -61,6 +61,8 @@ pub enum Command {
     Remind(String),
     /// An attendance poll, in the sender's own words.
     Poll(String),
+    /// Stop the weekly poll with this number in the list; `None` shows the list.
+    StopPoll(Option<i64>),
     ListReminders,
     /// Stop the reminder with this number in the list; `None` shows the list.
     StopReminder(Option<i64>),
@@ -83,11 +85,24 @@ pub fn parse_command(text: &str, kind: ChatKind, bot_name: &str) -> Option<Comma
     let word = rest.trim_end_matches(['.', '!', '?', ' ']).to_lowercase();
     let commands = &COPY.commands;
     let is = |words: &[String]| words.contains(&word);
-    let stop = commands
-        .stop_reminder
-        .iter()
-        .find_map(|prefix| word.strip_prefix(prefix.as_str()))
-        .filter(|after| after.is_empty() || after.starts_with(' '));
+    let stop_after = |prefixes: &[String]| {
+        prefixes
+            .iter()
+            .find_map(|prefix| word.strip_prefix(prefix.as_str()))
+            .filter(|after| after.is_empty() || after.starts_with(' '))
+            .map(str::to_owned)
+    };
+    // "tắt nhắc 2", "tắt bảng số 2", "tắt nhắc #2": the first number only.
+    let number = |after: &str| -> Option<i64> {
+        let digits: String = after
+            .chars()
+            .skip_while(|c| !c.is_ascii_digit())
+            .take_while(char::is_ascii_digit)
+            .collect();
+        digits.parse().ok()
+    };
+    let stop = stop_after(&commands.stop_reminder);
+    let stop_poll = stop_after(&commands.stop_poll);
     Some(if is(&commands.help) {
         Command::Help
     } else if is(&commands.link) {
@@ -97,13 +112,9 @@ pub fn parse_command(text: &str, kind: ChatKind, bot_name: &str) -> Option<Comma
     } else if is(&commands.cancel) {
         Command::Cancel
     } else if let Some(after) = stop {
-        // "tắt nhắc 2", "tắt nhắc số 2", "tắt nhắc #2": the first number only.
-        let digits: String = after
-            .chars()
-            .skip_while(|c| !c.is_ascii_digit())
-            .take_while(char::is_ascii_digit)
-            .collect();
-        Command::StopReminder(digits.parse().ok())
+        Command::StopReminder(number(&after))
+    } else if let Some(after) = stop_poll {
+        Command::StopPoll(number(&after))
     } else if is(&commands.list_reminders) {
         Command::ListReminders
     } else if starts_with_words(&word, &commands.poll) {
@@ -341,6 +352,14 @@ pub struct BotCopy {
     pub poll_count: String,
     pub poll_days_with_time: String,
     pub poll_play_suffix: String,
+    pub poll_weekly_summary: String,
+    pub poll_weekly_saved: String,
+    pub series_limit: String,
+    pub series_list: String,
+    pub series_list_item: String,
+    pub no_series: String,
+    pub series_stopped: String,
+    pub series_not_found: String,
     pub poll_missing_names: String,
     pub poll_more_names: String,
     pub player_name: String,
@@ -367,6 +386,8 @@ pub struct Commands {
     pub stop_reminder: Vec<String>,
     /// First words of a poll request ("tạo bảng điểm danh …").
     pub poll: Vec<String>,
+    /// Prefixes; a number may follow ("tắt bảng 1").
+    pub stop_poll: Vec<String>,
 }
 
 const COPY_JSON: &str = include_str!("../../messages/vi.json");
@@ -516,6 +537,14 @@ mod tests {
         assert_eq!(
             parse_command("xem nhắc", ChatKind::Private, BOT),
             Some(Command::ListReminders)
+        );
+        assert_eq!(
+            parse_command("@Bot DaGhep tắt bảng", ChatKind::Group, BOT),
+            Some(Command::StopPoll(None))
+        );
+        assert_eq!(
+            parse_command("dừng bảng số 2", ChatKind::Private, BOT),
+            Some(Command::StopPoll(Some(2)))
         );
         assert_eq!(
             parse_command(
