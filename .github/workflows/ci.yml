@@ -49,7 +49,13 @@ jobs:
       - name: Format
         run: cargo fmt --check
       - name: Lint
-        run: cargo clippy --all-targets --locked -- -D warnings
+        # Clippy's messages also become annotations, readable without the log.
+        run: |
+          set -o pipefail
+          if ! cargo clippy --all-targets --locked --message-format=short -- -D warnings 2>&1 | tee clippy.txt; then
+            grep -E '^[^ ]+:[0-9]+:[0-9]+: (error|warning)' clippy.txt | head -20 | sed 's/^/::error::/'
+            exit 1
+          fi
       - name: Test
         run: cargo test --locked
 
