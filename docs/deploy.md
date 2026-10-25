@@ -153,14 +153,14 @@ Before rolling back, disable the automatic releases (GitHub → Actions → Depl
 Traffic stays pinned until the next release's step 3 (`--to-latest`).
 
 ## Account deletion request: Zalo bot data
-User rows are kept anonymised, so `ON DELETE CASCADE` does not remove bot data. When a user asks to delete their account, also run (with their `users.id`):
+User rows are kept anonymised, so `ON DELETE CASCADE` does not remove bot data. When a user asks to delete their account, also run this in `psql`, after `\set uid <their users.id>`:
 ```sql
 BEGIN;
-DELETE FROM bot_reminders WHERE user_id = $1;
-DELETE FROM bot_pending_reminders WHERE user_id = $1;
-DELETE FROM bot_drafts WHERE user_id = $1;
-DELETE FROM zalo_link_codes WHERE zalo_user_id IN (SELECT zalo_user_id FROM zalo_links WHERE user_id = $1);
-DELETE FROM zalo_links WHERE user_id = $1;
+DELETE FROM bot_reminders WHERE user_id = :uid;
+DELETE FROM bot_pending_reminders WHERE user_id = :uid;
+DELETE FROM bot_drafts WHERE user_id = :uid;
+DELETE FROM zalo_link_codes WHERE zalo_user_id IN (SELECT zalo_user_id FROM zalo_links WHERE user_id = :uid);
+DELETE FROM zalo_links WHERE user_id = :uid;
 COMMIT;
 ```
 The rest of the deletion procedure (profile, payout account, sign-in links, guest names) is not written down yet. TODO: verify with Long.
