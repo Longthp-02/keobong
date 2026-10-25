@@ -9,6 +9,7 @@ const t = messages.poll;
 const poll: PollView = {
   title: "Ai chơi bóng rổ cuối tuần này?",
   days: ["2099-10-03", "2099-10-04"],
+  playTime: "18:00",
   closesAt: "2099-10-04T17:00:00+00:00",
   closed: false,
   counts: [
@@ -24,6 +25,7 @@ describe("PollBoard", () => {
     render(<PollBoard shareId="abcDEF12" initial={poll} />);
 
     expect(screen.getByRole("heading", { name: poll.title })).toBeTruthy();
+    expect(screen.getByText(t.playTime.replace("{time}", "18:00"))).toBeTruthy();
     const table = screen.getByRole("table");
     expect(within(table).getByText("T7 03/10")).toBeTruthy();
     expect(within(table).getByText("CN 04/10")).toBeTruthy();
@@ -31,6 +33,12 @@ describe("PollBoard", () => {
     expect(within(nam).getByText(t.yes)).toBeTruthy();
     expect(within(nam).getByText(t.no)).toBeTruthy();
     expect(within(table).getByRole("row", { name: new RegExp(t.countRow) }).textContent).toContain("1");
+  });
+
+  it("leaves out the play time for older polls without one", () => {
+    render(<PollBoard shareId="abcDEF12" initial={{ ...poll, playTime: null }} />);
+
+    expect(screen.queryByText(/18:00/)).toBeNull();
   });
 
   it("asks a signed-out visitor to sign in to answer", () => {

@@ -275,6 +275,7 @@ async fn poll_view(
     Ok(json!({
         "title": poll.plan.title,
         "days": poll.plan.days.iter().map(day).collect::<Vec<_>>(),
+        "playTime": poll.plan.play_time.map(|time| time.format("%H:%M").to_string()),
         "closesAt": poll.closes_at.to_rfc3339(),
         "closed": poll.closes_at <= state.clock.now(),
         "counts": counts,

@@ -821,13 +821,21 @@ fn day_label(day: chrono::NaiveDate) -> String {
     format!("{weekday} {}", day.format("%d/%m"))
 }
 
-/// "Thứ 7 03/10 · Chủ nhật 04/10".
+/// "Thứ 7 03/10 · Chủ nhật 04/10 · chơi lúc 18:00".
 fn days_line(plan: &PollPlan) -> String {
-    plan.days
+    let days = plan
+        .days
         .iter()
         .map(|day| day_label(*day))
         .collect::<Vec<_>>()
-        .join(" · ")
+        .join(" · ");
+    match plan.play_time {
+        Some(time) => fill(
+            &COPY.poll_days_with_time,
+            &[("days", &days), ("time", &time.format("%H:%M").to_string())],
+        ),
+        None => days,
+    }
 }
 
 /// Posts each poll's daily nudge that is due: yes-counts per day and who has

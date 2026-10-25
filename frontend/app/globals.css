@@ -1229,6 +1229,12 @@ button.slot__button:focus-visible {
   gap: 16px;
 }
 
+.poll__time {
+  margin: -8px 0 0;
+  font-weight: 600;
+  color: var(--brand-text);
+}
+
 .poll__scroll {
   overflow-x: auto;
 }

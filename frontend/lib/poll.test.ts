@@ -4,6 +4,7 @@ import { type PollView, browserAnswerPoll, getPoll } from "./api";
 const poll: PollView = {
   title: "Ai chơi bóng rổ cuối tuần này?",
   days: ["2099-10-03", "2099-10-04"],
+  playTime: "18:00",
   closesAt: "2099-10-04T17:00:00+00:00",
   closed: false,
   counts: [
