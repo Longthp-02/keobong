@@ -22,4 +22,4 @@ None.
 `curl -X POST -H "X-Cron-Secret: $SECRET" "$API/api/bot/reminders/run"` → `{"sent":0}`
 
 ## TODO verify
-- That Zalo lets the bot post to a group without a recent message from it (first live reminder).
+- Done 2026-10-25: Zalo lets the bot post to a group without a recent message from it.

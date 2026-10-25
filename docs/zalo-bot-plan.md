@@ -80,6 +80,6 @@ The bot only receives messages that tag it or are sent to it privately. Those me
 
 ## Risks
 - Group support is Beta; Zalo may change limits or terms.
-- Reminders post to a group without a fresh message from it. Whether Zalo allows that for a bot is not yet tested; the first live reminder is the test.
+- Reminders post to a group without a fresh message from it: confirmed working on 2026-10-25 (a daily test reminder posted at 22:35 in Long's test group).
 - The AI can misread a message; the summary + "ok" step is the safety net.
 - Chat players without accounts weaken no-show tracking.
