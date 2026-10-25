@@ -1,10 +1,13 @@
 //! Bot feature: "Bot DaGhep" on Zalo. Organisers link their Zalo account once,
 //! then create matches from a group or private chat (`docs/zalo-bot-plan.md`).
-//! It owns `zalo_links`, `zalo_link_codes`, `bot_drafts` and `bot_updates`, and
+//! It owns `zalo_links`, `zalo_link_codes`, `bot_drafts`, `bot_updates`,
+//! `bot_pending_reminders` and `bot_reminders`, and
 //! uses `drafts`, `matches` and `payments` only through their public services.
 
+pub mod anthropic;
 pub mod domain;
 mod http;
+pub mod reminders;
 mod repo;
 pub mod service;
 pub mod zalo;

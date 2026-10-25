@@ -51,6 +51,27 @@
   "perPlayer": "{amount}/người",
   "free": "Miễn phí",
   "currency": "{amount}đ",
+  "anonymousName": "chưa đặt tên",
+  "notAMatch": "Mình chưa thấy thông tin kèo trong tin này. Mình giúp được 2 việc, ví dụ:\n{mention}tối nay 19h–20h30 SSA sân 7 thiếu 3, 60k/người\n{mention}nhắc mỗi thứ 5 lúc 20h: Cuối tuần này ai đá không?",
+  "reminderSummary": "⏰ Nhắc {when} lúc {time}:\n\"{text}\"",
+  "reminderConfirmHint": "Trả lời \"{mention}ok\" trong 30 phút để lưu, hoặc \"{mention}huỷ\".",
+  "reminderMissing": "Mình chưa rõ: {fields}.\nGửi lại giúp mình nhé, ví dụ:\n{mention}nhắc mỗi thứ 5 lúc 20h: Cuối tuần này ai đá không?",
+  "reminderGaps": {
+    "repeat": "nhắc ngày nào (mỗi ngày, thứ mấy trong tuần, hoặc ngày mấy hằng tháng, từ ngày 1 đến 28)",
+    "time": "nhắc lúc mấy giờ",
+    "message": "nội dung nhắc (dưới 200 ký tự)"
+  },
+  "reminderSaved": "✅ Đã lưu lịch nhắc. Lần nhắc tới: {next}.\nGõ \"{mention}tắt nhắc\" để xem hoặc tắt.",
+  "reminderLimit": "Ở đây đã có 3 lịch nhắc. Gõ \"{mention}tắt nhắc\" để tắt bớt rồi đặt lại nhé.",
+  "reminderList": "Lịch nhắc ở đây:\n{items}\nGõ \"{mention}tắt nhắc 1\" để tắt lịch số 1.",
+  "reminderListItem": "{n}. {when} lúc {time}: \"{text}\"",
+  "noReminders": "Ở đây chưa có lịch nhắc nào. Ví dụ:\n{mention}nhắc mỗi thứ 5 lúc 20h: Cuối tuần này ai đá không?",
+  "reminderStopped": "Đã tắt lịch nhắc số {n}.",
+  "reminderNotFound": "Không có lịch nhắc số {n}. Gõ \"{mention}tắt nhắc\" để xem danh sách.",
+  "reminderPost": "⏰ {text}",
+  "everyDay": "mỗi ngày",
+  "onWeekdays": "mỗi {days}",
+  "monthDay": "ngày {day} hằng tháng",
   "commands": {
     "help": [
       "",
@@ -89,7 +110,30 @@
       "hủy",
       "huy",
       "cancel"
+    ],
+    "remind": [
+      "nhắc",
+      "nhac"
+    ],
+    "listReminders": [
+      "xem nhắc",
+      "xem nhac",
+      "danh sách nhắc",
+      "danh sach nhac",
+      "lịch nhắc",
+      "lich nhac"
+    ],
+    "stopReminder": [
+      "tắt nhắc",
+      "tat nhac",
+      "xoá nhắc",
+      "xóa nhắc",
+      "xoa nhac",
+      "huỷ nhắc",
+      "hủy nhắc",
+      "huy nhac",
+      "dừng nhắc",
+      "dung nhac"
     ]
-  },
-  "anonymousName": "chưa đặt tên"
+  }
 }

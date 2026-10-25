@@ -3,8 +3,14 @@
 use chrono::{DateTime, Duration, Utc};
 use sqlx::PgPool;
 
+use chrono::NaiveTime;
+
 use super::domain::{
     BotDraft, BotRepository, DRAFT_MINUTES, REPLIES_PER_SENDER_PER_HOUR, RepoError, UpdateOutcome,
+};
+use super::reminders::{
+    MAX_REMINDERS_PER_CHAT, MAX_SEND_FAILURES, PendingReminder, REMINDERS_PER_RUN, Reminder,
+    ReminderPlan, Schedule, repeat_columns, repeat_from_columns,
 };
 use crate::auth::UserId;
 use crate::matches::domain::{Format, MatchType};
@@ -22,6 +28,46 @@ impl PgBotRepository {
 
 fn repo_error(error: sqlx::Error) -> RepoError {
     RepoError(error.to_string())
+}
+
+/// Rebuilds a stored plan; a row the rules would not accept is an error.
+fn plan_from_row(
+    weekdays: i16,
+    day_of_month: Option<i16>,
+    time: NaiveTime,
+    text: String,
+) -> Result<ReminderPlan, RepoError> {
+    let repeat = repeat_from_columns(weekdays, day_of_month).ok_or_else(|| {
+        RepoError(format!(
+            "stored reminder has an invalid repeat: {weekdays}, {day_of_month:?}"
+        ))
+    })?;
+    Ok(ReminderPlan {
+        schedule: Schedule { repeat, time },
+        text,
+    })
+}
+
+type PendingRow = (i64, i16, Option<i16>, NaiveTime, String, DateTime<Utc>);
+
+type ReminderRow = (
+    i64,
+    String,
+    i16,
+    Option<i16>,
+    NaiveTime,
+    String,
+    DateTime<Utc>,
+);
+
+fn reminder_from_row(row: ReminderRow) -> Result<Reminder, RepoError> {
+    let (id, chat_id, weekdays, day_of_month, time, text, next_run_at) = row;
+    Ok(Reminder {
+        id,
+        chat_id,
+        plan: plan_from_row(weekdays, day_of_month, time, text)?,
+        next_run_at,
+    })
 }
 
 type DraftRow = (
@@ -166,12 +212,16 @@ impl BotRepository for PgBotRepository {
         .map_err(repo_error)?;
         // Drafts read under the previous link, by this Zalo account or for this
         // user, must not be created after the link changed.
-        sqlx::query("DELETE FROM bot_drafts WHERE zalo_user_id = $1 OR user_id = $2")
+        for table in ["bot_drafts", "bot_pending_reminders"] {
+            sqlx::query(&format!(
+                "DELETE FROM {table} WHERE zalo_user_id = $1 OR user_id = $2"
+            ))
             .bind(&zalo_user_id)
             .bind(user.0)
             .execute(&mut *tx)
             .await
             .map_err(repo_error)?;
+        }
         tx.commit().await.map_err(repo_error)?;
         Ok(Some(zalo_user_id))
     }
@@ -181,6 +231,13 @@ impl BotRepository for PgBotRepository {
         // Drafts expire unused; clear old ones while writing a new one.
         sqlx::query("DELETE FROM bot_drafts WHERE expires_at <= $1")
             .bind(draft.expires_at - Duration::minutes(DRAFT_MINUTES))
+            .execute(&mut *tx)
+            .await
+            .map_err(repo_error)?;
+        // One pending item per sender and chat: a new match replaces a reminder.
+        sqlx::query("DELETE FROM bot_pending_reminders WHERE zalo_user_id = $1 AND chat_id = $2")
+            .bind(&draft.zalo_user_id)
+            .bind(&draft.chat_id)
             .execute(&mut *tx)
             .await
             .map_err(repo_error)?;
@@ -275,5 +332,195 @@ impl BotRepository for PgBotRepository {
             total_fee_vnd: fee,
             expires_at,
         }))
+    }
+
+    async fn save_pending_reminder(&self, pending: &PendingReminder) -> Result<(), RepoError> {
+        let mut tx = self.pool.begin().await.map_err(repo_error)?;
+        sqlx::query("DELETE FROM bot_pending_reminders WHERE expires_at <= $1")
+            .bind(pending.expires_at - Duration::minutes(DRAFT_MINUTES))
+            .execute(&mut *tx)
+            .await
+            .map_err(repo_error)?;
+        // One pending item per sender and chat: a reminder replaces a match draft.
+        sqlx::query("DELETE FROM bot_drafts WHERE zalo_user_id = $1 AND chat_id = $2")
+            .bind(&pending.zalo_user_id)
+            .bind(&pending.chat_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(repo_error)?;
+        let (weekdays, day_of_month) = repeat_columns(pending.plan.schedule.repeat);
+        sqlx::query(
+            "INSERT INTO bot_pending_reminders (zalo_user_id, chat_id, user_id, weekdays,
+                 day_of_month, time_of_day, text, expires_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+             ON CONFLICT (zalo_user_id, chat_id) DO UPDATE SET
+                 user_id = EXCLUDED.user_id, weekdays = EXCLUDED.weekdays,
+                 day_of_month = EXCLUDED.day_of_month, time_of_day = EXCLUDED.time_of_day,
+                 text = EXCLUDED.text, expires_at = EXCLUDED.expires_at",
+        )
+        .bind(&pending.zalo_user_id)
+        .bind(&pending.chat_id)
+        .bind(pending.user.0)
+        .bind(weekdays)
+        .bind(day_of_month)
+        .bind(pending.plan.schedule.time)
+        .bind(&pending.plan.text)
+        .bind(pending.expires_at)
+        .execute(&mut *tx)
+        .await
+        .map_err(repo_error)?;
+        tx.commit().await.map_err(repo_error)
+    }
+
+    async fn take_pending_reminder(
+        &self,
+        zalo_user_id: &str,
+        chat_id: &str,
+        now: DateTime<Utc>,
+    ) -> Result<Option<PendingReminder>, RepoError> {
+        let row: Option<PendingRow> = sqlx::query_as(
+            "DELETE FROM bot_pending_reminders WHERE zalo_user_id = $1 AND chat_id = $2
+                 RETURNING user_id, weekdays, day_of_month, time_of_day, text, expires_at",
+        )
+        .bind(zalo_user_id)
+        .bind(chat_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(repo_error)?;
+        let Some((user, weekdays, day_of_month, time, text, expires_at)) = row else {
+            return Ok(None);
+        };
+        if expires_at <= now {
+            return Ok(None);
+        }
+        Ok(Some(PendingReminder {
+            zalo_user_id: zalo_user_id.to_owned(),
+            chat_id: chat_id.to_owned(),
+            user: UserId(user),
+            plan: plan_from_row(weekdays, day_of_month, time, text)?,
+            expires_at,
+        }))
+    }
+
+    async fn add_reminder(
+        &self,
+        chat_id: &str,
+        user: UserId,
+        plan: &ReminderPlan,
+        next_run_at: DateTime<Utc>,
+        now: DateTime<Utc>,
+    ) -> Result<bool, RepoError> {
+        let mut tx = self.pool.begin().await.map_err(repo_error)?;
+        // Serialises adds per chat so two "ok"s cannot both pass the count.
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended('bot_reminders:' || $1, 0))")
+            .bind(chat_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(repo_error)?;
+        let count: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM bot_reminders WHERE chat_id = $1")
+                .bind(chat_id)
+                .fetch_one(&mut *tx)
+                .await
+                .map_err(repo_error)?;
+        if count >= MAX_REMINDERS_PER_CHAT {
+            return Ok(false);
+        }
+        let (weekdays, day_of_month) = repeat_columns(plan.schedule.repeat);
+        sqlx::query(
+            "INSERT INTO bot_reminders (chat_id, user_id, weekdays, day_of_month, time_of_day,
+                 text, next_run_at, created_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+        )
+        .bind(chat_id)
+        .bind(user.0)
+        .bind(weekdays)
+        .bind(day_of_month)
+        .bind(plan.schedule.time)
+        .bind(&plan.text)
+        .bind(next_run_at)
+        .bind(now)
+        .execute(&mut *tx)
+        .await
+        .map_err(repo_error)?;
+        tx.commit().await.map_err(repo_error)?;
+        Ok(true)
+    }
+
+    async fn reminders(&self, chat_id: &str) -> Result<Vec<Reminder>, RepoError> {
+        let rows: Vec<ReminderRow> = sqlx::query_as(
+            "SELECT id, chat_id, weekdays, day_of_month, time_of_day, text, next_run_at
+             FROM bot_reminders WHERE chat_id = $1 ORDER BY id",
+        )
+        .bind(chat_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(repo_error)?;
+        rows.into_iter().map(reminder_from_row).collect()
+    }
+
+    async fn delete_reminder(&self, chat_id: &str, id: i64) -> Result<bool, RepoError> {
+        let deleted = sqlx::query("DELETE FROM bot_reminders WHERE chat_id = $1 AND id = $2")
+            .bind(chat_id)
+            .bind(id)
+            .execute(&self.pool)
+            .await
+            .map_err(repo_error)?
+            .rows_affected();
+        Ok(deleted == 1)
+    }
+
+    async fn claim_due_reminders(&self, now: DateTime<Utc>) -> Result<Vec<Reminder>, RepoError> {
+        let mut tx = self.pool.begin().await.map_err(repo_error)?;
+        // SKIP LOCKED lets an overlapping run take other reminders, never these.
+        let rows: Vec<ReminderRow> = sqlx::query_as(
+            "SELECT id, chat_id, weekdays, day_of_month, time_of_day, text, next_run_at
+             FROM bot_reminders WHERE next_run_at <= $1
+             ORDER BY next_run_at LIMIT $2 FOR UPDATE SKIP LOCKED",
+        )
+        .bind(now)
+        .bind(REMINDERS_PER_RUN)
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(repo_error)?;
+        let mut due = Vec::with_capacity(rows.len());
+        for row in rows {
+            let reminder = reminder_from_row(row)?;
+            // Posted once even if runs were missed: the next run is after now.
+            sqlx::query("UPDATE bot_reminders SET next_run_at = $2 WHERE id = $1")
+                .bind(reminder.id)
+                .bind(reminder.plan.schedule.next_run(now))
+                .execute(&mut *tx)
+                .await
+                .map_err(repo_error)?;
+            due.push(reminder);
+        }
+        tx.commit().await.map_err(repo_error)?;
+        Ok(due)
+    }
+
+    async fn record_reminder_send(&self, id: i64, delivered: bool) -> Result<(), RepoError> {
+        if delivered {
+            sqlx::query("UPDATE bot_reminders SET failures = 0 WHERE id = $1 AND failures > 0")
+                .bind(id)
+                .execute(&self.pool)
+                .await
+                .map_err(repo_error)?;
+            return Ok(());
+        }
+        // Postgres applies only one change per row per statement, so the count and
+        // the delete are two statements.
+        sqlx::query("UPDATE bot_reminders SET failures = failures + 1 WHERE id = $1")
+            .bind(id)
+            .execute(&self.pool)
+            .await
+            .map_err(repo_error)?;
+        sqlx::query("DELETE FROM bot_reminders WHERE id = $1 AND failures >= $2")
+            .bind(id)
+            .bind(MAX_SEND_FAILURES)
+            .execute(&self.pool)
+            .await
+            .map_err(repo_error)?;
+        Ok(())
     }
 }

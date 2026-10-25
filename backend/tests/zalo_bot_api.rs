@@ -11,6 +11,7 @@ use axum::http::header::{CONTENT_TYPE, COOKIE};
 use axum::http::{Request, StatusCode};
 use chrono::Duration;
 use common::*;
+use daghep_api::bot::reminders::RawReminder;
 use daghep_api::drafts::domain::RawDraft;
 use serde_json::{Value, json};
 use sqlx::PgPool;
@@ -25,6 +26,7 @@ struct Bot {
     app: Router,
     chat: FakeChat,
     reader: FakeReader,
+    reminders: FakeReminderReader,
     clock: TestClock,
     pool: PgPool,
 }
@@ -54,10 +56,18 @@ fn bot(pool: PgPool, answer: RawDraft) -> Bot {
         ..FakeReader::default()
     };
     let clock = TestClock::at(NOW);
+    let reminders = FakeReminderReader::default();
     Bot {
-        app: app_with_bot(pool.clone(), clock.clone(), reader.clone(), chat.clone()),
+        app: app_with_reminders(
+            pool.clone(),
+            clock.clone(),
+            reader.clone(),
+            chat.clone(),
+            reminders.clone(),
+        ),
         chat,
         reader,
+        reminders,
         clock,
         pool,
     }
@@ -520,20 +530,27 @@ async fn without_a_reader_it_points_to_the_web_form(pool: PgPool) {
             reply: std::sync::Arc::new(chat.clone()),
             webhook_secret: daghep_api::config::Secret::new(BOT_SECRET.to_owned()),
             bot_name: "Bot DaGhep".to_owned(),
+            reminder_reader: None,
+            cron_secret: None,
         })),
     });
     let bot = Bot {
         app,
         chat,
         reader: FakeReader::default(),
+        reminders: FakeReminderReader::default(),
         clock,
         pool,
     };
     bot.link(HOST, "host").await;
 
     let reply = bot.in_group(HOST, "tối nay 19h SSA").await.unwrap();
-
     assert!(reply.contains(&format!("{FRONTEND}/create")), "{reply}");
+    let reminder = bot.in_group(HOST, "nhắc t7 8h").await.unwrap();
+    assert!(reminder.contains("tạm nghỉ"), "{reminder}");
+    // Without a scheduler secret the run endpoint does not exist.
+    let run = call(&bot.app, cron_request(Some(CRON_SECRET))).await;
+    assert_eq!(run.status(), StatusCode::NOT_FOUND);
 }
 
 #[sqlx::test]
@@ -559,4 +576,229 @@ async fn ignores_bodies_it_cannot_use_once_the_secret_is_right(pool: PgPool) {
         None
     );
     assert!(bot.chat.sent.lock().unwrap().is_empty());
+}
+
+// ---- Reminders ("@Bot DaGhep nhắc ...") ----
+
+/// What a model might answer for "nhắc t7 cn 8h hỏi ai chơi bóng rổ".
+fn weekend_reminder() -> RawReminder {
+    RawReminder {
+        repeat: Some("weekly".to_owned()),
+        weekdays: vec![6, 0],
+        day_of_month: None,
+        time: Some("08:00".to_owned()),
+        message: Some("Cuối tuần này ai chơi bóng rổ không?".to_owned()),
+    }
+}
+
+fn cron_request(secret: Option<&str>) -> Request<Body> {
+    let mut request = Request::post("/api/bot/reminders/run");
+    if let Some(secret) = secret {
+        request = request.header("X-Cron-Secret", secret);
+    }
+    request.body(Body::empty()).unwrap()
+}
+
+impl Bot {
+    fn reminder_answer(&self, answer: Option<RawReminder>) {
+        *self.reminders.answer.lock().unwrap() = answer;
+    }
+
+    /// Runs the scheduler once; returns how many reminders it posted.
+    async fn run_reminders(&self) -> i64 {
+        let response = call(&self.app, cron_request(Some(CRON_SECRET))).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        json_body(response).await["sent"].as_i64().unwrap()
+    }
+
+    fn sent_count(&self) -> usize {
+        self.chat.sent.lock().unwrap().len()
+    }
+
+    fn last_sent(&self) -> (String, String) {
+        self.chat.sent.lock().unwrap().last().cloned().unwrap()
+    }
+
+    async fn add_weekend_reminder(&self) {
+        self.reminder_answer(Some(weekend_reminder()));
+        self.in_group(HOST, "nhắc t7 cn 8h hỏi ai chơi bóng rổ")
+            .await
+            .unwrap();
+        let saved = self.in_group(HOST, "ok").await.unwrap();
+        assert!(saved.contains("Đã lưu lịch nhắc"), "{saved}");
+    }
+}
+
+#[sqlx::test]
+async fn a_reminder_is_read_confirmed_and_posted_on_schedule(pool: PgPool) {
+    let bot = bot(pool, tonight());
+    bot.link(HOST, "host").await;
+    bot.reminder_answer(Some(weekend_reminder()));
+
+    let summary = bot
+        .in_group(
+            HOST,
+            "đặt lịch nhắc mỗi tuần t7 cn 8h hỏi có ai chơi bóng rổ ko",
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        bot.reminders.calls.lock().unwrap().as_slice(),
+        ["đặt lịch nhắc mỗi tuần t7 cn 8h hỏi có ai chơi bóng rổ ko"]
+    );
+    assert!(
+        summary.contains("mỗi Thứ 7, Chủ nhật lúc 08:00"),
+        "{summary}"
+    );
+    assert!(
+        summary.contains("Cuối tuần này ai chơi bóng rổ không?"),
+        "{summary}"
+    );
+    assert!(summary.contains("@Bot DaGhep ok"), "{summary}");
+    // Nothing is read as a match.
+    assert!(bot.reader.calls.lock().unwrap().is_empty());
+
+    let saved = bot.in_group(HOST, "ok").await.unwrap();
+    // NOW is Thursday 07:00 local; the next run is Saturday 08:00.
+    assert!(saved.contains("Thứ 7 03/10 08:00"), "{saved}");
+    assert_eq!(bot.run_reminders().await, 0);
+
+    bot.clock.advance(Duration::days(2) + Duration::hours(1));
+    let before = bot.sent_count();
+    assert_eq!(bot.run_reminders().await, 1);
+    assert_eq!(bot.sent_count(), before + 1);
+    assert_eq!(
+        bot.last_sent(),
+        (
+            GROUP.to_owned(),
+            "⏰ Cuối tuần này ai chơi bóng rổ không?".to_owned()
+        )
+    );
+    // Posted once per due time, then again on Sunday.
+    assert_eq!(bot.run_reminders().await, 0);
+    bot.clock.advance(Duration::days(1));
+    assert_eq!(bot.run_reminders().await, 1);
+}
+
+#[sqlx::test]
+async fn a_reminder_request_asks_for_what_it_left_out(pool: PgPool) {
+    let bot = bot(pool, tonight());
+    bot.link(HOST, "host").await;
+    bot.reminder_answer(Some(RawReminder {
+        time: None,
+        ..weekend_reminder()
+    }));
+    let reply = bot
+        .in_group(HOST, "nhắc t7 cn hỏi ai chơi bóng rổ")
+        .await
+        .unwrap();
+    assert!(reply.contains("nhắc lúc mấy giờ"), "{reply}");
+    // Nothing is pending: "ok" has nothing to save.
+    let ok = bot.in_group(HOST, "ok").await.unwrap();
+    assert!(ok.contains("Không có kèo nào đang chờ"), "{ok}");
+}
+
+#[sqlx::test]
+async fn only_linked_senders_set_reminders(pool: PgPool) {
+    let bot = bot(pool, tonight());
+    bot.reminder_answer(Some(weekend_reminder()));
+    let reply = bot.in_group(OTHER, "nhắc t7 cn 8h").await.unwrap();
+    assert!(reply.contains("liên kết"), "{reply}");
+    assert!(bot.reminders.calls.lock().unwrap().is_empty());
+}
+
+#[sqlx::test]
+async fn a_chat_keeps_at_most_three_reminders(pool: PgPool) {
+    let bot = bot(pool, tonight());
+    bot.link(HOST, "host").await;
+    for _ in 0..3 {
+        bot.add_weekend_reminder().await;
+    }
+    bot.in_group(HOST, "nhắc t7 cn 8h").await.unwrap();
+    let full = bot.in_group(HOST, "ok").await.unwrap();
+    assert!(full.contains("đã có 3 lịch nhắc"), "{full}");
+}
+
+#[sqlx::test]
+async fn reminders_are_listed_and_stopped_by_number(pool: PgPool) {
+    let bot = bot(pool, tonight());
+    bot.link(HOST, "host").await;
+    let none = bot.in_group(HOST, "tắt nhắc").await.unwrap();
+    assert!(none.contains("chưa có lịch nhắc"), "{none}");
+
+    bot.add_weekend_reminder().await;
+    let list = bot.in_group(HOST, "tắt nhắc").await.unwrap();
+    assert!(
+        list.contains("1. mỗi Thứ 7, Chủ nhật lúc 08:00: \"Cuối tuần này ai chơi bóng rổ không?\""),
+        "{list}"
+    );
+
+    // Unlinked members cannot stop the group's reminders.
+    let refused = bot.in_group(OTHER, "tắt nhắc 1").await.unwrap();
+    assert!(refused.contains("liên kết"), "{refused}");
+    let missing = bot.in_group(HOST, "tắt nhắc 2").await.unwrap();
+    assert!(missing.contains("Không có lịch nhắc số 2"), "{missing}");
+    let stopped = bot.in_group(HOST, "tắt nhắc 1").await.unwrap();
+    assert!(stopped.contains("Đã tắt lịch nhắc số 1"), "{stopped}");
+
+    bot.clock.advance(Duration::days(3));
+    assert_eq!(bot.run_reminders().await, 0);
+}
+
+#[sqlx::test]
+async fn a_new_match_draft_replaces_a_pending_reminder(pool: PgPool) {
+    let bot = bot(pool.clone(), tonight());
+    let session = bot.link(HOST, "host").await;
+    add_payout(&bot.app, &session).await;
+    bot.reminder_answer(Some(weekend_reminder()));
+    bot.in_group(HOST, "nhắc t7 cn 8h").await.unwrap();
+    bot.in_group(HOST, "tối nay 19h SSA sân 7 thiếu 3, 60k")
+        .await
+        .unwrap();
+    let created = bot.in_group(HOST, "ok").await.unwrap();
+    assert!(created.contains("Đã tạo kèo"), "{created}");
+    assert_eq!(matches_in_db(&pool).await, 1);
+    let list = bot.in_group(HOST, "xem nhắc").await.unwrap();
+    assert!(list.contains("chưa có lịch nhắc"), "{list}");
+}
+
+#[sqlx::test]
+async fn the_scheduler_needs_its_secret(pool: PgPool) {
+    let bot = bot(pool, tonight());
+    for secret in [None, Some("wrong-cron-secret-000")] {
+        let response = call(&bot.app, cron_request(secret)).await;
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    }
+}
+
+#[sqlx::test]
+async fn a_reminder_that_keeps_failing_is_dropped(pool: PgPool) {
+    let bot = bot(pool, tonight());
+    bot.link(HOST, "host").await;
+    bot.add_weekend_reminder().await;
+    *bot.chat.failing.lock().unwrap() = true;
+    // Saturday and Sunday fail: two failures keep the reminder.
+    bot.clock.advance(Duration::days(2) + Duration::hours(1));
+    bot.run_reminders().await;
+    bot.clock.advance(Duration::days(1));
+    bot.run_reminders().await;
+    *bot.chat.failing.lock().unwrap() = false;
+    let kept = bot.in_group(HOST, "xem nhắc").await.unwrap();
+    assert!(kept.contains("1. mỗi Thứ 7"), "{kept}");
+    // The third failure in a row (next Saturday) drops it.
+    *bot.chat.failing.lock().unwrap() = true;
+    bot.clock.advance(Duration::days(6));
+    assert_eq!(bot.run_reminders().await, 0);
+    *bot.chat.failing.lock().unwrap() = false;
+    let list = bot.in_group(HOST, "xem nhắc").await.unwrap();
+    assert!(list.contains("chưa có lịch nhắc"), "{list}");
+}
+
+#[sqlx::test]
+async fn a_message_with_nothing_about_a_match_gets_a_short_answer(pool: PgPool) {
+    let bot = bot(pool, RawDraft::default());
+    bot.link(HOST, "host").await;
+    let reply = bot.in_group(HOST, "hôm nay trời đẹp quá").await.unwrap();
+    assert!(reply.contains("chưa thấy thông tin kèo"), "{reply}");
+    assert!(!reply.contains("Mình còn thiếu"), "{reply}");
 }

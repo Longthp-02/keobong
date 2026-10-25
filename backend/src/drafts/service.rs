@@ -44,11 +44,7 @@ where
     let reader = reader.ok_or(ReadDraftError::Unavailable)?;
     let now = clock.now();
     // Counted before the call, so failed or slow reads still use up the limit.
-    drafts
-        .record_read(user, now)
-        .await
-        .map_err(|error| ReadDraftError::Storage(error.to_string()))?
-        .map_err(ReadDraftError::Limited)?;
+    use_read(drafts, user, now).await?;
     let venues = matches::service::venues(matches)
         .await
         .map_err(|error| ReadDraftError::Storage(error.to_string()))?;
@@ -61,4 +57,18 @@ where
         })
         .await?;
     Ok(MatchDraft::checked(raw, now, &venues))
+}
+
+/// Uses up one AI read for `user`, or says which daily limit is reached. Other
+/// AI readers (the Zalo bot's reminders) share the same limits.
+pub async fn use_read<D: DraftRepository>(
+    drafts: &D,
+    user: UserId,
+    now: chrono::DateTime<chrono::Utc>,
+) -> Result<(), ReadDraftError> {
+    drafts
+        .record_read(user, now)
+        .await
+        .map_err(|error| ReadDraftError::Storage(error.to_string()))?
+        .map_err(ReadDraftError::Limited)
 }

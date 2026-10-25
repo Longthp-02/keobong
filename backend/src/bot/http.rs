@@ -15,8 +15,9 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
 use super::domain::{COPY, ChatKind, ChatReply, Incoming, fill};
+use super::reminders::ReminderReader;
 use super::repo::PgBotRepository;
-use super::service::{BotContext, handle_message, redeem_link};
+use super::service::{BotContext, handle_message, redeem_link, run_due_reminders};
 use crate::auth::{AuthState, AuthenticatedUser};
 use crate::clock::Clock;
 use crate::config::Secret;
@@ -27,12 +28,18 @@ use crate::payments::PgPayoutRepository;
 
 /// Header Zalo sends with every webhook call, carrying our secret.
 const SECRET_HEADER: &str = "x-bot-api-secret-token";
+/// Header the scheduler (Cloud Scheduler) sends to run due reminders.
+const CRON_HEADER: &str = "x-cron-secret";
 
 /// What the bot needs from Zalo; without it the bot routes answer 404.
 pub struct ZaloSettings {
     pub reply: Arc<dyn ChatReply>,
     pub webhook_secret: Secret,
     pub bot_name: String,
+    /// `None` makes the bot answer reminder requests with "resting".
+    pub reminder_reader: Option<Arc<dyn ReminderReader>>,
+    /// `None` disables the scheduler endpoint (404); reminders then never post.
+    pub cron_secret: Option<Secret>,
 }
 
 #[derive(Clone)]
@@ -58,6 +65,7 @@ pub fn router(state: BotState) -> Router {
     Router::new()
         .route("/api/bot/zalo/webhook", post(webhook))
         .route("/api/bot/link", post(link))
+        .route("/api/bot/reminders/run", post(run_reminders))
         .with_state(state)
 }
 
@@ -143,6 +151,7 @@ async fn webhook(State(state): State<BotState>, headers: HeaderMap, body: Bytes)
         payouts: &state.payouts,
         clock: state.clock.as_ref(),
         reader: state.reader.as_deref(),
+        reminder_reader: zalo.reminder_reader.as_deref(),
         frontend_origin: &state.frontend_origin,
         bot_name: &zalo.bot_name,
     };
@@ -162,6 +171,34 @@ async fn webhook(State(state): State<BotState>, headers: HeaderMap, body: Bytes)
         }
     }
     Json(json!({ "ok": true })).into_response()
+}
+
+/// Called every few minutes by the scheduler; posts the reminders that are due.
+async fn run_reminders(State(state): State<BotState>, headers: HeaderMap) -> Response {
+    let Some((zalo, secret)) = state
+        .zalo
+        .as_ref()
+        .and_then(|zalo| zalo.cron_secret.as_ref().map(|secret| (zalo, secret)))
+    else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    let authentic = headers
+        .get(CRON_HEADER)
+        .is_some_and(|value| same_secret(value.as_bytes(), secret.expose()));
+    if !authentic {
+        return (StatusCode::FORBIDDEN, Json(json!({ "error": "forbidden" }))).into_response();
+    }
+    match run_due_reminders(&state.bot, state.clock.as_ref(), zalo.reply.as_ref()).await {
+        Ok(sent) => Json(json!({ "sent": sent })).into_response(),
+        Err(error) => {
+            tracing::error!(error = %error, "could not run reminders");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "internal_error" })),
+            )
+                .into_response()
+        }
+    }
 }
 
 #[derive(Deserialize)]

@@ -9,6 +9,7 @@ use std::sync::LazyLock;
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
 
+use super::reminders::{PendingReminder, Reminder, ReminderPlan};
 use crate::auth::UserId;
 use crate::matches::domain::{Format, MatchType};
 
@@ -56,6 +57,11 @@ pub enum Command {
     Link,
     Confirm,
     Cancel,
+    /// A reminder to post on a schedule, in the sender's own words.
+    Remind(String),
+    ListReminders,
+    /// Stop the reminder with this number in the list; `None` shows the list.
+    StopReminder(Option<i64>),
     /// A match described in the organiser's own words.
     Describe(String),
 }
@@ -75,6 +81,11 @@ pub fn parse_command(text: &str, kind: ChatKind, bot_name: &str) -> Option<Comma
     let word = rest.trim_end_matches(['.', '!', '?', ' ']).to_lowercase();
     let commands = &COPY.commands;
     let is = |words: &[String]| words.contains(&word);
+    let stop = commands
+        .stop_reminder
+        .iter()
+        .find_map(|prefix| word.strip_prefix(prefix.as_str()))
+        .filter(|after| after.is_empty() || after.starts_with(' '));
     Some(if is(&commands.help) {
         Command::Help
     } else if is(&commands.link) {
@@ -83,6 +94,17 @@ pub fn parse_command(text: &str, kind: ChatKind, bot_name: &str) -> Option<Comma
         Command::Confirm
     } else if is(&commands.cancel) {
         Command::Cancel
+    } else if let Some(after) = stop {
+        // "tắt nhắc 2", "tắt nhắc số 2", "tắt nhắc #2".
+        let digits: String = after.chars().filter(char::is_ascii_digit).collect();
+        Command::StopReminder(digits.parse().ok())
+    } else if is(&commands.list_reminders) {
+        Command::ListReminders
+    } else if word
+        .split(|c: char| !c.is_alphanumeric())
+        .any(|token| commands.remind.iter().any(|remind| remind == token))
+    {
+        Command::Remind(rest.to_owned())
     } else {
         Command::Describe(rest.to_owned())
     })
@@ -163,6 +185,60 @@ pub trait BotRepository: Send + Sync {
         chat_id: &str,
         now: DateTime<Utc>,
     ) -> impl Future<Output = Result<Option<BotDraft>, RepoError>> + Send;
+
+    /// Replaces whatever the sender has pending in that chat (a match draft or a
+    /// reminder) with this reminder.
+    fn save_pending_reminder(
+        &self,
+        pending: &PendingReminder,
+    ) -> impl Future<Output = Result<(), RepoError>> + Send;
+
+    /// Removes and returns the sender's unexpired pending reminder in that chat.
+    fn take_pending_reminder(
+        &self,
+        zalo_user_id: &str,
+        chat_id: &str,
+        now: DateTime<Utc>,
+    ) -> impl Future<Output = Result<Option<PendingReminder>, RepoError>> + Send;
+
+    /// Saves a reminder unless its chat already has `MAX_REMINDERS_PER_CHAT`;
+    /// returns whether it was saved.
+    fn add_reminder(
+        &self,
+        chat_id: &str,
+        user: UserId,
+        plan: &ReminderPlan,
+        next_run_at: DateTime<Utc>,
+        now: DateTime<Utc>,
+    ) -> impl Future<Output = Result<bool, RepoError>> + Send;
+
+    /// The chat's reminders, oldest first (their list numbers).
+    fn reminders(
+        &self,
+        chat_id: &str,
+    ) -> impl Future<Output = Result<Vec<Reminder>, RepoError>> + Send;
+
+    fn delete_reminder(
+        &self,
+        chat_id: &str,
+        id: i64,
+    ) -> impl Future<Output = Result<bool, RepoError>> + Send;
+
+    /// Takes up to `REMINDERS_PER_RUN` reminders due at `now` and moves each to
+    /// its next run before returning them, so a reminder is posted at most once
+    /// even when runs overlap.
+    fn claim_due_reminders(
+        &self,
+        now: DateTime<Utc>,
+    ) -> impl Future<Output = Result<Vec<Reminder>, RepoError>> + Send;
+
+    /// Records a send result; a reminder that failed `MAX_SEND_FAILURES` times
+    /// in a row is deleted.
+    fn record_reminder_send(
+        &self,
+        id: i64,
+        delivered: bool,
+    ) -> impl Future<Output = Result<(), RepoError>> + Send;
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -206,16 +282,38 @@ pub struct BotCopy {
     pub free: String,
     pub currency: String,
     pub anonymous_name: String,
+    pub not_a_match: String,
+    pub reminder_summary: String,
+    pub reminder_confirm_hint: String,
+    pub reminder_missing: String,
+    pub reminder_gaps: HashMap<String, String>,
+    pub reminder_saved: String,
+    pub reminder_limit: String,
+    pub reminder_list: String,
+    pub reminder_list_item: String,
+    pub no_reminders: String,
+    pub reminder_stopped: String,
+    pub reminder_not_found: String,
+    pub reminder_post: String,
+    pub every_day: String,
+    pub on_weekdays: String,
+    pub month_day: String,
     pub commands: Commands,
 }
 
 /// Words that mean a command (lower case, without trailing punctuation).
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Commands {
     pub help: Vec<String>,
     pub link: Vec<String>,
     pub confirm: Vec<String>,
     pub cancel: Vec<String>,
+    /// A message containing one of these words asks for a reminder.
+    pub remind: Vec<String>,
+    pub list_reminders: Vec<String>,
+    /// Prefixes; a number may follow ("tắt nhắc 2").
+    pub stop_reminder: Vec<String>,
 }
 
 const COPY_JSON: &str = include_str!("../../messages/vi.json");
@@ -329,6 +427,56 @@ mod tests {
     }
 
     #[test]
+    fn understands_reminder_commands() {
+        assert_eq!(
+            parse_command(
+                "@Bot DaGhep nhắc mỗi thứ 5 20h: ai đá không?",
+                ChatKind::Group,
+                BOT
+            ),
+            Some(Command::Remind(
+                "nhắc mỗi thứ 5 20h: ai đá không?".to_owned()
+            ))
+        );
+        assert_eq!(
+            parse_command(
+                "@Bot DaGhep đặt lịch nhắc hẹn mỗi tuần t7 cn",
+                ChatKind::Group,
+                BOT
+            ),
+            Some(Command::Remind(
+                "đặt lịch nhắc hẹn mỗi tuần t7 cn".to_owned()
+            ))
+        );
+        for (text, number) in [
+            ("tắt nhắc", None),
+            ("tắt nhắc 2", Some(2)),
+            ("Tắt nhắc số 3.", Some(3)),
+            ("xoá nhắc #1", Some(1)),
+        ] {
+            assert_eq!(
+                parse_command(text, ChatKind::Private, BOT),
+                Some(Command::StopReminder(number)),
+                "{text}"
+            );
+        }
+        assert_eq!(
+            parse_command("xem nhắc", ChatKind::Private, BOT),
+            Some(Command::ListReminders)
+        );
+        // "nhắc" inside another word is not a reminder.
+        assert_eq!(
+            parse_command("tối nay 19h SSA", ChatKind::Private, BOT),
+            Some(Command::Describe("tối nay 19h SSA".to_owned()))
+        );
+        // "huỷ" alone still cancels.
+        assert_eq!(
+            parse_command("huỷ", ChatKind::Private, BOT),
+            Some(Command::Cancel)
+        );
+    }
+
+    #[test]
     fn a_tag_with_a_multibyte_start_does_not_panic() {
         assert_eq!(parse_command("đá", ChatKind::Group, BOT), None);
     }
@@ -356,6 +504,17 @@ mod tests {
             "other",
         ] {
             assert!(copy.reasons.contains_key(key), "reasons.{key}");
+        }
+        for gap in [
+            super::super::reminders::ReminderGap::Repeat,
+            super::super::reminders::ReminderGap::Time,
+            super::super::reminders::ReminderGap::Message,
+        ] {
+            assert!(
+                copy.reminder_gaps.contains_key(gap.key()),
+                "reminderGaps.{}",
+                gap.key()
+            );
         }
         for format in [Format::FiveASide, Format::SevenASide, Format::ElevenASide] {
             assert!(

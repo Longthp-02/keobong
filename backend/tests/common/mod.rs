@@ -15,7 +15,10 @@ use daghep_api::auth::domain::{
     IdentityProvider, LoginAttempt, Provider, ProviderError, ProviderFuture, ProviderIdentity,
 };
 use daghep_api::bot::ZaloSettings;
-use daghep_api::bot::domain::{ChatReply, SendFuture};
+use daghep_api::bot::domain::{ChatReply, SendError, SendFuture};
+use daghep_api::bot::reminders::{
+    RawReminder, ReminderFuture, ReminderReader, ReminderReaderError, ReminderRequest,
+};
 use daghep_api::clock::Clock;
 use daghep_api::drafts::domain::{
     MatchTextReader, RawDraft, ReadRequest, ReaderError, ReaderFuture,
@@ -149,10 +152,15 @@ pub fn app_with_reader(pool: PgPool, clock: TestClock, reader: FakeReader) -> Ro
 #[derive(Clone, Default)]
 pub struct FakeChat {
     pub sent: Arc<Mutex<Vec<(String, String)>>>,
+    /// When true, every send fails (the bot was removed from the chat).
+    pub failing: Arc<Mutex<bool>>,
 }
 
 impl ChatReply for FakeChat {
     fn send<'a>(&'a self, chat_id: &'a str, text: &'a str) -> SendFuture<'a> {
+        if *self.failing.lock().unwrap() {
+            return Box::pin(async { Err(SendError("fake failure".to_owned())) });
+        }
         self.sent
             .lock()
             .unwrap()
@@ -162,8 +170,40 @@ impl ChatReply for FakeChat {
 }
 
 pub const BOT_SECRET: &str = "test-webhook-secret-123";
+pub const CRON_SECRET: &str = "test-cron-secret-12345";
+
+/// Fake reminder reader: answers every request with `answer` (or fails when it
+/// is `None`) and records the texts it was asked to read.
+#[derive(Clone, Default)]
+pub struct FakeReminderReader {
+    pub answer: Arc<Mutex<Option<RawReminder>>>,
+    pub calls: Arc<Mutex<Vec<String>>>,
+}
+
+impl ReminderReader for FakeReminderReader {
+    fn read<'a>(&'a self, request: ReminderRequest<'a>) -> ReminderFuture<'a> {
+        self.calls.lock().unwrap().push(request.text.to_owned());
+        let answer = self
+            .answer
+            .lock()
+            .unwrap()
+            .clone()
+            .ok_or_else(|| ReminderReaderError("fake failure".to_owned()));
+        Box::pin(async move { answer })
+    }
+}
 
 pub fn app_with_bot(pool: PgPool, clock: TestClock, reader: FakeReader, chat: FakeChat) -> Router {
+    app_with_reminders(pool, clock, reader, chat, FakeReminderReader::default())
+}
+
+pub fn app_with_reminders(
+    pool: PgPool,
+    clock: TestClock,
+    reader: FakeReader,
+    chat: FakeChat,
+    reminders: FakeReminderReader,
+) -> Router {
     daghep_api::app(Deps {
         pool,
         clock: Arc::new(clock),
@@ -174,6 +214,8 @@ pub fn app_with_bot(pool: PgPool, clock: TestClock, reader: FakeReader, chat: Fa
             reply: Arc::new(chat),
             webhook_secret: daghep_api::config::Secret::new(BOT_SECRET.to_owned()),
             bot_name: "Bot DaGhep".to_owned(),
+            reminder_reader: Some(Arc::new(reminders)),
+            cron_secret: Some(daghep_api::config::Secret::new(CRON_SECRET.to_owned())),
         })),
     })
 }
