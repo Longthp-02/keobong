@@ -16,6 +16,7 @@ use daghep_api::auth::domain::{
 };
 use daghep_api::bot::ZaloSettings;
 use daghep_api::bot::domain::{ChatReply, SendError, SendFuture};
+use daghep_api::bot::polls::{PollFuture, PollReader, PollReaderError, PollRequest, RawPoll};
 use daghep_api::bot::reminders::{
     RawReminder, ReminderFuture, ReminderReader, ReminderReaderError, ReminderRequest,
 };
@@ -193,16 +194,45 @@ impl ReminderReader for FakeReminderReader {
     }
 }
 
-pub fn app_with_bot(pool: PgPool, clock: TestClock, reader: FakeReader, chat: FakeChat) -> Router {
-    app_with_reminders(pool, clock, reader, chat, FakeReminderReader::default())
+/// Fake poll reader: answers every request with `answer` (or fails when it is
+/// `None`) and records the texts it was asked to read.
+#[derive(Clone, Default)]
+pub struct FakePollReader {
+    pub answer: Arc<Mutex<Option<RawPoll>>>,
+    pub calls: Arc<Mutex<Vec<String>>>,
 }
 
-pub fn app_with_reminders(
+impl PollReader for FakePollReader {
+    fn read<'a>(&'a self, request: PollRequest<'a>) -> PollFuture<'a> {
+        self.calls.lock().unwrap().push(request.text.to_owned());
+        let answer = self
+            .answer
+            .lock()
+            .unwrap()
+            .clone()
+            .ok_or_else(|| PollReaderError("fake failure".to_owned()));
+        Box::pin(async move { answer })
+    }
+}
+
+pub fn app_with_bot(pool: PgPool, clock: TestClock, reader: FakeReader, chat: FakeChat) -> Router {
+    app_with_readers(
+        pool,
+        clock,
+        reader,
+        chat,
+        FakeReminderReader::default(),
+        FakePollReader::default(),
+    )
+}
+
+pub fn app_with_readers(
     pool: PgPool,
     clock: TestClock,
     reader: FakeReader,
     chat: FakeChat,
     reminders: FakeReminderReader,
+    polls: FakePollReader,
 ) -> Router {
     daghep_api::app(Deps {
         pool,
@@ -215,6 +245,7 @@ pub fn app_with_reminders(
             webhook_secret: daghep_api::config::Secret::new(BOT_SECRET.to_owned()),
             bot_name: "Bot DaGhep".to_owned(),
             reminder_reader: Some(Arc::new(reminders)),
+            poll_reader: Some(Arc::new(polls)),
             cron_secret: Some(daghep_api::config::Secret::new(CRON_SECRET.to_owned())),
         })),
     })

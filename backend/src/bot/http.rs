@@ -3,27 +3,30 @@
 use std::sync::Arc;
 
 use axum::body::Bytes;
+use axum::extract::Path;
 use axum::extract::rejection::JsonRejection;
 use axum::extract::{FromRef, State};
 use axum::http::header::CACHE_CONTROL;
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
-use axum::routing::post;
+use axum::routing::{get, post, put};
 use axum::{Json, Router};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
 use super::domain::{COPY, ChatKind, ChatReply, Incoming, fill};
+use super::polls::{AnswerOutcome, MAX_POLL_DAYS, Poll, PollReader, PollRepository};
 use super::reminders::ReminderReader;
 use super::repo::PgBotRepository;
-use super::service::{BotContext, handle_message, redeem_link, run_due_reminders};
-use crate::auth::{AuthState, AuthenticatedUser};
+use super::service::{BotContext, handle_message, redeem_link, run_due_polls, run_due_reminders};
+use crate::auth::{AuthRejection, AuthState, AuthenticatedUser};
 use crate::clock::Clock;
 use crate::config::Secret;
 use crate::drafts::PgDraftRepository;
 use crate::drafts::domain::MatchTextReader;
 use crate::matches::PgMatchRepository;
+use crate::matches::domain::ShareId;
 use crate::payments::PgPayoutRepository;
 
 /// Header Zalo sends with every webhook call, carrying our secret.
@@ -38,6 +41,8 @@ pub struct ZaloSettings {
     pub bot_name: String,
     /// `None` makes the bot answer reminder requests with "resting".
     pub reminder_reader: Option<Arc<dyn ReminderReader>>,
+    /// `None` makes the bot answer poll requests with "resting".
+    pub poll_reader: Option<Arc<dyn PollReader>>,
     /// `None` disables the scheduler endpoint (404); reminders then never post.
     pub cron_secret: Option<Secret>,
 }
@@ -66,6 +71,8 @@ pub fn router(state: BotState) -> Router {
         .route("/api/bot/zalo/webhook", post(webhook))
         .route("/api/bot/link", post(link))
         .route("/api/bot/reminders/run", post(run_reminders))
+        .route("/api/polls/{share_id}", get(get_poll))
+        .route("/api/polls/{share_id}/answers", put(answer_poll))
         .with_state(state)
 }
 
@@ -152,6 +159,7 @@ async fn webhook(State(state): State<BotState>, headers: HeaderMap, body: Bytes)
         clock: state.clock.as_ref(),
         reader: state.reader.as_deref(),
         reminder_reader: zalo.reminder_reader.as_deref(),
+        poll_reader: zalo.poll_reader.as_deref(),
         frontend_origin: &state.frontend_origin,
         bot_name: &zalo.bot_name,
     };
@@ -188,8 +196,16 @@ async fn run_reminders(State(state): State<BotState>, headers: HeaderMap) -> Res
     if !authentic {
         return (StatusCode::FORBIDDEN, Json(json!({ "error": "forbidden" }))).into_response();
     }
-    match run_due_reminders(&state.bot, state.clock.as_ref(), zalo.reply.as_ref()).await {
-        Ok(sent) => Json(json!({ "sent": sent })).into_response(),
+    let reminders = run_due_reminders(&state.bot, state.clock.as_ref(), zalo.reply.as_ref()).await;
+    let polls = run_due_polls(
+        &state.bot,
+        state.clock.as_ref(),
+        zalo.reply.as_ref(),
+        &state.frontend_origin,
+    )
+    .await;
+    match reminders.and_then(|reminders| polls.map(|polls| (reminders, polls))) {
+        Ok((sent, nudged)) => Json(json!({ "sent": sent, "nudged": nudged })).into_response(),
         Err(error) => {
             tracing::error!(error = %error, "could not run reminders");
             (
@@ -199,6 +215,174 @@ async fn run_reminders(State(state): State<BotState>, headers: HeaderMap) -> Res
                 .into_response()
         }
     }
+}
+
+fn private(status: StatusCode, body: Value) -> Response {
+    (status, [(CACHE_CONTROL, "private, no-store")], Json(body)).into_response()
+}
+
+/// A poll as the web page shows it: everyone's answers by name, the yes-counts
+/// and, when signed in, the viewer's own answers.
+async fn poll_view(
+    state: &BotState,
+    poll: &Poll,
+    viewer: Option<crate::auth::UserId>,
+) -> Result<Value, String> {
+    let answers = state
+        .bot
+        .answers(poll.id)
+        .await
+        .map_err(|e| e.to_string())?;
+    let day = |day: &chrono::NaiveDate| day.format("%Y-%m-%d").to_string();
+    let mut players: Vec<(
+        crate::auth::UserId,
+        Option<String>,
+        serde_json::Map<String, Value>,
+    )> = Vec::new();
+    for answer in &answers {
+        let index = match players.iter().position(|(user, _, _)| *user == answer.user) {
+            Some(index) => index,
+            None => {
+                players.push((answer.user, answer.name.clone(), serde_json::Map::new()));
+                players.len() - 1
+            }
+        };
+        players[index]
+            .2
+            .insert(day(&answer.day), Value::Bool(answer.attending));
+    }
+    let mine = viewer.map(|viewer| {
+        players
+            .iter()
+            .find(|(user, _, _)| *user == viewer)
+            .map_or_else(
+                || Value::Object(serde_json::Map::new()),
+                |(_, _, days)| Value::Object(days.clone()),
+            )
+    });
+    let counts: Vec<Value> = poll
+        .plan
+        .days
+        .iter()
+        .map(|d| {
+            let yes = answers
+                .iter()
+                .filter(|answer| answer.day == *d && answer.attending)
+                .count();
+            json!({ "day": day(d), "yes": yes })
+        })
+        .collect();
+    Ok(json!({
+        "title": poll.plan.title,
+        "days": poll.plan.days.iter().map(day).collect::<Vec<_>>(),
+        "closesAt": poll.closes_at.to_rfc3339(),
+        "closed": poll.closes_at <= state.clock.now(),
+        "counts": counts,
+        "players": players
+            .into_iter()
+            .map(|(_, name, days)| json!({ "name": name, "answers": days }))
+            .collect::<Vec<_>>(),
+        "mine": mine,
+    }))
+}
+
+async fn load_poll(state: &BotState, share_id: &str) -> Result<Option<Poll>, Response> {
+    let Some(share_id) = ShareId::parse(share_id) else {
+        return Ok(None);
+    };
+    state.bot.poll(&share_id).await.map_err(|error| {
+        tracing::error!(error = %error, "failed to load a poll");
+        private(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            json!({ "error": "internal_error" }),
+        )
+    })
+}
+
+async fn get_poll(
+    State(state): State<BotState>,
+    Path(share_id): Path<String>,
+    viewer: Result<AuthenticatedUser, AuthRejection>,
+) -> Response {
+    let poll = match load_poll(&state, &share_id).await {
+        Ok(Some(poll)) => poll,
+        Ok(None) => return private(StatusCode::NOT_FOUND, json!({ "error": "not_found" })),
+        Err(response) => return response,
+    };
+    let viewer = viewer.ok().map(|AuthenticatedUser(user)| user.id);
+    match poll_view(&state, &poll, viewer).await {
+        Ok(view) => private(StatusCode::OK, view),
+        Err(error) => {
+            tracing::error!(error = %error, "failed to load poll answers");
+            private(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                json!({ "error": "internal_error" }),
+            )
+        }
+    }
+}
+
+#[derive(Deserialize)]
+struct AnswerItem {
+    day: chrono::NaiveDate,
+    attending: bool,
+}
+
+#[derive(Deserialize)]
+struct AnswerRequest {
+    answers: Vec<AnswerItem>,
+}
+
+async fn answer_poll(
+    State(state): State<BotState>,
+    Path(share_id): Path<String>,
+    AuthenticatedUser(user): AuthenticatedUser,
+    body: Result<Json<AnswerRequest>, JsonRejection>,
+) -> Response {
+    let Ok(Json(request)) = body else {
+        return private(
+            StatusCode::BAD_REQUEST,
+            json!({ "error": "invalid_request" }),
+        );
+    };
+    if request.answers.is_empty() || request.answers.len() > MAX_POLL_DAYS {
+        return private(
+            StatusCode::BAD_REQUEST,
+            json!({ "error": "invalid_request" }),
+        );
+    }
+    let Some(share) = ShareId::parse(&share_id) else {
+        return private(StatusCode::NOT_FOUND, json!({ "error": "not_found" }));
+    };
+    let answers: Vec<_> = request
+        .answers
+        .iter()
+        .map(|item| (item.day, item.attending))
+        .collect();
+    let outcome = state
+        .bot
+        .answer(&share, user.id, &answers, state.clock.now())
+        .await;
+    match outcome {
+        Ok(AnswerOutcome::Saved) => {}
+        Ok(AnswerOutcome::UnknownPoll) => {
+            return private(StatusCode::NOT_FOUND, json!({ "error": "not_found" }));
+        }
+        Ok(AnswerOutcome::Closed) => {
+            return private(StatusCode::CONFLICT, json!({ "error": "poll_closed" }));
+        }
+        Ok(AnswerOutcome::UnknownDay) => {
+            return private(StatusCode::BAD_REQUEST, json!({ "error": "invalid_day" }));
+        }
+        Err(error) => {
+            tracing::error!(error = %error, "failed to save poll answers");
+            return private(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                json!({ "error": "internal_error" }),
+            );
+        }
+    }
+    get_poll(State(state), Path(share_id), Ok(AuthenticatedUser(user))).await
 }
 
 #[derive(Deserialize)]

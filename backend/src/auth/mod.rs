@@ -8,5 +8,5 @@ mod repo;
 pub mod service;
 
 pub use domain::UserId;
-pub use http::{AuthState, AuthenticatedUser, router};
+pub use http::{AuthRejection, AuthState, AuthenticatedUser, router};
 pub use repo::PgAuthRepository;

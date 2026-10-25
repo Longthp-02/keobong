@@ -24,6 +24,10 @@ impl PgBotRepository {
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
     }
+
+    pub(super) fn pool(&self) -> &PgPool {
+        &self.pool
+    }
 }
 
 fn repo_error(error: sqlx::Error) -> RepoError {
@@ -212,7 +216,7 @@ impl BotRepository for PgBotRepository {
         .map_err(repo_error)?;
         // Drafts read under the previous link, by this Zalo account or for this
         // user, must not be created after the link changed.
-        for table in ["bot_drafts", "bot_pending_reminders"] {
+        for table in ["bot_drafts", "bot_pending_reminders", "bot_pending_polls"] {
             sqlx::query(&format!(
                 "DELETE FROM {table} WHERE zalo_user_id = $1 OR user_id = $2"
             ))
@@ -234,13 +238,17 @@ impl BotRepository for PgBotRepository {
             .execute(&mut *tx)
             .await
             .map_err(repo_error)?;
-        // One pending item per sender and chat: a new match replaces a reminder.
-        sqlx::query("DELETE FROM bot_pending_reminders WHERE zalo_user_id = $1 AND chat_id = $2")
+        // One pending item per sender and chat: a new match replaces the others.
+        for table in ["bot_pending_reminders", "bot_pending_polls"] {
+            sqlx::query(&format!(
+                "DELETE FROM {table} WHERE zalo_user_id = $1 AND chat_id = $2"
+            ))
             .bind(&draft.zalo_user_id)
             .bind(&draft.chat_id)
             .execute(&mut *tx)
             .await
             .map_err(repo_error)?;
+        }
         sqlx::query(
             "INSERT INTO bot_drafts (zalo_user_id, chat_id, user_id, venue_slug, starts_at, ends_at,
                  format, match_type, level_min_tenths, level_max_tenths, slot_count, total_fee_vnd,
@@ -341,13 +349,17 @@ impl BotRepository for PgBotRepository {
             .execute(&mut *tx)
             .await
             .map_err(repo_error)?;
-        // One pending item per sender and chat: a reminder replaces a match draft.
-        sqlx::query("DELETE FROM bot_drafts WHERE zalo_user_id = $1 AND chat_id = $2")
+        // One pending item per sender and chat: a reminder replaces the others.
+        for table in ["bot_drafts", "bot_pending_polls"] {
+            sqlx::query(&format!(
+                "DELETE FROM {table} WHERE zalo_user_id = $1 AND chat_id = $2"
+            ))
             .bind(&pending.zalo_user_id)
             .bind(&pending.chat_id)
             .execute(&mut *tx)
             .await
             .map_err(repo_error)?;
+        }
         let (weekdays, day_of_month) = repeat_columns(pending.plan.schedule.repeat);
         sqlx::query(
             "INSERT INTO bot_pending_reminders (zalo_user_id, chat_id, user_id, weekdays,
@@ -473,7 +485,7 @@ impl BotRepository for PgBotRepository {
     async fn claim_due_reminders(&self, now: DateTime<Utc>) -> Result<Vec<Reminder>, RepoError> {
         // Every run also clears pending items nobody confirmed, so their text
         // does not stay longer than the 30 minutes they wait.
-        for table in ["bot_pending_reminders", "bot_drafts"] {
+        for table in ["bot_pending_reminders", "bot_drafts", "bot_pending_polls"] {
             sqlx::query(&format!("DELETE FROM {table} WHERE expires_at <= $1"))
                 .bind(now)
                 .execute(&self.pool)

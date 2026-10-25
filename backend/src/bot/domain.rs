@@ -59,6 +59,8 @@ pub enum Command {
     Cancel,
     /// A reminder to post on a schedule, in the sender's own words.
     Remind(String),
+    /// An attendance poll, in the sender's own words.
+    Poll(String),
     ListReminders,
     /// Stop the reminder with this number in the list; `None` shows the list.
     StopReminder(Option<i64>),
@@ -104,10 +106,24 @@ pub fn parse_command(text: &str, kind: ChatKind, bot_name: &str) -> Option<Comma
         Command::StopReminder(digits.parse().ok())
     } else if is(&commands.list_reminders) {
         Command::ListReminders
+    } else if starts_with_words(&word, &commands.poll) {
+        Command::Poll(rest.to_owned())
     } else if asks_for_reminder(&word) {
         Command::Remind(rest.to_owned())
     } else {
         Command::Describe(rest.to_owned())
+    })
+}
+
+/// Whether the text's first words are one of `phrases` ("tạo bảng điểm danh …").
+fn starts_with_words(word: &str, phrases: &[String]) -> bool {
+    let tokens: Vec<&str> = word
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|token| !token.is_empty())
+        .collect();
+    phrases.iter().any(|phrase| {
+        let phrase: Vec<&str> = phrase.split_whitespace().collect();
+        tokens.starts_with(&phrase)
     })
 }
 
@@ -316,6 +332,16 @@ pub struct BotCopy {
     pub reminder_stopped: String,
     pub reminder_not_found: String,
     pub reminder_post: String,
+    pub poll_summary: String,
+    pub poll_missing: String,
+    pub poll_gaps: HashMap<String, String>,
+    pub poll_posted: String,
+    pub poll_limit: String,
+    pub poll_nudge: String,
+    pub poll_count: String,
+    pub poll_missing_names: String,
+    pub poll_more_names: String,
+    pub player_name: String,
     pub every_day: String,
     pub on_weekdays: String,
     pub month_day: String,
@@ -337,6 +363,8 @@ pub struct Commands {
     pub list_reminders: Vec<String>,
     /// Prefixes; a number may follow ("tắt nhắc 2").
     pub stop_reminder: Vec<String>,
+    /// First words of a poll request ("tạo bảng điểm danh …").
+    pub poll: Vec<String>,
 }
 
 const COPY_JSON: &str = include_str!("../../messages/vi.json");
@@ -487,6 +515,16 @@ mod tests {
             parse_command("xem nhắc", ChatKind::Private, BOT),
             Some(Command::ListReminders)
         );
+        assert_eq!(
+            parse_command(
+                "@Bot DaGhep tạo bảng điểm danh T7, CN, nhắc lúc 20h",
+                ChatKind::Group,
+                BOT
+            ),
+            Some(Command::Poll(
+                "tạo bảng điểm danh T7, CN, nhắc lúc 20h".to_owned()
+            ))
+        );
         // A match post that mentions "nhắc" later is still a match.
         let post = "tối nay 19h SSA sân 7 thiếu 3, nhắc ae mang áo trắng";
         assert_eq!(
@@ -532,6 +570,17 @@ mod tests {
             "other",
         ] {
             assert!(copy.reasons.contains_key(key), "reasons.{key}");
+        }
+        for gap in [
+            super::super::polls::PollGap::Title,
+            super::super::polls::PollGap::Days,
+            super::super::polls::PollGap::NudgeTime,
+        ] {
+            assert!(
+                copy.poll_gaps.contains_key(gap.key()),
+                "pollGaps.{}",
+                gap.key()
+            );
         }
         for gap in [
             super::super::reminders::ReminderGap::Repeat,

@@ -12,6 +12,9 @@ use super::domain::{
     DEFAULT_LEVEL_MIN_TENTHS, DEFAULT_MATCH_TYPE, DRAFT_MINUTES, Incoming, LINK_CODE_MINUTES,
     UpdateOutcome, entry, fill, parse_command,
 };
+use super::polls::{
+    MAX_NAMES_IN_NUDGE, PendingPoll, Poll, PollPlan, PollReader, PollRepository, PollRequest, tally,
+};
 use super::reminders::{
     EVERY_DAY, MAX_LATE_MINUTES, PendingReminder, ReminderReader, ReminderRequest, Repeat, Schedule,
 };
@@ -22,8 +25,8 @@ use crate::drafts::domain::{DraftRepository, LimitScope, MatchDraft, MatchTextRe
 use crate::drafts::service::{ReadDraftError, read_draft, use_read};
 use crate::matches;
 use crate::matches::domain::{
-    Field, Level, MatchRepository, NewMatch, NewMatchInput, local_date, local_instant, local_time,
-    price_per_player_vnd,
+    Field, Level, MatchRepository, NewMatch, NewMatchInput, ShareId, local_date, local_instant,
+    local_time, price_per_player_vnd,
 };
 use crate::matches::service::{CreateMatchError, create_match};
 use crate::payments::domain::PayoutRepository;
@@ -39,6 +42,7 @@ pub struct BotContext<'a, B, D, M, P> {
     pub clock: &'a dyn Clock,
     pub reader: Option<&'a dyn MatchTextReader>,
     pub reminder_reader: Option<&'a dyn ReminderReader>,
+    pub poll_reader: Option<&'a dyn PollReader>,
     /// The web app's origin, for links in replies.
     pub frontend_origin: &'a str,
     /// The bot's display name, as tagged in groups ("Bot DaGhep").
@@ -60,7 +64,7 @@ pub async fn handle_message<B, D, M, P>(
     message: &Incoming,
 ) -> Result<Option<String>, BotError>
 where
-    B: BotRepository,
+    B: BotRepository + PollRepository,
     D: DraftRepository,
     M: MatchRepository,
     P: PayoutRepository,
@@ -76,6 +80,18 @@ where
         .map_err(fail)?;
     if outcome != UpdateOutcome::New {
         return Ok(None);
+    }
+    // A linked sender seen in a group joins its roster, so nudges can name them.
+    if message.chat_kind == ChatKind::Group
+        && let Some(user) = ctx
+            .bot
+            .linked_user(&message.sender_id)
+            .await
+            .map_err(fail)?
+    {
+        PollRepository::note_member(ctx.bot, &message.chat_id, user, now)
+            .await
+            .map_err(fail)?;
     }
     // In groups every command must tag the bot, so the examples do too.
     let mention = match message.chat_kind {
@@ -96,7 +112,12 @@ where
                 .take_pending_reminder(&message.sender_id, &message.chat_id, now)
                 .await
                 .map_err(fail)?;
-            if draft.is_some() || reminder.is_some() {
+            let poll = ctx
+                .bot
+                .take_pending_poll(&message.sender_id, &message.chat_id, now)
+                .await
+                .map_err(fail)?;
+            if draft.is_some() || reminder.is_some() || poll.is_some() {
                 COPY.cancelled.clone()
             } else {
                 COPY.no_draft.clone()
@@ -109,8 +130,17 @@ where
             .map_err(fail)?
         {
             Some(pending) => save_reminder(ctx, message, pending, &mention, now).await?,
-            None => confirm(ctx, message).await?,
+            None => match ctx
+                .bot
+                .take_pending_poll(&message.sender_id, &message.chat_id, now)
+                .await
+                .map_err(fail)?
+            {
+                Some(pending) => save_poll(ctx, message, pending, now).await?,
+                None => confirm(ctx, message).await?,
+            },
         },
+        Command::Poll(text) => poll(ctx, message, &text, &mention, now).await?,
         Command::Remind(text) => remind(ctx, message, &text, &mention, now).await?,
         Command::ListReminders => list_reminders(ctx, message, &mention).await?,
         Command::StopReminder(number) => stop_reminder(ctx, message, number, &mention).await?,
@@ -456,15 +486,8 @@ where
     let Some(reader) = ctx.reminder_reader else {
         return Ok(fill(&COPY.unavailable, &[("url", &create_url)]));
     };
-    match use_read(ctx.drafts, user, now).await {
-        Ok(()) => {}
-        Err(ReadDraftError::Limited(LimitScope::User)) => {
-            return Ok(fill(&COPY.limit_user, &[("url", &create_url)]));
-        }
-        Err(ReadDraftError::Limited(LimitScope::Service)) => {
-            return Ok(fill(&COPY.limit_service, &[("url", &create_url)]));
-        }
-        Err(error) => return Err(fail(error)),
+    if let Some(limited) = use_ai_read(ctx, user, now, &create_url).await? {
+        return Ok(limited);
     }
     let raw = match reader
         .read(ReminderRequest {
@@ -635,6 +658,263 @@ where
             &[("n", &n), ("mention", mention)],
         ))
     }
+}
+
+async fn poll<B, D, M, P>(
+    ctx: &BotContext<'_, B, D, M, P>,
+    message: &Incoming,
+    text: &str,
+    mention: &str,
+    now: DateTime<Utc>,
+) -> Result<String, BotError>
+where
+    B: BotRepository + PollRepository,
+    D: DraftRepository,
+{
+    let Some(user) = ctx
+        .bot
+        .linked_user(&message.sender_id)
+        .await
+        .map_err(fail)?
+    else {
+        return Ok(fill(&COPY.not_linked, &[("bot", ctx.bot_name)]));
+    };
+    let text = text.trim();
+    if text.chars().count() > MAX_TEXT_CHARS {
+        return Ok(COPY.too_long.clone());
+    }
+    let create_url = format!("{}/create", ctx.frontend_origin);
+    let Some(reader) = ctx.poll_reader else {
+        return Ok(fill(&COPY.unavailable, &[("url", &create_url)]));
+    };
+    if let Some(limited) = use_ai_read(ctx, user, now, &create_url).await? {
+        return Ok(limited);
+    }
+    let today = local_date(now);
+    let raw = match reader.read(PollRequest { text, today }).await {
+        Ok(raw) => raw,
+        Err(error) => {
+            tracing::warn!(error = %error, "bot could not read a poll");
+            return Ok(COPY.failed.clone());
+        }
+    };
+    let plan = match raw.checked(today) {
+        Ok(plan) => plan,
+        Err(gaps) => {
+            let fields = gaps
+                .iter()
+                .map(|gap| entry(&COPY.poll_gaps, gap.key()))
+                .collect::<Vec<_>>()
+                .join(", ");
+            return Ok(fill(
+                &COPY.poll_missing,
+                &[("fields", &fields), ("mention", mention)],
+            ));
+        }
+    };
+    let pending = PendingPoll {
+        zalo_user_id: message.sender_id.clone(),
+        chat_id: message.chat_id.clone(),
+        user,
+        plan,
+        expires_at: now + Duration::minutes(DRAFT_MINUTES),
+    };
+    ctx.bot.save_pending_poll(&pending).await.map_err(fail)?;
+    let plan = &pending.plan;
+    let last_day = plan
+        .days
+        .last()
+        .map(|day| day_label(*day))
+        .unwrap_or_default();
+    Ok(format!(
+        "{}\n{}",
+        fill(
+            &COPY.poll_summary,
+            &[
+                ("title", &plan.title),
+                ("days", &days_line(plan)),
+                ("time", &plan.nudge_time.format("%H:%M").to_string()),
+                ("lastDay", &last_day),
+            ]
+        ),
+        fill(&COPY.reminder_confirm_hint, &[("mention", mention)])
+    ))
+}
+
+async fn save_poll<B, D, M, P>(
+    ctx: &BotContext<'_, B, D, M, P>,
+    message: &Incoming,
+    pending: PendingPoll,
+    now: DateTime<Utc>,
+) -> Result<String, BotError>
+where
+    B: BotRepository + PollRepository,
+{
+    let linked = ctx
+        .bot
+        .linked_user(&message.sender_id)
+        .await
+        .map_err(fail)?;
+    if linked != Some(pending.user) {
+        return Ok(fill(&COPY.not_linked, &[("bot", ctx.bot_name)]));
+    }
+    let share_id = ShareId::generate().map_err(fail)?;
+    let Some(poll) = ctx
+        .bot
+        .add_poll(
+            &pending.chat_id,
+            pending.user,
+            &pending.plan,
+            &share_id,
+            now,
+        )
+        .await
+        .map_err(fail)?
+    else {
+        return Ok(COPY.poll_limit.clone());
+    };
+    Ok(fill(
+        &COPY.poll_posted,
+        &[
+            ("title", &poll.plan.title),
+            ("days", &days_line(&poll.plan)),
+            ("url", &poll_url(ctx.frontend_origin, &poll)),
+        ],
+    ))
+}
+
+/// Uses up one AI read; returns the reply to send when a daily limit is reached.
+async fn use_ai_read<B, D, M, P>(
+    ctx: &BotContext<'_, B, D, M, P>,
+    user: UserId,
+    now: DateTime<Utc>,
+    create_url: &str,
+) -> Result<Option<String>, BotError>
+where
+    D: DraftRepository,
+{
+    match use_read(ctx.drafts, user, now).await {
+        Ok(()) => Ok(None),
+        Err(ReadDraftError::Limited(LimitScope::User)) => {
+            Ok(Some(fill(&COPY.limit_user, &[("url", create_url)])))
+        }
+        Err(ReadDraftError::Limited(LimitScope::Service)) => {
+            Ok(Some(fill(&COPY.limit_service, &[("url", create_url)])))
+        }
+        Err(error) => Err(fail(error)),
+    }
+}
+
+fn poll_url(frontend_origin: &str, poll: &Poll) -> String {
+    format!("{frontend_origin}/p/{}", poll.share_id.as_str())
+}
+
+/// "Thứ 7 03/10".
+fn day_label(day: chrono::NaiveDate) -> String {
+    let weekday = COPY
+        .weekdays
+        .get(day.weekday().num_days_from_sunday() as usize)
+        .map_or("", String::as_str);
+    format!("{weekday} {}", day.format("%d/%m"))
+}
+
+/// "Thứ 7 03/10 · Chủ nhật 04/10".
+fn days_line(plan: &PollPlan) -> String {
+    plan.days
+        .iter()
+        .map(|day| day_label(*day))
+        .collect::<Vec<_>>()
+        .join(" · ")
+}
+
+/// Posts each poll's daily nudge that is due: yes-counts per day and who has
+/// not answered. Returns how many were delivered.
+pub async fn run_due_polls<B: PollRepository>(
+    bot: &B,
+    clock: &dyn Clock,
+    chat: &dyn ChatReply,
+    frontend_origin: &str,
+) -> Result<usize, BotError> {
+    let now = clock.now();
+    let due = bot.claim_due_nudges(now).await.map_err(fail)?;
+    let mut delivered = 0;
+    for (poll, due_at) in due {
+        if now - due_at > Duration::minutes(MAX_LATE_MINUTES) {
+            tracing::info!(poll = poll.id, "skipping a poll nudge that is too late");
+            continue;
+        }
+        let text = match nudge_text(bot, &poll, frontend_origin).await {
+            Ok(text) => text,
+            Err(error) => {
+                tracing::error!(error = %error, poll = poll.id, "could not build a poll nudge");
+                continue;
+            }
+        };
+        match chat.send(&poll.chat_id, &text).await {
+            Ok(()) => delivered += 1,
+            Err(error) => {
+                tracing::warn!(error = %error, poll = poll.id, "could not post a poll nudge");
+            }
+        }
+    }
+    Ok(delivered)
+}
+
+async fn nudge_text<B: PollRepository>(
+    bot: &B,
+    poll: &Poll,
+    frontend_origin: &str,
+) -> Result<String, BotError> {
+    let answers = bot.answers(poll.id).await.map_err(fail)?;
+    let members = bot.members(&poll.chat_id).await.map_err(fail)?;
+    let tally = tally(&poll.plan, &answers, &members);
+    let counts = tally
+        .yes_per_day
+        .iter()
+        .map(|(day, yes)| {
+            fill(
+                &COPY.poll_count,
+                &[("day", &day_label(*day)), ("n", &yes.to_string())],
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let missing = if tally.missing.is_empty() {
+        String::new()
+    } else {
+        let names: Vec<&str> = tally
+            .missing
+            .iter()
+            .map(|member| member.name.as_deref().unwrap_or(&COPY.player_name))
+            .collect();
+        let shown = names
+            .iter()
+            .take(MAX_NAMES_IN_NUDGE)
+            .copied()
+            .collect::<Vec<_>>()
+            .join(", ");
+        let names = if names.len() > MAX_NAMES_IN_NUDGE {
+            fill(
+                &COPY.poll_more_names,
+                &[
+                    ("names", &shown),
+                    ("n", &(names.len() - MAX_NAMES_IN_NUDGE).to_string()),
+                ],
+            )
+        } else {
+            shown
+        };
+        fill(&COPY.poll_missing_names, &[("names", &names)])
+    };
+    Ok(fill(
+        &COPY.poll_nudge,
+        &[
+            ("title", &poll.plan.title),
+            ("counts", &counts),
+            ("missing", &missing),
+            ("url", &poll_url(frontend_origin, poll)),
+        ],
+    ))
 }
 
 /// Posts every reminder that is due; returns how many were delivered.

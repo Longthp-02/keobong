@@ -11,6 +11,7 @@ use axum::http::header::{CONTENT_TYPE, COOKIE};
 use axum::http::{Request, StatusCode};
 use chrono::Duration;
 use common::*;
+use daghep_api::bot::polls::RawPoll;
 use daghep_api::bot::reminders::RawReminder;
 use daghep_api::drafts::domain::RawDraft;
 use serde_json::{Value, json};
@@ -27,6 +28,7 @@ struct Bot {
     chat: FakeChat,
     reader: FakeReader,
     reminders: FakeReminderReader,
+    polls: FakePollReader,
     clock: TestClock,
     pool: PgPool,
 }
@@ -57,17 +59,20 @@ fn bot(pool: PgPool, answer: RawDraft) -> Bot {
     };
     let clock = TestClock::at(NOW);
     let reminders = FakeReminderReader::default();
+    let polls = FakePollReader::default();
     Bot {
-        app: app_with_reminders(
+        app: app_with_readers(
             pool.clone(),
             clock.clone(),
             reader.clone(),
             chat.clone(),
             reminders.clone(),
+            polls.clone(),
         ),
         chat,
         reader,
         reminders,
+        polls,
         clock,
         pool,
     }
@@ -531,6 +536,7 @@ async fn without_a_reader_it_points_to_the_web_form(pool: PgPool) {
             webhook_secret: daghep_api::config::Secret::new(BOT_SECRET.to_owned()),
             bot_name: "Bot DaGhep".to_owned(),
             reminder_reader: None,
+            poll_reader: None,
             cron_secret: None,
         })),
     });
@@ -539,6 +545,7 @@ async fn without_a_reader_it_points_to_the_web_form(pool: PgPool) {
         chat,
         reader: FakeReader::default(),
         reminders: FakeReminderReader::default(),
+        polls: FakePollReader::default(),
         clock,
         pool,
     };
@@ -912,4 +919,277 @@ async fn a_match_post_that_mentions_nhac_is_still_a_match(pool: PgPool) {
         .unwrap();
     assert!(reply.contains("Kèo"), "{reply}");
     assert!(bot.reminders.calls.lock().unwrap().is_empty());
+}
+
+// ---- Attendance polls ("@Bot DaGhep tạo bảng điểm danh ...") ----
+
+/// What a model might answer for "tạo bảng điểm danh bóng rổ T7, CN, nhắc lúc 20h".
+fn weekend_poll() -> RawPoll {
+    RawPoll {
+        title: Some("Ai chơi bóng rổ cuối tuần này?".to_owned()),
+        days: vec!["2099-10-03".to_owned(), "2099-10-04".to_owned()],
+        nudge_time: Some("20:00".to_owned()),
+    }
+}
+
+fn poll_share_id(reply: &str) -> String {
+    let start = reply.find("/p/").expect("a poll link") + 3;
+    reply[start..].split_whitespace().next().unwrap().to_owned()
+}
+
+impl Bot {
+    fn poll_answer(&self, answer: Option<RawPoll>) {
+        *self.polls.answer.lock().unwrap() = answer;
+    }
+
+    /// Creates the weekend poll in the group as HOST; returns its share id.
+    async fn add_weekend_poll(&self) -> String {
+        self.poll_answer(Some(weekend_poll()));
+        self.in_group(HOST, "tạo bảng điểm danh bóng rổ T7, CN, nhắc lúc 20h")
+            .await
+            .unwrap();
+        let posted = self.in_group(HOST, "ok").await.unwrap();
+        poll_share_id(&posted)
+    }
+
+    async fn get_poll(&self, share_id: &str, session: Option<&str>) -> (StatusCode, Value) {
+        let mut request = Request::get(format!("/api/polls/{share_id}"));
+        if let Some(session) = session {
+            request = request.header(COOKIE, format!("daghep_session={session}"));
+        }
+        let response = call(&self.app, request.body(Body::empty()).unwrap()).await;
+        let status = response.status();
+        (status, json_body(response).await)
+    }
+
+    async fn answer_poll(
+        &self,
+        share_id: &str,
+        session: Option<&str>,
+        answers: Value,
+    ) -> (StatusCode, Value) {
+        let mut request = Request::put(format!("/api/polls/{share_id}/answers"))
+            .header(CONTENT_TYPE, "application/json");
+        if let Some(session) = session {
+            request = request.header(COOKIE, format!("daghep_session={session}"));
+        }
+        let body = json!({ "answers": answers }).to_string();
+        let response = call(&self.app, request.body(Body::from(body)).unwrap()).await;
+        let status = response.status();
+        (status, json_body(response).await)
+    }
+
+    /// Runs the scheduler once; returns how many poll nudges it posted.
+    async fn run_nudges(&self) -> i64 {
+        let response = call(&self.app, cron_request(Some(CRON_SECRET))).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        json_body(response).await["nudged"].as_i64().unwrap()
+    }
+}
+
+#[sqlx::test]
+async fn a_poll_is_read_confirmed_and_posted_with_its_link(pool: PgPool) {
+    let bot = bot(pool, tonight());
+    bot.link(HOST, "host").await;
+    bot.poll_answer(Some(weekend_poll()));
+
+    let summary = bot
+        .in_group(HOST, "tạo bảng điểm danh bóng rổ T7, CN, nhắc lúc 20h")
+        .await
+        .unwrap();
+    assert_eq!(
+        bot.polls.calls.lock().unwrap().as_slice(),
+        ["tạo bảng điểm danh bóng rổ T7, CN, nhắc lúc 20h"]
+    );
+    assert!(
+        summary.contains("Ai chơi bóng rổ cuối tuần này?"),
+        "{summary}"
+    );
+    assert!(
+        summary.contains("Thứ 7 03/10 · Chủ nhật 04/10"),
+        "{summary}"
+    );
+    assert!(summary.contains("lúc 20:00"), "{summary}");
+    assert!(bot.reminders.calls.lock().unwrap().is_empty());
+
+    let posted = bot.in_group(HOST, "ok").await.unwrap();
+    assert!(posted.contains(&format!("{FRONTEND}/p/")), "{posted}");
+    let (status, poll) = bot.get_poll(&poll_share_id(&posted), None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(poll["title"], "Ai chơi bóng rổ cuối tuần này?");
+    assert_eq!(poll["days"], json!(["2099-10-03", "2099-10-04"]));
+    assert_eq!(poll["closed"], false);
+    assert_eq!(poll["mine"], Value::Null);
+    assert_eq!(poll["players"], json!([]));
+}
+
+#[sqlx::test]
+async fn a_poll_request_asks_for_what_it_left_out(pool: PgPool) {
+    let bot = bot(pool, tonight());
+    bot.link(HOST, "host").await;
+    bot.poll_answer(Some(RawPoll {
+        nudge_time: None,
+        ..weekend_poll()
+    }));
+    let reply = bot
+        .in_group(HOST, "tạo bảng điểm danh T7, CN")
+        .await
+        .unwrap();
+    assert!(reply.contains("mấy giờ nhắc người chưa trả lời"), "{reply}");
+}
+
+#[sqlx::test]
+async fn players_answer_signed_in_and_everyone_sees_the_table(pool: PgPool) {
+    let bot = bot(pool, tonight());
+    bot.link(HOST, "host").await;
+    let share_id = bot.add_weekend_poll().await;
+    let yes_saturday = json!([
+        { "day": "2099-10-03", "attending": true },
+        { "day": "2099-10-04", "attending": false }
+    ]);
+
+    let (status, _) = bot.answer_poll(&share_id, None, yes_saturday.clone()).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+
+    let nam = sign_in(&bot.app, "nam").await;
+    let (status, view) = bot.answer_poll(&share_id, Some(&nam), yes_saturday).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        view["mine"],
+        json!({ "2099-10-03": true, "2099-10-04": false })
+    );
+    assert_eq!(
+        view["counts"],
+        json!([{ "day": "2099-10-03", "yes": 1 }, { "day": "2099-10-04", "yes": 0 }])
+    );
+
+    // Changing an answer replaces it.
+    let (_, view) = bot
+        .answer_poll(
+            &share_id,
+            Some(&nam),
+            json!([{ "day": "2099-10-04", "attending": true }]),
+        )
+        .await;
+    assert_eq!(
+        view["mine"],
+        json!({ "2099-10-03": true, "2099-10-04": true })
+    );
+
+    let (_, public) = bot.get_poll(&share_id, None).await;
+    assert_eq!(
+        public["players"],
+        json!([{ "name": "Player nam", "answers": { "2099-10-03": true, "2099-10-04": true } }])
+    );
+    assert_eq!(public["mine"], Value::Null);
+
+    let (status, error) = bot
+        .answer_poll(
+            &share_id,
+            Some(&nam),
+            json!([{ "day": "2099-10-05", "attending": true }]),
+        )
+        .await;
+    assert_eq!(
+        (status, error["error"].as_str()),
+        (StatusCode::BAD_REQUEST, Some("invalid_day"))
+    );
+    let (status, _) = bot.get_poll("unknownpoll1", None).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+#[sqlx::test]
+async fn the_daily_nudge_counts_and_names_who_has_not_answered(pool: PgPool) {
+    let bot = bot(pool, tonight());
+    bot.link(HOST, "host").await;
+    let share_id = bot.add_weekend_poll().await;
+    let nam = sign_in(&bot.app, "nam").await;
+    bot.answer_poll(
+        &share_id,
+        Some(&nam),
+        json!([
+            { "day": "2099-10-03", "attending": true },
+            { "day": "2099-10-04", "attending": true }
+        ]),
+    )
+    .await;
+    // Huy answered only Saturday: still missing Sunday.
+    let huy = sign_in(&bot.app, "huy").await;
+    bot.answer_poll(
+        &share_id,
+        Some(&huy),
+        json!([{ "day": "2099-10-03", "attending": false }]),
+    )
+    .await;
+
+    // Not yet: NOW is Thursday 07:00; the first nudge is Thursday 20:00.
+    assert_eq!(bot.run_nudges().await, 0);
+    bot.clock.advance(Duration::hours(13));
+    assert_eq!(bot.run_nudges().await, 1);
+    let (chat, nudge) = bot.last_sent();
+    assert_eq!(chat, GROUP);
+    assert!(nudge.contains("Thứ 7 03/10: 1 người có"), "{nudge}");
+    assert!(nudge.contains("Chủ nhật 04/10: 1 người có"), "{nudge}");
+    // The host tagged the bot in the group; Huy left a day out.
+    assert!(
+        nudge.contains("Chưa trả lời: Player host, Player huy"),
+        "{nudge}"
+    );
+    assert!(!nudge.contains("Player nam"), "{nudge}");
+    assert!(
+        nudge.contains(&format!("{FRONTEND}/p/{share_id}")),
+        "{nudge}"
+    );
+    assert_eq!(bot.run_nudges().await, 0);
+
+    // Friday, Saturday and Sunday at 20:00, then never again.
+    for _ in 0..3 {
+        bot.clock.advance(Duration::days(1));
+        assert_eq!(bot.run_nudges().await, 1);
+    }
+    bot.clock.advance(Duration::days(1));
+    assert_eq!(bot.run_nudges().await, 0);
+
+    // Closed after Sunday: no more answers.
+    let (status, error) = bot
+        .answer_poll(
+            &share_id,
+            Some(&nam),
+            json!([{ "day": "2099-10-04", "attending": false }]),
+        )
+        .await;
+    assert_eq!(
+        (status, error["error"].as_str()),
+        (StatusCode::CONFLICT, Some("poll_closed"))
+    );
+    let (_, view) = bot.get_poll(&share_id, Some(&nam)).await;
+    assert_eq!(view["closed"], true);
+}
+
+#[sqlx::test]
+async fn a_chat_keeps_at_most_three_open_polls(pool: PgPool) {
+    let bot = bot(pool, tonight());
+    bot.link(HOST, "host").await;
+    for _ in 0..3 {
+        bot.add_weekend_poll().await;
+    }
+    bot.in_group(HOST, "tạo bảng điểm danh T7").await.unwrap();
+    let full = bot.in_group(HOST, "ok").await.unwrap();
+    assert!(full.contains("đã có 3 bảng điểm danh"), "{full}");
+}
+
+#[sqlx::test]
+async fn only_linked_senders_make_polls_and_cancel_drops_a_pending_one(pool: PgPool) {
+    let bot = bot(pool, tonight());
+    bot.poll_answer(Some(weekend_poll()));
+    let refused = bot.in_group(OTHER, "tạo bảng điểm danh T7").await.unwrap();
+    assert!(refused.contains("liên kết"), "{refused}");
+    assert!(bot.polls.calls.lock().unwrap().is_empty());
+
+    bot.link(HOST, "host").await;
+    bot.in_group(HOST, "tạo bảng điểm danh T7").await.unwrap();
+    let cancelled = bot.in_group(HOST, "huỷ").await.unwrap();
+    assert!(cancelled.contains("Đã huỷ"), "{cancelled}");
+    let ok = bot.in_group(HOST, "ok").await.unwrap();
+    assert!(ok.contains("Không có kèo nào đang chờ"), "{ok}");
 }
