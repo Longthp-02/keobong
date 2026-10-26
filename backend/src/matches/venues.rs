@@ -185,17 +185,26 @@ pub trait VenueRepository: Send + Sync {
     ) -> impl Future<Output = Result<i64, RepoError>> + Send;
 
     /// Approves or rejects a pending venue; returns its name and who proposed
-    /// it, or `None` when no pending venue has that id.
+    /// it, or `None` when no pending venue has that id. Approving fails with
+    /// `DecideError::Duplicate` when an approved venue has the same name.
     fn decide_venue(
         &self,
         id: i64,
         status: VenueStatus,
-    ) -> impl Future<Output = Result<Option<(String, Option<UserId>)>, RepoError>> + Send;
+    ) -> impl Future<Output = Result<Option<(String, Option<UserId>)>, DecideError>> + Send;
 
     fn venues_with_status(
         &self,
         status: VenueStatus,
     ) -> impl Future<Output = Result<Vec<GroupVenue>, RepoError>> + Send;
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum DecideError {
+    #[error("an approved venue already has this name")]
+    Duplicate,
+    #[error(transparent)]
+    Repo(#[from] RepoError),
 }
 
 /// Postgres adapter.
@@ -243,7 +252,7 @@ impl VenueRepository for PgVenueRepository {
         &self,
         id: i64,
         status: VenueStatus,
-    ) -> Result<Option<(String, Option<UserId>)>, RepoError> {
+    ) -> Result<Option<(String, Option<UserId>)>, DecideError> {
         let row: Option<(String, Option<i64>)> = sqlx::query_as(
             "UPDATE venues SET status = $2 WHERE id = $1 AND status = 'pending'
              RETURNING name, submitted_by",
@@ -252,7 +261,10 @@ impl VenueRepository for PgVenueRepository {
         .bind(status.as_str())
         .fetch_optional(&self.pool)
         .await
-        .map_err(unavailable)?;
+        .map_err(|error| match &error {
+            sqlx::Error::Database(db) if db.is_unique_violation() => DecideError::Duplicate,
+            _ => DecideError::Repo(unavailable(error)),
+        })?;
         Ok(row.map(|(name, by)| (name, by.map(UserId))))
     }
 

@@ -15,7 +15,7 @@ use super::reminders::{
 use crate::auth::UserId;
 use crate::matches::domain::{Format, MatchType};
 use crate::matches::venues::{
-    GroupVenue, PgVenueRepository, VenueRepository, VenueStatus, VenueSubmission,
+    DecideError, GroupVenue, PgVenueRepository, VenueRepository, VenueStatus, VenueSubmission,
 };
 
 #[derive(Clone)]
@@ -572,7 +572,7 @@ impl VenueRepository for PgBotRepository {
         &self,
         id: i64,
         status: VenueStatus,
-    ) -> Result<Option<(String, Option<UserId>)>, crate::matches::domain::RepoError> {
+    ) -> Result<Option<(String, Option<UserId>)>, DecideError> {
         PgVenueRepository::new(self.pool.clone())
             .decide_venue(id, status)
             .await

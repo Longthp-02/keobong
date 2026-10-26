@@ -32,7 +32,7 @@ use crate::matches::domain::{
 };
 use crate::matches::service::{CreateMatchError, create_match};
 use crate::matches::venues::{
-    GameFormat, GroupVenue, MAX_VENUE_NAME_CHARS, Sport, VenueRepository, VenueStatus,
+    DecideError, GameFormat, GroupVenue, MAX_VENUE_NAME_CHARS, Sport, VenueRepository, VenueStatus,
     VenueSubmission, in_vietnam, new_slug,
 };
 use crate::payments::domain::PayoutRepository;
@@ -776,17 +776,17 @@ where
         return Ok(COPY.too_long.clone());
     }
     let create_url = format!("{}/create", ctx.frontend_origin);
-    let venues = ctx
-        .bot
-        .venues_with_status(VenueStatus::Approved)
-        .await
-        .map_err(fail)?;
     let Some(reader) = ctx.poll_reader else {
         return Ok(fill(&COPY.unavailable, &[("url", &create_url)]));
     };
     if let Some(limited) = use_ai_read(ctx, user, now, &create_url).await? {
         return Ok(limited);
     }
+    let venues = ctx
+        .bot
+        .venues_with_status(VenueStatus::Approved)
+        .await
+        .map_err(fail)?;
     let today = local_date(now);
     let raw = match reader
         .read(PollRequest {
@@ -996,55 +996,88 @@ fn is_admin<B, D, M, P>(ctx: &BotContext<'_, B, D, M, P>, user: Option<UserId>) 
     user.is_some_and(|user| ctx.admins.contains(&user))
 }
 
+/// The words of `text`, lowercased, for matching phrases.
+fn lower_words(text: &str) -> Vec<String> {
+    text.split_whitespace().map(str::to_lowercase).collect()
+}
+
+/// Removes every occurrence of `phrase` (whole words, any case) from `words`.
+fn drop_phrase(words: &mut Vec<&str>, phrase: &str) {
+    let phrase = lower_words(phrase);
+    if phrase.is_empty() {
+        return;
+    }
+    let mut index = 0;
+    while index + phrase.len() <= words.len() {
+        let window: Vec<String> = words[index..index + phrase.len()]
+            .iter()
+            .map(|word| word.to_lowercase())
+            .collect();
+        if window == phrase {
+            words.drain(index..index + phrase.len());
+        } else {
+            index += 1;
+        }
+    }
+}
+
 /// "Sân Lakeview" from "thêm sân Lakeview bóng rổ https://…", or the name in
 /// the Maps link when the message has none.
 fn venue_name(text: &str, link: &str, label: Option<&str>) -> Option<String> {
-    let mut rest = text.replace(link, " ");
-    let lower = rest.to_lowercase();
-    for lead in &COPY.commands.add_venue {
-        if lower.trim_start().starts_with(lead.as_str()) {
-            let start = rest.len() - rest.trim_start().len() + lead.len();
-            rest = rest.get(start..).unwrap_or_default().to_owned();
+    let mut words: Vec<&str> = text
+        .split_whitespace()
+        .filter(|word| *word != link)
+        .collect();
+    let commands = &COPY.commands;
+    for lead in &commands.add_venue {
+        let lead_words = lower_words(lead);
+        let starts = words.len() >= lead_words.len()
+            && words[..lead_words.len()]
+                .iter()
+                .map(|word| word.to_lowercase())
+                .eq(lead_words.iter().cloned());
+        if starts {
+            words.drain(..lead_words.len());
             break;
         }
     }
-    for word in [
-        "bóng rổ",
-        "bóng đá",
-        "bong ro",
-        "bong da",
-        "Bóng rổ",
-        "Bóng đá",
-    ] {
-        rest = rest.replace(word, " ");
+    for phrase in commands
+        .venue_football
+        .iter()
+        .chain(&commands.venue_basketball)
+    {
+        drop_phrase(&mut words, phrase);
     }
-    let typed = clean_name(
-        &rest.split_whitespace().collect::<Vec<_>>().join(" "),
-        MAX_VENUE_NAME_CHARS,
-    );
+    let typed = clean_name(&words.join(" "), MAX_VENUE_NAME_CHARS);
     let name = typed.or_else(|| label.and_then(|label| clean_name(label, MAX_VENUE_NAME_CHARS)))?;
-    let lower = name.to_lowercase();
-    Some(if lower.starts_with("sân") || lower.starts_with("san ") {
+    let has_prefix = COPY
+        .venue_prefixes
+        .iter()
+        .any(|prefix| name.to_lowercase().starts_with(&prefix.to_lowercase()));
+    Some(if has_prefix {
         name
     } else {
-        format!("Sân {name}")
+        fill(&COPY.venue_named, &[("name", &name)])
     })
 }
 
 /// Sports a venue request names ("bóng rổ", "bóng đá").
 fn venue_sports(text: &str) -> Vec<Sport> {
-    let text = text.to_lowercase();
+    let words = lower_words(text);
+    let has = |phrases: &[String]| {
+        phrases.iter().any(|phrase| {
+            let phrase = lower_words(phrase);
+            !phrase.is_empty()
+                && words
+                    .windows(phrase.len())
+                    .any(|window| window == phrase.as_slice())
+        })
+    };
     let mut sports = Vec::new();
-    if ["bóng đá", "bong da", "đá bóng", "da bong"]
-        .iter()
-        .any(|word| text.contains(word))
-    {
+    if has(&COPY.commands.venue_football) {
         sports.push(Sport::Football);
     }
-    if ["bóng rổ", "bong ro"]
-        .iter()
-        .any(|word| text.contains(word))
-    {
+    if has(&COPY.commands.venue_basketball) {
         sports.push(Sport::Basketball);
     }
     sports
@@ -1113,6 +1146,17 @@ where
         maps_url: link.chars().take(500).collect(),
         submitted_by: user,
     };
+    let approved = ctx
+        .bot
+        .venues_with_status(VenueStatus::Approved)
+        .await
+        .map_err(fail)?;
+    if approved
+        .iter()
+        .any(|venue| venue.name.to_lowercase() == name.to_lowercase())
+    {
+        return Ok(fill(&COPY.venue_exists, &[("name", &name)]));
+    }
     let slug = new_slug(&name).map_err(fail)?;
     let id = ctx
         .bot
@@ -1129,7 +1173,10 @@ where
             ("lng", &format!("{:.6}", place.lng)),
         ],
     );
-    notify_admins(ctx, &notice).await?;
+    // The venue is saved: a failed notice must not turn into a "failed" reply.
+    if let Err(error) = notify_admins(ctx, &notice).await {
+        tracing::warn!(error = %error, "could not notify admins about a venue");
+    }
     Ok(fill(&COPY.venue_submitted, &[("name", &name)]))
 }
 
@@ -1176,7 +1223,14 @@ where
     } else {
         VenueStatus::Rejected
     };
-    let Some((name, submitter)) = ctx.bot.decide_venue(id, status).await.map_err(fail)? else {
+    let decided = match ctx.bot.decide_venue(id, status).await {
+        Ok(decided) => decided,
+        Err(DecideError::Duplicate) => {
+            return Ok(fill(&COPY.venue_duplicate, &[("id", &id.to_string())]));
+        }
+        Err(DecideError::Repo(error)) => return Err(fail(error)),
+    };
+    let Some((name, submitter)) = decided else {
         return Ok(fill(&COPY.venue_not_pending, &[("id", &id.to_string())]));
     };
     if let (Some(submitter), Some(chat)) = (submitter, ctx.chat) {
@@ -1201,11 +1255,12 @@ where
             }
         }
     }
-    let action = if approve { "duyệt" } else { "từ chối" };
-    Ok(fill(
-        &COPY.venue_decided,
-        &[("action", action), ("id", &id.to_string()), ("name", &name)],
-    ))
+    let template = if approve {
+        &COPY.venue_approved_admin
+    } else {
+        &COPY.venue_rejected_admin
+    };
+    Ok(fill(template, &[("id", &id.to_string()), ("name", &name)]))
 }
 
 async fn pending_venues<B, D, M, P>(

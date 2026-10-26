@@ -23,7 +23,7 @@ describe("getGroups", () => {
     await expect(getGroups({ baseUrl: "http://api", fetchImpl })).resolves.toEqual([group]);
     expect(fetchImpl).toHaveBeenCalledWith(
       "http://api/api/groups",
-      expect.objectContaining({ next: { revalidate: 60 } }),
+      expect.objectContaining({ next: { revalidate: 60 }, signal: expect.any(AbortSignal) }),
     );
   });
 

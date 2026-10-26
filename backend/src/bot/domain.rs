@@ -141,14 +141,14 @@ pub fn parse_command(text: &str, kind: ChatKind, bot_name: &str) -> Option<Comma
         Command::DecideVenue { id, approve: false }
     } else if is(&commands.pending_venues) {
         Command::PendingVenues
-    } else if let Some(after) = publish {
+    } else if let Some(number) = publish.as_deref().and_then(only_number) {
         Command::PublishPoll {
-            number: number(&after),
+            number,
             public: true,
         }
-    } else if let Some(after) = hide {
+    } else if let Some(number) = hide.as_deref().and_then(only_number) {
         Command::PublishPoll {
-            number: number(&after),
+            number,
             public: false,
         }
     } else if starts_with_words(&word, &commands.add_venue) {
@@ -164,6 +164,22 @@ pub fn parse_command(text: &str, kind: ChatKind, bot_name: &str) -> Option<Comma
     } else {
         Command::Describe(rest.to_owned())
     })
+}
+
+/// A toggle's argument: nothing (show the list) or just a number ("1", "số 1",
+/// "#1"). Anything else is not a toggle ("công khai bảng điểm danh T7…").
+fn only_number(after: &str) -> Option<Option<i64>> {
+    let rest = after
+        .trim()
+        .trim_start_matches('#')
+        .trim_start_matches("số")
+        .trim_start_matches("so ")
+        .trim();
+    if rest.is_empty() {
+        Some(None)
+    } else {
+        rest.parse().ok().map(Some)
+    }
 }
 
 /// Whether the text's first words are one of `phrases` ("tạo bảng điểm danh …").
@@ -458,7 +474,13 @@ pub struct BotCopy {
     pub venue_admin_notice: String,
     pub venue_approved: String,
     pub venue_rejected: String,
-    pub venue_decided: String,
+    pub venue_approved_admin: String,
+    pub venue_rejected_admin: String,
+    pub venue_duplicate: String,
+    pub venue_exists: String,
+    pub venue_named: String,
+    /// Words a venue name may already start with ("Sân").
+    pub venue_prefixes: Vec<String>,
     pub venue_not_pending: String,
     pub admin_only: String,
     pub no_pending_venues: String,
@@ -515,6 +537,9 @@ pub struct Commands {
     pub hide_poll: Vec<String>,
     /// Words that ask for a weekly poll to be public when it is made.
     pub public: Vec<String>,
+    /// Sport words in a venue request.
+    pub venue_football: Vec<String>,
+    pub venue_basketball: Vec<String>,
 }
 
 const COPY_JSON: &str = include_str!("../../messages/vi.json");
@@ -725,6 +750,15 @@ mod tests {
                 public: false
             })
         );
+        // A poll request that starts with "công khai" is not a toggle.
+        assert!(!matches!(
+            parse_command(
+                "@Bot DaGhep công khai bảng điểm danh T7, CN hằng tuần 18h",
+                ChatKind::Group,
+                BOT
+            ),
+            Some(Command::PublishPoll { .. })
+        ));
         // Players looking for a match, in their own words.
         for text in [
             "tui muốn đá",

@@ -111,13 +111,21 @@
   "venueAdminNotice": "📍 Sân mới chờ duyệt (số {id}): {name}\n{sports}\nhttps://maps.google.com/?q={lat},{lng}\nGõ \"duyệt sân {id}\" hoặc \"từ chối sân {id}\".",
   "venueApproved": "✅ Sân \"{name}\" đã được duyệt. Giờ bạn tạo bảng hằng tuần có ghi tên sân này là được.",
   "venueRejected": "Sân \"{name}\" chưa được duyệt. Có gì thắc mắc, bạn nhắn cho Đá Ghép nhé.",
-  "venueDecided": "Đã {action} sân số {id}: {name}.",
+  "venueApprovedAdmin": "Đã duyệt sân số {id}: {name}.",
+  "venueRejectedAdmin": "Đã từ chối sân số {id}: {name}.",
+  "venueDuplicate": "Đã có một sân được duyệt trùng tên với sân số {id}. Từ chối sân này hoặc nhờ người gửi đặt tên khác nhé.",
+  "venueExists": "Sân \"{name}\" đã có rồi, bạn ghi tên sân này khi tạo bảng là được.",
+  "venueNamed": "Sân {name}",
+  "venuePrefixes": [
+    "sân",
+    "san "
+  ],
   "venueNotPending": "Không có sân chờ duyệt số {id}.",
   "adminOnly": "Lệnh này chỉ dành cho admin của Đá Ghép.",
   "noPendingVenues": "Không có sân nào chờ duyệt.",
   "pendingVenuesList": "Sân chờ duyệt:\n{items}",
   "pendingVenueItem": "• số {id}: {name} ({sports})\n  https://maps.google.com/?q={lat},{lng}",
-  "seriesPublished": "🌐 Bảng hằng tuần số {n} giờ hiện trên trang chủ daghep.vn: môn, sân, ngày, giờ chơi và số người điểm danh (không có tên ai).",
+  "seriesPublished": "🌐 Bảng hằng tuần số {n} giờ hiện trên trang chủ daghep.vn: tên bảng, môn, sân, ngày, giờ chơi và số người điểm danh (không có tên ai).",
   "seriesHidden": "Đã ẩn bảng hằng tuần số {n} khỏi trang chủ.",
   "publishHint": "Gõ \"{mention}công khai bảng 1\" để hiện bảng số 1 trên trang chủ, \"{mention}ẩn bảng 1\" để ẩn.",
   "openMatchLine": "• {day} {start}–{end} · {venue} · {format} · còn {places} chỗ · {price}\n  👉 {url}",
@@ -263,9 +271,7 @@
     ],
     "publishPoll": [
       "công khai bảng",
-      "cong khai bang",
-      "công khai",
-      "cong khai"
+      "cong khai bang"
     ],
     "hidePoll": [
       "ẩn bảng",
@@ -274,6 +280,16 @@
     "public": [
       "công khai",
       "cong khai"
+    ],
+    "venueFootball": [
+      "bóng đá",
+      "bong da",
+      "đá bóng",
+      "da bong"
+    ],
+    "venueBasketball": [
+      "bóng rổ",
+      "bong ro"
     ]
   }
 }

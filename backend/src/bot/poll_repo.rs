@@ -21,8 +21,9 @@ type PublicGroupRow = (
     Option<NaiveTime>,
     Option<String>,
     Option<String>,
-    Option<i64>,
     Option<Vec<NaiveDate>>,
+    Option<Vec<i64>>,
+    Option<i64>,
 );
 
 fn poll_error(error: sqlx::Error) -> PollRepoError {
@@ -542,17 +543,27 @@ impl PollRepository for PgBotRepository {
     }
 
     async fn public_groups(&self, now: DateTime<Utc>) -> Result<Vec<PublicGroup>, PollRepoError> {
-        // A venue shows only once approved; the group shows either way.
+        // One statement: a venue shows only once approved; "this week" is the
+        // series' poll that closes soonest and is still open.
         let rows: Vec<PublicGroupRow> = sqlx::query_as(
             "SELECT s.title, s.sport, s.game_format, s.venue_id, s.weekdays, s.play_time,
-                    v.name, v.address, p.id, p.days
+                    v.name, v.address, w.days, w.yes, w.players
              FROM bot_poll_series s
              LEFT JOIN venues v ON v.id = s.venue_id AND v.status = 'approved'
              LEFT JOIN LATERAL (
-                 SELECT id, days FROM bot_polls
-                 WHERE series_id = s.id AND closes_at > $1
-                 ORDER BY closes_at LIMIT 1
-             ) p ON true
+                 SELECT p.days,
+                        ARRAY(
+                            SELECT count(a.user_id) FILTER (WHERE a.attending)
+                            FROM unnest(p.days) AS d(day)
+                            LEFT JOIN bot_poll_answers a ON a.poll_id = p.id AND a.day = d.day
+                            GROUP BY d.day ORDER BY d.day
+                        ) AS yes,
+                        (SELECT count(DISTINCT user_id) FROM bot_poll_answers
+                         WHERE poll_id = p.id) AS players
+                 FROM bot_polls p
+                 WHERE p.series_id = s.id AND p.closes_at > $1
+                 ORDER BY p.closes_at LIMIT 1
+             ) w ON true
              WHERE s.public
              ORDER BY s.id DESC
              LIMIT 50",
@@ -561,64 +572,46 @@ impl PollRepository for PgBotRepository {
         .fetch_all(self.pool())
         .await
         .map_err(poll_error)?;
-        let mut groups = Vec::with_capacity(rows.len());
-        for (
-            title,
-            sport,
-            format,
-            venue_id,
-            weekdays,
-            play_time,
-            venue_name,
-            address,
-            poll,
-            days,
-        ) in rows
-        {
-            let week = match (poll, days) {
-                (Some(poll), Some(days)) => {
-                    let counts: Vec<(NaiveDate, i64, i64)> = sqlx::query_as(
-                        "SELECT day, count(*) FILTER (WHERE attending), count(*)
-                         FROM bot_poll_answers WHERE poll_id = $1 GROUP BY day",
-                    )
-                    .bind(poll)
-                    .fetch_all(self.pool())
-                    .await
-                    .map_err(poll_error)?;
-                    let players: i64 = sqlx::query_scalar(
-                        "SELECT count(DISTINCT user_id) FROM bot_poll_answers WHERE poll_id = $1",
-                    )
-                    .bind(poll)
-                    .fetch_one(self.pool())
-                    .await
-                    .map_err(poll_error)?;
-                    let yes = days
-                        .iter()
-                        .map(|day| {
-                            let yes = counts
-                                .iter()
-                                .find(|(d, _, _)| d == day)
-                                .map_or(0, |(_, yes, _)| *yes);
-                            (*day, yes)
-                        })
-                        .collect();
-                    Some((yes, players))
-                }
-                _ => None,
-            };
-            let weekdays = u8::try_from(weekdays).unwrap_or(0);
-            let shown_venue = venue_name.is_some();
-            groups.push(PublicGroup {
-                title,
-                group: group_from_columns((sport, format, venue_id.filter(|_| shown_venue), true))?,
-                venue_name,
-                venue_address: address,
-                weekdays,
-                play_time,
-                week,
-            });
-        }
-        Ok(groups)
+        rows.into_iter()
+            .map(
+                |(
+                    title,
+                    sport,
+                    format,
+                    venue_id,
+                    weekdays,
+                    play_time,
+                    venue_name,
+                    address,
+                    days,
+                    yes,
+                    players,
+                )| {
+                    let week = match (days, yes, players) {
+                        (Some(mut days), Some(yes), Some(players)) => {
+                            days.sort();
+                            Some((days.into_iter().zip(yes).collect(), players))
+                        }
+                        _ => None,
+                    };
+                    let shown_venue = venue_name.is_some();
+                    Ok(PublicGroup {
+                        title,
+                        group: group_from_columns((
+                            sport,
+                            format,
+                            venue_id.filter(|_| shown_venue),
+                            true,
+                        ))?,
+                        venue_name,
+                        venue_address: address,
+                        weekdays: u8::try_from(weekdays).unwrap_or(0),
+                        play_time,
+                        week,
+                    })
+                },
+            )
+            .collect()
     }
 
     async fn series(&self, chat_id: &str) -> Result<Vec<PollSeries>, PollRepoError> {

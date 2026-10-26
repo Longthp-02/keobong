@@ -1898,6 +1898,15 @@ async fn a_public_weekly_group_shows_on_the_home_page_without_names(pool: PgPool
     )
     .await;
 
+    let response = call(
+        &bot.app,
+        Request::get("/api/groups").body(Body::empty()).unwrap(),
+    )
+    .await;
+    assert_eq!(
+        response.headers().get("cache-control").unwrap(),
+        "public, max-age=60"
+    );
     let groups = bot.groups().await;
     assert_eq!(
         groups,
@@ -1963,4 +1972,68 @@ async fn weekly_groups_are_private_unless_asked_and_pending_venues_stay_hidden(p
     assert_eq!(groups.as_array().unwrap().len(), 1, "{groups}");
     assert_eq!(groups[0]["venue"], Value::Null);
     assert_eq!(groups[0]["sport"], "basketball");
+}
+
+#[sqlx::test]
+async fn a_public_group_counts_the_poll_the_bot_posted_this_week(pool: PgPool) {
+    let bot = bot(pool, tonight());
+    bot.link(HOST, "host").await;
+    bot.add_lakeview().await;
+    bot.add_public_lakeview_group().await;
+    // Monday 05 at 20:00 local the bot posts the poll for 10–11/10.
+    bot.clock.advance(Duration::days(4) + Duration::hours(13));
+    assert_eq!(bot.run_weekly().await, 1);
+    let share_id = poll_share_id(&bot.last_sent().1);
+    let nam = sign_in(&bot.app, "nam").await;
+    bot.answer_poll(
+        &share_id,
+        Some(&nam),
+        json!([{ "day": "2099-10-10", "attending": true }]),
+    )
+    .await;
+    let groups = bot.groups().await;
+    assert_eq!(
+        groups[0]["week"],
+        json!({ "players": 1, "yes": [{ "day": "2099-10-10", "yes": 1 }, { "day": "2099-10-11", "yes": 0 }] })
+    );
+}
+
+#[sqlx::test]
+async fn a_second_group_proposing_the_same_venue_does_not_fail(pool: PgPool) {
+    let bot = bot(pool, tonight());
+    bot.link(HOST, "host").await;
+    bot.link(OTHER, "other").await;
+    for sender in [HOST, OTHER] {
+        let reply = bot
+            .in_group(
+                sender,
+                &format!("THÊM SÂN Lakeview BÓNG RỔ {LAKEVIEW_LINK}"),
+            )
+            .await
+            .unwrap();
+        assert!(reply.contains("Đã gửi sân \"Sân Lakeview\""), "{reply}");
+    }
+    let first = bot
+        .say(HOST, "PRIVATE", HOST, "sân chờ duyệt")
+        .await
+        .unwrap();
+    let ids: Vec<i64> = first
+        .split("số ")
+        .skip(1)
+        .filter_map(|rest| rest.split(':').next()?.parse().ok())
+        .collect();
+    assert_eq!(ids.len(), 2, "{first}");
+    bot.say(HOST, "PRIVATE", HOST, &format!("duyệt sân {}", ids[0]))
+        .await;
+    let duplicate = bot
+        .say(HOST, "PRIVATE", HOST, &format!("duyệt sân {}", ids[1]))
+        .await
+        .unwrap();
+    assert!(duplicate.contains("trùng tên"), "{duplicate}");
+    // Once approved, proposing it again says it exists.
+    let exists = bot
+        .in_group(OTHER, &format!("thêm sân Lakeview bóng rổ {LAKEVIEW_LINK}"))
+        .await
+        .unwrap();
+    assert!(exists.contains("đã có rồi"), "{exists}");
 }

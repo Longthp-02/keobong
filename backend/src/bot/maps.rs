@@ -123,6 +123,19 @@ fn percent_decode(text: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
+/// Where a redirect from `current` goes: a relative location stays on the same
+/// Google host; an absolute one must be on a Google Maps host.
+fn next_url(current: &str, location: &str) -> Result<String, MapsError> {
+    let next = if location.starts_with('/') && !location.starts_with("//") {
+        let host = google_host(current).ok_or(MapsError::NotMaps)?;
+        format!("https://{host}{location}")
+    } else {
+        location.to_owned()
+    };
+    google_host(&next).ok_or(MapsError::NotMaps)?;
+    Ok(next)
+}
+
 /// Follows a Maps link's redirects with HTTP and reads the final URL.
 pub struct HttpMapsLocator {
     http: reqwest::Client,
@@ -160,13 +173,7 @@ impl MapsLocator for HttpMapsLocator {
                 else {
                     return Err(MapsError::NoPlace);
                 };
-                // A relative redirect stays on the same Google host.
-                current = if next.starts_with('/') {
-                    let host = google_host(&current).ok_or(MapsError::NotMaps)?;
-                    format!("https://{host}{next}")
-                } else {
-                    next.to_owned()
-                };
+                current = next_url(&current, next)?;
             }
             Err(MapsError::NoPlace)
         })
@@ -189,6 +196,32 @@ mod tests {
         );
         assert_eq!(find_maps_link("https://maps.app.goo.gl.evil.com/x"), None);
         assert_eq!(find_maps_link("http://maps.app.goo.gl/x"), None);
+    }
+
+    #[test]
+    fn redirects_stay_on_google_maps_hosts() {
+        let from = "https://maps.app.goo.gl/AbC";
+        assert_eq!(
+            next_url(from, "https://www.google.com/maps/place/X/@10.8,106.7,15z").unwrap(),
+            "https://www.google.com/maps/place/X/@10.8,106.7,15z"
+        );
+        assert_eq!(
+            next_url("https://www.google.com/maps", "/maps/@10.8,106.7,15z").unwrap(),
+            "https://www.google.com/maps/@10.8,106.7,15z"
+        );
+        for bad in [
+            "https://evil.example/maps",
+            "https://maps.app.goo.gl@evil.example/x",
+            "https://maps.app.goo.gl:8443/x",
+            "https://maps.app.goo.gl.evil.example/x",
+            "http://www.google.com/maps",
+            "//evil.example/x",
+            "maps/relative",
+            "https://localhost/x",
+            "https://169.254.169.254/latest",
+        ] {
+            assert!(next_url(from, bad).is_err(), "{bad}");
+        }
     }
 
     #[test]

@@ -12,6 +12,11 @@ ALTER TABLE venues
     ADD COLUMN submitted_by bigint REFERENCES users (id) ON DELETE SET NULL,
     ADD COLUMN maps_url text CHECK (char_length(maps_url) <= 500);
 
+-- Names are unique among approved venues only, so a pending or rejected
+-- proposal never blocks another group's proposal or a later launch venue.
+ALTER TABLE venues DROP CONSTRAINT venues_name_key;
+CREATE UNIQUE INDEX venues_approved_name_idx ON venues (lower(name)) WHERE status = 'approved';
+
 -- What a weekly group plays and where, and whether it is shown publicly.
 ALTER TABLE bot_poll_series
     ADD COLUMN sport text CHECK (sport IN ('football', 'basketball')),

@@ -427,6 +427,8 @@ export async function getGroups(options: Options = {}): Promise<PublicGroup[]> {
     const response = await fetchImpl(`${baseUrl}/api/groups`, {
       headers: { accept: "application/json" },
       next: { revalidate: 60 },
+      // A slow API must not hold up the home page.
+      signal: AbortSignal.timeout(3000),
     } as RequestInit);
     if (!response.ok) {
       throw new Error(`Groups API failed with status ${response.status}`);
