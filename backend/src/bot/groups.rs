@@ -17,7 +17,7 @@ pub const MAX_PENDING_PER_ORGANISER: i64 = 50;
 /// How long a declined player waits before asking the same group again.
 pub const ASK_AGAIN_DAYS: i64 = 7;
 /// Days a request waits for the organiser; after that it lapses and the player
-/// may ask again. TODO: verify with Long (proposed 2026-10-26).
+/// may ask again. Approved by Long 2026-10-26.
 pub const PENDING_DAYS: i64 = 14;
 
 /// Where a viewer stands with a group.
