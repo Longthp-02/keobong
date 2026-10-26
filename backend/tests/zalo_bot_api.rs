@@ -2616,3 +2616,40 @@ async fn existing_weekly_groups_each_get_their_own_public_id(pool: PgPool) {
     assert_eq!(ids.len(), 3);
     assert!(ids.iter().all(|id| id.len() == 12));
 }
+
+#[sqlx::test]
+async fn asking_for_the_poll_shows_how_to_answer_it(pool: PgPool) {
+    let bot = bot(pool, tonight());
+    bot.link(HOST, "host").await;
+    let share_id = bot.add_weekend_poll().await;
+    let reads = bot.polls.calls.lock().unwrap().len();
+    // A player not linked yet, and a linked one: neither starts a new poll.
+    for sender in [OTHER, HOST] {
+        let reply = bot.in_group(sender, "bảng điểm danh").await.unwrap();
+        assert!(
+            reply.contains(&format!("{FRONTEND}/p/{share_id}")),
+            "{reply}"
+        );
+        assert!(
+            reply.contains("@Bot DaGhep Thứ 7 có, Chủ nhật không"),
+            "{reply}"
+        );
+    }
+    assert_eq!(bot.polls.calls.lock().unwrap().len(), reads, "no AI read");
+}
+
+#[sqlx::test]
+async fn looking_for_a_match_next_to_an_open_poll_points_to_the_poll(pool: PgPool) {
+    let bot = bot(pool, tonight());
+    bot.link(HOST, "host").await;
+    let share_id = bot.add_weekend_poll().await;
+    let reply = bot.in_group(OTHER, "tìm kèo bóng rổ").await.unwrap();
+    assert!(reply.contains("đang có bảng điểm danh"), "{reply}");
+    assert!(
+        reply.contains(&format!("{FRONTEND}/p/{share_id}")),
+        "{reply}"
+    );
+    // Elsewhere the reply is as before.
+    let private = bot.say(OTHER, "PRIVATE", OTHER, "tìm kèo").await.unwrap();
+    assert!(!private.contains("bảng điểm danh"), "{private}");
+}

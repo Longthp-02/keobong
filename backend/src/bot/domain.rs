@@ -557,6 +557,7 @@ pub struct BotCopy {
     pub join_none_waiting: String,
     pub join_decide_privately: String,
     pub group_link_in_group: String,
+    pub open_poll_in_chat: String,
     pub commands: Commands,
     pub answer_words: super::answers::AnswerWords,
 }
