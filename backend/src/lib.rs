@@ -81,6 +81,7 @@ pub fn app(deps: Deps) -> Router {
             drafts: drafts::PgDraftRepository::new(deps.pool.clone()),
             matches: matches::PgMatchRepository::new(deps.pool.clone()),
             payouts: payments::PgPayoutRepository::new(deps.pool.clone()),
+            slots: slots::PgSlotRepository::new(deps.pool.clone()),
             clock: deps.clock.clone(),
             reader: deps.reader,
             zalo: deps.zalo,

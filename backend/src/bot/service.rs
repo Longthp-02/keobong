@@ -10,7 +10,7 @@ use sha2::{Digest, Sha256};
 use super::domain::{
     BotDraft, BotRepository, COPY, ChatKind, ChatReply, Command, DEFAULT_LEVEL_MAX_TENTHS,
     DEFAULT_LEVEL_MIN_TENTHS, DEFAULT_MATCH_TYPE, DRAFT_MINUTES, Incoming, LINK_CODE_MINUTES,
-    UpdateOutcome, entry, fill, parse_command,
+    MatchFinder, UpdateOutcome, entry, fill, mentions_find_phrase, parse_command,
 };
 use super::polls::{
     MAX_NAMES_IN_NUDGE, MAX_SERIES_LATE_HOURS, MEMBER_DAYS, PendingPoll, Poll, PollPlan,
@@ -44,6 +44,11 @@ pub struct BotContext<'a, B, D, M, P> {
     pub reader: Option<&'a dyn MatchTextReader>,
     pub reminder_reader: Option<&'a dyn ReminderReader>,
     pub poll_reader: Option<&'a dyn PollReader>,
+    /// Lists open matches for players; `None` points them to the website.
+    pub finder: Option<&'a dyn MatchFinder>,
+    /// Sends private messages (a link code to someone who tried the bot in a
+    /// group); `None` only replies in the chat.
+    pub chat: Option<&'a dyn ChatReply>,
     /// The web app's origin, for links in replies.
     pub frontend_origin: &'a str,
     /// The bot's display name, as tagged in groups ("Bot DaGhep").
@@ -148,6 +153,7 @@ where
         Command::Remind(text) => remind(ctx, message, &text, &mention, now).await?,
         Command::ListReminders => list_reminders(ctx, message, &mention).await?,
         Command::StopReminder(number) => stop_reminder(ctx, message, number, &mention).await?,
+        Command::FindMatches => find_matches(ctx).await,
         Command::Describe(text) => describe(ctx, message, &text, &mention, now).await?,
     };
     Ok(Some(reply))
@@ -162,10 +168,26 @@ where
     B: BotRepository,
 {
     // A link posted in a group could be opened by someone else, who would then
-    // host (and be paid for) this sender's matches.
+    // host (and be paid for) this sender's matches: it only goes privately.
     if message.chat_kind == ChatKind::Group {
-        return Ok(fill(&COPY.link_in_group, &[("bot", ctx.bot_name)]));
+        return Ok(if send_link_privately(ctx, message, now).await? {
+            fill(&COPY.link_sent_privately, &[("bot", ctx.bot_name)])
+        } else {
+            fill(&COPY.link_in_group, &[("bot", ctx.bot_name)])
+        });
     }
+    link_text(ctx, message, now).await
+}
+
+/// A new link code for the sender, as the private message that carries it.
+async fn link_text<B, D, M, P>(
+    ctx: &BotContext<'_, B, D, M, P>,
+    message: &Incoming,
+    now: DateTime<Utc>,
+) -> Result<String, BotError>
+where
+    B: BotRepository,
+{
     let code = URL_SAFE_NO_PAD.encode(random_bytes::<32>().map_err(fail)?);
     ctx.bot
         .save_link_code(
@@ -178,6 +200,46 @@ where
         .map_err(fail)?;
     let url = format!("{}/bot/link?code={code}", ctx.frontend_origin);
     Ok(fill(&COPY.link_private, &[("url", &url)]))
+}
+
+/// Sends the sender a link code in their private chat with the bot (a Zalo
+/// user's private chat id is their user id). Returns whether Zalo took it; it
+/// may refuse a user who never wrote to the bot.
+async fn send_link_privately<B, D, M, P>(
+    ctx: &BotContext<'_, B, D, M, P>,
+    message: &Incoming,
+    now: DateTime<Utc>,
+) -> Result<bool, BotError>
+where
+    B: BotRepository,
+{
+    let Some(chat) = ctx.chat else {
+        return Ok(false);
+    };
+    let text = link_text(ctx, message, now).await?;
+    match chat.send(&message.sender_id, &text).await {
+        Ok(()) => Ok(true),
+        Err(error) => {
+            tracing::info!(error = %error, "could not send a link code privately");
+            Ok(false)
+        }
+    }
+}
+
+/// The reply to an organiser's request from someone not linked yet: in a group
+/// the bot tries to send them the link privately.
+async fn unlinked<B, D, M, P>(
+    ctx: &BotContext<'_, B, D, M, P>,
+    message: &Incoming,
+    now: DateTime<Utc>,
+) -> Result<String, BotError>
+where
+    B: BotRepository,
+{
+    if message.chat_kind == ChatKind::Group && send_link_privately(ctx, message, now).await? {
+        return Ok(fill(&COPY.link_sent_privately, &[("bot", ctx.bot_name)]));
+    }
+    Ok(fill(&COPY.not_linked, &[("bot", ctx.bot_name)]))
 }
 
 pub fn hash_code(code: &str) -> [u8; 32] {
@@ -203,7 +265,17 @@ where
         .await
         .map_err(fail)?
     else {
-        return Ok(fill(&COPY.not_linked, &[("bot", ctx.bot_name)]));
+        // Someone who is not an organiser asking for a match ("có kèo 19h không")
+        // gets the open matches rather than the linking steps.
+        if mentions_find_phrase(text) {
+            // It may be a new organiser's post too: say how to post matches.
+            return Ok(format!(
+                "{}\n{}",
+                find_matches(ctx).await,
+                fill(&COPY.organiser_hint, &[("bot", ctx.bot_name)])
+            ));
+        }
+        return unlinked(ctx, message, now).await;
     };
     let create_url = format!("{}/create", ctx.frontend_origin);
     let draft = match read_draft(ctx.drafts, ctx.matches, ctx.clock, ctx.reader, user, text).await {
@@ -480,7 +552,7 @@ where
         .await
         .map_err(fail)?
     else {
-        return Ok(fill(&COPY.not_linked, &[("bot", ctx.bot_name)]));
+        return unlinked(ctx, message, now).await;
     };
     let text = text.trim();
     if text.chars().count() > MAX_TEXT_CHARS {
@@ -681,7 +753,7 @@ where
         .await
         .map_err(fail)?
     else {
-        return Ok(fill(&COPY.not_linked, &[("bot", ctx.bot_name)]));
+        return unlinked(ctx, message, now).await;
     };
     let text = text.trim();
     if text.chars().count() > MAX_TEXT_CHARS {
@@ -1200,6 +1272,59 @@ fn moment(at: DateTime<Utc>) -> String {
         .get(local.weekday().num_days_from_sunday() as usize)
         .map_or("", String::as_str);
     format!("{weekday} {}", local.format("%d/%m %H:%M"))
+}
+
+/// Matches listed to a player in one reply.
+const MATCHES_IN_REPLY: usize = 5;
+
+/// The soonest open matches, or where to look when there are none.
+async fn find_matches<B, D, M, P>(ctx: &BotContext<'_, B, D, M, P>) -> String {
+    let none = fill(&COPY.no_open_matches, &[("bot", ctx.bot_name)]);
+    let Some(finder) = ctx.finder else {
+        return none;
+    };
+    let found = match finder.find(MATCHES_IN_REPLY).await {
+        Ok(found) => found,
+        Err(error) => {
+            tracing::warn!(error = %error, "bot could not list open matches");
+            return COPY.open_matches_unavailable.clone();
+        }
+    };
+    if found.is_empty() {
+        return none;
+    }
+    let items = found
+        .iter()
+        .map(|line| {
+            let start = local_time(line.starts_at);
+            let price = if line.price_per_player_vnd == 0 {
+                COPY.free.clone()
+            } else {
+                fill(
+                    &COPY.per_player,
+                    &[("amount", &format_vnd(line.price_per_player_vnd))],
+                )
+            };
+            fill(
+                &COPY.open_match_line,
+                &[
+                    ("day", &day_label(start.date_naive())),
+                    ("start", &start.format("%H:%M").to_string()),
+                    ("end", &local_time(line.ends_at).format("%H:%M").to_string()),
+                    ("venue", &line.venue_name),
+                    ("format", entry(&COPY.formats, line.format.as_str())),
+                    ("places", &line.places_left.to_string()),
+                    ("price", &price),
+                    (
+                        "url",
+                        &format!("{}/m/{}", ctx.frontend_origin, line.share_id),
+                    ),
+                ],
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    fill(&COPY.open_matches, &[("items", &items)])
 }
 
 /// Links the Zalo account behind a link code to `user`. Returns the Zalo id to
