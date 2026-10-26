@@ -183,7 +183,8 @@ impl GroupRepository for PgBotRepository {
              VALUES ($1, $2, 'pending', $3)
              ON CONFLICT (series_id, user_id) DO UPDATE SET
                  status = 'pending', requested_at = EXCLUDED.requested_at, decided_at = NULL
-             WHERE bot_join_requests.status = 'rejected' OR bot_join_requests.requested_at <= $4
+             WHERE bot_join_requests.status = 'rejected'
+                OR (bot_join_requests.status = 'pending' AND bot_join_requests.requested_at <= $4)
              RETURNING id",
         )
         .bind(found.series_id)
