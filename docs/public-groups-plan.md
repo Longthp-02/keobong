@@ -16,6 +16,15 @@ The home page shows groups that really play through Đá Ghép ("🏀 Bóng rổ
 - Poll requests now carry sport, format and an approved venue (read by the AI from the request). A weekly poll whose request says "công khai" is public; `công khai bảng N` / `ẩn bảng N` toggle it (linked members).
 - `GET /api/groups`: public series with sport, format, approved venue, weekdays, play time and this week's yes-counts and number of players; no names; cached 60 s. The home page shows them under the match list ("Nhóm đang chơi trên Đá Ghép").
 
+## Built in step 2 (2026-10-26)
+Approved by Long 2026-10-26 with the migration `20261026040000_add_join_requests.sql` and these limits: at most 5 pending requests per player, 50 waiting for one organiser across their groups, and a declined player may ask the same group again after 7 days. The Zalo Bot API cannot list a group's members (confirmed by Long 2026-10-26), so members are: the organiser, approved players, and linked people seen tagging the bot in the group's chat in the last 60 days. Answering a poll on the web does not count, since a poll link can be forwarded. Others ask to join. A request not answered within 14 days lapses and the player may ask again (approved by Long 2026-10-26).
+- Each public group has a public id (`/g/<id>`, 12 hex characters, not a secret). The home card links there ("Xem nhóm · Xin tham gia").
+- `GET /api/groups/{id}`: the group as on the home page, plus the signed-in viewer's standing (`none`, `pending`, `declined` with `askAgainAt`, or `member` with the Zalo link and this week's poll path). Private, never cached.
+- `POST /api/groups/{id}/join` (signed in): saves a pending request and tells the organiser privately in Zalo ("nhận N" / "không nhận N"). Asking again while pending changes nothing. A member gets 200 with their standing.
+- The organiser decides with `nhận N` / `không nhận N` in a private chat with the bot (only their own groups' pending requests; in a group the bot asks to do it privately, so the player's name is not posted there). `nhận` alone or `yêu cầu chờ duyệt` lists the waiting requests. The player is told privately when their Zalo account is linked; the web page shows it either way.
+- `@Bot DaGhep link nhóm: https://zalo.me/g/…` (the series' organiser, in that chat) saves the group's Zalo invite link, shown only to members. It must be sent in the group itself.
+- Answering polls still works for anyone with the poll link, as before; the poll link is what members get.
+
 ## Steps (one PR each)
 1. Polls and series get a sport (football, basketball) and format (3x3, 5x5, 5/7/11-a-side) and a venue; venues get sports and a pending/approved state; adding a venue from a Maps link; admin approval in a private chat; public flag; home-page section "Nhóm đang chơi".
 2. Join requests: "Xin tham gia" on the group card, the organiser's private approve/decline, approved players answer polls, the group's Zalo link.

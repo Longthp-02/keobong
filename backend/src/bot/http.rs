@@ -18,12 +18,14 @@ use sha2::{Digest, Sha256};
 use super::domain::{
     COPY, ChatKind, ChatReply, FindFuture, Incoming, MatchFinder, OpenMatchLine, fill,
 };
+use super::groups::{GroupRepository, JoinOutcome, Membership};
 use super::maps::MapsLocator;
-use super::polls::{AnswerOutcome, MAX_POLL_DAYS, Poll, PollReader, PollRepository};
+use super::polls::{AnswerOutcome, MAX_POLL_DAYS, Poll, PollReader, PollRepository, PublicGroup};
 use super::reminders::ReminderReader;
 use super::repo::PgBotRepository;
 use super::service::{
-    BotContext, handle_message, redeem_link, run_due_polls, run_due_reminders, run_due_series,
+    BotContext, handle_message, redeem_link, request_join, run_due_polls, run_due_reminders,
+    run_due_series,
 };
 use crate::auth::{AuthRejection, AuthState, AuthenticatedUser, UserId};
 use crate::clock::Clock;
@@ -86,6 +88,8 @@ pub fn router(state: BotState) -> Router {
         .route("/api/bot/reminders/run", post(run_reminders))
         .route("/api/polls/{share_id}", get(get_poll))
         .route("/api/groups", get(get_groups))
+        .route("/api/groups/{public_id}", get(get_group))
+        .route("/api/groups/{public_id}/join", post(join_group))
         .route("/api/polls/{share_id}/answers", put(answer_poll))
         .with_state(state)
 }
@@ -334,7 +338,7 @@ async fn run_reminders(State(state): State<BotState>, headers: HeaderMap) -> Res
 
 /// Public weekly groups for the home page. No member names; cached briefly.
 async fn get_groups(State(state): State<BotState>) -> Response {
-    let groups = match state.bot.public_groups(state.clock.now()).await {
+    let groups = match state.bot.public_groups(state.clock.now(), None).await {
         Ok(groups) => groups,
         Err(error) => {
             tracing::error!(error = %error, "failed to load public groups");
@@ -345,33 +349,162 @@ async fn get_groups(State(state): State<BotState>) -> Response {
                 .into_response();
         }
     };
-    let day = |day: &chrono::NaiveDate| day.format("%Y-%m-%d").to_string();
-    let body: Vec<Value> = groups
-        .iter()
-        .map(|group| {
-            json!({
-                "title": group.title,
-                "sport": group.group.sport.map(|sport| sport.as_str()),
-                "format": group.group.format.map(|format| format.as_str()),
-                "venue": group.venue_name.as_ref().map(|name| json!({
-                    "name": name,
-                    "address": group.venue_address,
-                })),
-                // Sunday = 0 … Saturday = 6.
-                "weekdays": (0..7).filter(|day| group.weekdays & (1 << day) != 0).collect::<Vec<u8>>(),
-                "playTime": group.play_time.map(|time| time.format("%H:%M").to_string()),
-                "week": group.week.as_ref().map(|(yes, players)| json!({
-                    "players": players,
-                    "yes": yes.iter().map(|(d, n)| json!({ "day": day(d), "yes": n })).collect::<Vec<_>>(),
-                })),
-            })
-        })
-        .collect();
+    let body: Vec<Value> = groups.iter().map(group_json).collect();
     (
         [(CACHE_CONTROL, "public, max-age=60")],
         Json(json!({ "groups": body })),
     )
         .into_response()
+}
+
+/// A public group as the web shows it: no member names.
+fn group_json(group: &PublicGroup) -> Value {
+    let day = |day: &chrono::NaiveDate| day.format("%Y-%m-%d").to_string();
+    json!({
+        "id": group.public_id,
+        "title": group.title,
+        "sport": group.group.sport.map(|sport| sport.as_str()),
+        "format": group.group.format.map(|format| format.as_str()),
+        "venue": group.venue_name.as_ref().map(|name| json!({
+            "name": name,
+            "address": group.venue_address,
+        })),
+        // Sunday = 0 … Saturday = 6.
+        "weekdays": (0..7).filter(|day| group.weekdays & (1 << day) != 0).collect::<Vec<u8>>(),
+        "playTime": group.play_time.map(|time| time.format("%H:%M").to_string()),
+        "week": group.week.as_ref().map(|(yes, players)| json!({
+            "players": players,
+            "yes": yes.iter().map(|(d, n)| json!({ "day": day(d), "yes": n })).collect::<Vec<_>>(),
+        })),
+    })
+}
+
+fn membership_json(membership: &Membership) -> Value {
+    match membership {
+        Membership::Outside => json!({ "status": "none" }),
+        Membership::Pending => json!({ "status": "pending" }),
+        Membership::Declined { ask_again_at } => json!({
+            "status": "declined",
+            "askAgainAt": ask_again_at.to_rfc3339(),
+        }),
+        Membership::Member { group_link, poll } => json!({
+            "status": "member",
+            "groupLink": group_link,
+            "pollPath": poll.as_ref().map(|poll| format!("/p/{}", poll.as_str())),
+        }),
+    }
+}
+
+/// Public ids are 12 lower-case hex characters; anything else is unknown.
+fn valid_public_id(id: &str) -> bool {
+    id.len() == 12
+        && id
+            .chars()
+            .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
+}
+
+/// One public group, and where the signed-in viewer stands with it.
+async fn get_group(
+    State(state): State<BotState>,
+    Path(public_id): Path<String>,
+    viewer: Result<AuthenticatedUser, AuthRejection>,
+) -> Response {
+    let internal = || {
+        private(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            json!({ "error": "internal_error" }),
+        )
+    };
+    if !valid_public_id(&public_id) {
+        return private(StatusCode::NOT_FOUND, json!({ "error": "not_found" }));
+    }
+    let viewer = match viewer {
+        Ok(AuthenticatedUser(user)) => Some(user.id),
+        Err(AuthRejection::Unauthenticated) => None,
+        Err(AuthRejection::Internal) => return internal(),
+    };
+    let now = state.clock.now();
+    let group = match state.bot.public_groups(now, Some(&public_id)).await {
+        Ok(groups) => groups.into_iter().next(),
+        Err(error) => {
+            tracing::error!(error = %error, "failed to load a public group");
+            return internal();
+        }
+    };
+    let Some(group) = group else {
+        return private(StatusCode::NOT_FOUND, json!({ "error": "not_found" }));
+    };
+    let membership = match viewer {
+        Some(user) => match state.bot.membership(&public_id, user, now).await {
+            Ok(membership) => membership,
+            Err(error) => {
+                tracing::error!(error = %error, "failed to load a group membership");
+                return internal();
+            }
+        },
+        None => None,
+    };
+    let mut body = group_json(&group);
+    body["membership"] = membership.as_ref().map_or(Value::Null, membership_json);
+    private(StatusCode::OK, body)
+}
+
+/// Asks to join a public group as the signed-in player.
+async fn join_group(
+    State(state): State<BotState>,
+    Path(public_id): Path<String>,
+    AuthenticatedUser(user): AuthenticatedUser,
+) -> Response {
+    let internal = || {
+        private(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            json!({ "error": "internal_error" }),
+        )
+    };
+    if !valid_public_id(&public_id) {
+        return private(StatusCode::NOT_FOUND, json!({ "error": "not_found" }));
+    }
+    let now = state.clock.now();
+    let chat = state.zalo.as_ref().map(|zalo| zalo.reply.as_ref());
+    let outcome = match request_join(&state.bot, chat, &public_id, user.id, now).await {
+        Ok(outcome) => outcome,
+        Err(error) => {
+            tracing::error!(error = %error, "failed to save a join request");
+            return internal();
+        }
+    };
+    match outcome {
+        JoinOutcome::Requested(_) | JoinOutcome::AlreadyPending | JoinOutcome::AlreadyMember => {}
+        JoinOutcome::TooSoon { ask_again_at } => {
+            return private(
+                StatusCode::CONFLICT,
+                json!({ "error": "too_soon", "askAgainAt": ask_again_at.to_rfc3339() }),
+            );
+        }
+        JoinOutcome::PlayerLimit => {
+            return private(
+                StatusCode::TOO_MANY_REQUESTS,
+                json!({ "error": "too_many_requests" }),
+            );
+        }
+        JoinOutcome::OrganiserLimit => {
+            return private(StatusCode::CONFLICT, json!({ "error": "group_busy" }));
+        }
+        JoinOutcome::UnknownGroup => {
+            return private(StatusCode::NOT_FOUND, json!({ "error": "not_found" }));
+        }
+    }
+    match state.bot.membership(&public_id, user.id, now).await {
+        Ok(Some(membership)) => private(
+            StatusCode::OK,
+            json!({ "membership": membership_json(&membership) }),
+        ),
+        Ok(None) => private(StatusCode::NOT_FOUND, json!({ "error": "not_found" })),
+        Err(error) => {
+            tracing::error!(error = %error, "failed to load a group membership");
+            internal()
+        }
+    }
 }
 
 fn private(status: StatusCode, body: Value) -> Response {

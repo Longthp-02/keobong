@@ -7,6 +7,7 @@ import { GroupList } from "./GroupList";
 const t = messages.groups;
 
 const lakeview: PublicGroup = {
+  id: "0123456789ab",
   title: "Ai chơi bóng rổ cuối tuần này?",
   sport: "basketball",
   format: "3x3",
@@ -47,6 +48,14 @@ describe("GroupList", () => {
     expect(within(card).getByText(lakeview.title)).toBeTruthy();
     expect(within(card).getByText("T2")).toBeTruthy();
     expect(within(card).getByText(t.noPollYet)).toBeTruthy();
+  });
+
+  it("links each group to its page, where people ask to join", () => {
+    render(<GroupList groups={[lakeview]} />);
+
+    const link = screen.getByRole("link", { name: t.openLabel.replace("{title}", lakeview.title) });
+    expect(link.textContent).toBe(t.open);
+    expect(link.getAttribute("href")).toBe("/g/0123456789ab");
   });
 
   it("renders nothing without groups", () => {

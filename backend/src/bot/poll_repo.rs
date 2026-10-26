@@ -14,6 +14,7 @@ use crate::matches::venues::{GameFormat, Sport};
 
 type PublicGroupRow = (
     String,
+    String,
     Option<String>,
     Option<String>,
     Option<i64>,
@@ -560,11 +561,15 @@ impl PollRepository for PgBotRepository {
         Ok(updated == 1)
     }
 
-    async fn public_groups(&self, now: DateTime<Utc>) -> Result<Vec<PublicGroup>, PollRepoError> {
+    async fn public_groups(
+        &self,
+        now: DateTime<Utc>,
+        only: Option<&str>,
+    ) -> Result<Vec<PublicGroup>, PollRepoError> {
         // One statement: a venue shows only once approved; "this week" is the
         // series' poll that closes soonest and is still open.
         let rows: Vec<PublicGroupRow> = sqlx::query_as(
-            "SELECT s.title, s.sport, s.game_format, s.venue_id, s.weekdays, s.play_time,
+            "SELECT s.public_id, s.title, s.sport, s.game_format, s.venue_id, s.weekdays, s.play_time,
                     v.name, v.address, w.days, w.yes, w.players
              FROM bot_poll_series s
              LEFT JOIN venues v ON v.id = s.venue_id AND v.status = 'approved'
@@ -582,17 +587,19 @@ impl PollRepository for PgBotRepository {
                  WHERE p.series_id = s.id AND p.closes_at > $1
                  ORDER BY p.closes_at LIMIT 1
              ) w ON true
-             WHERE s.public
+             WHERE s.public AND ($2::text IS NULL OR s.public_id = $2)
              ORDER BY s.id DESC
              LIMIT 50",
         )
         .bind(now)
+        .bind(only)
         .fetch_all(self.pool())
         .await
         .map_err(poll_error)?;
         rows.into_iter()
             .map(
                 |(
+                    public_id,
                     title,
                     sport,
                     format,
@@ -614,6 +621,7 @@ impl PollRepository for PgBotRepository {
                     };
                     let shown_venue = venue_name.is_some();
                     Ok(PublicGroup {
+                        public_id,
                         title,
                         group: group_from_columns((
                             sport,

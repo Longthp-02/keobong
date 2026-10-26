@@ -408,6 +408,8 @@ export async function browserAnswerPoll(
 }
 
 export type PublicGroup = {
+  /** Public id for the group's page, /g/<id>. */
+  id: string;
   title: string;
   sport: "football" | "basketball" | null;
   format: "3x3" | "5x5" | "five_a_side" | "seven_a_side" | "eleven_a_side" | null;
@@ -437,5 +439,62 @@ export async function getGroups(options: Options = {}): Promise<PublicGroup[]> {
   } catch (error) {
     console.error("groups unavailable", error);
     return [];
+  }
+}
+
+/** Where the signed-in viewer stands with a group. */
+export type GroupMembership =
+  | { status: "none" }
+  | { status: "pending" }
+  | { status: "declined"; askAgainAt: string }
+  | { status: "member"; groupLink: string | null; pollPath: string | null };
+
+/** A public group, and the viewer's standing (`null` when signed out). */
+export type GroupView = PublicGroup & { membership: GroupMembership | null };
+
+/** One public group for its page; `null` when it is unknown or no longer public. */
+export async function getGroup(id: string, options: Options = {}): Promise<GroupView | null> {
+  const baseUrl = options.baseUrl ?? apiBaseUrl();
+  const fetchImpl = options.fetchImpl ?? fetch;
+  const response = await fetchImpl(`${baseUrl}/api/groups/${encodeURIComponent(id)}`, {
+    headers: { accept: "application/json", cookie: options.cookie ?? "" },
+    cache: "no-store",
+  });
+  if (response.status === 404) {
+    return null;
+  }
+  if (!response.ok) {
+    throw new Error(`Group API failed with status ${response.status}`);
+  }
+  return (await response.json()) as GroupView;
+}
+
+export type JoinGroupResult =
+  | { ok: true; membership: GroupMembership }
+  | { ok: false; error: "signed_out" | "too_soon" | "group_busy" | "too_many" | "failed" };
+
+/** Asks to join a group as the signed-in player. */
+export async function browserJoinGroup(
+  id: string,
+  fetchImpl: typeof fetch = (...args) => fetch(...args),
+): Promise<JoinGroupResult> {
+  try {
+    const response = await fetchImpl(`/api/groups/${encodeURIComponent(id)}/join`, {
+      method: "POST",
+      headers: { accept: "application/json" },
+      cache: "no-store",
+    });
+    if (response.ok) {
+      return { ok: true, membership: ((await response.json()) as { membership: GroupMembership }).membership };
+    }
+    if (response.status === 401) return { ok: false, error: "signed_out" };
+    if (response.status === 429) return { ok: false, error: "too_many" };
+    if (response.status === 409) {
+      const body = (await response.json().catch(() => ({}))) as { error?: string };
+      return { ok: false, error: body.error === "too_soon" ? "too_soon" : "group_busy" };
+    }
+    return { ok: false, error: "failed" };
+  } catch {
+    return { ok: false, error: "failed" };
   }
 }

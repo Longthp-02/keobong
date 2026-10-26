@@ -13,6 +13,7 @@ use super::domain::{
     DEFAULT_LEVEL_MIN_TENTHS, DEFAULT_MATCH_TYPE, DRAFT_MINUTES, Incoming, LINK_CODE_MINUTES,
     MatchFinder, UpdateOutcome, entry, fill, mentions_find_phrase, parse_command,
 };
+use super::groups::{DecideOutcome, GroupRepository, JoinOutcome, find_group_link};
 use super::maps::{MapsLocator, find_maps_link};
 use super::polls::{
     AnswerOutcome, MAX_NAMES_IN_NUDGE, MAX_SERIES_LATE_HOURS, MEMBER_DAYS, PendingPoll, Poll,
@@ -82,7 +83,7 @@ pub async fn handle_message<B, D, M, P>(
     message: &Incoming,
 ) -> Result<Option<String>, BotError>
 where
-    B: BotRepository + PollRepository + VenueRepository,
+    B: BotRepository + PollRepository + VenueRepository + GroupRepository,
     D: DraftRepository,
     M: MatchRepository,
     P: PayoutRepository,
@@ -206,6 +207,9 @@ where
         Command::PublishPoll { number, public } => {
             publish_poll(ctx, message, number, public, &mention).await?
         }
+        Command::DecideJoin { id, approve } => decide_join(ctx, message, id, approve, now).await?,
+        Command::SetGroupLink(text) => set_group_link(ctx, message, &text, &mention).await?,
+        Command::WaitingJoins => waiting_joins(ctx, message, now).await?,
         Command::Describe(text) => describe(ctx, message, &text, &mention, now).await?,
     };
     Ok(Some(reply))
@@ -2077,6 +2081,200 @@ pub async fn redeem_link<B: BotRepository>(
     bot.redeem_link_code(hash_code(code), user, clock.now())
         .await
         .map_err(fail)
+}
+
+/// The player's name as the organiser sees it.
+fn name_or_player(name: Option<&str>) -> &str {
+    name.unwrap_or(&COPY.player_name)
+}
+
+/// Asks to join a public group from the web. The organiser is told privately
+/// when Zalo lets the bot reach them; the request waits on the web either way.
+pub async fn request_join<B>(
+    bot: &B,
+    chat: Option<&dyn ChatReply>,
+    public_id: &str,
+    user: UserId,
+    now: DateTime<Utc>,
+) -> Result<JoinOutcome, BotError>
+where
+    B: BotRepository + GroupRepository,
+{
+    let outcome = bot.request_join(public_id, user, now).await.map_err(fail)?;
+    if let JoinOutcome::Requested(notice) = &outcome
+        && let Some(chat) = chat
+    {
+        match bot.zalo_id_of(notice.organiser).await {
+            Ok(Some(zalo_id)) => {
+                let text = fill(
+                    &COPY.join_request_notice,
+                    &[
+                        ("name", name_or_player(notice.player_name.as_deref())),
+                        ("title", &notice.title),
+                        ("id", &notice.request_id.to_string()),
+                    ],
+                );
+                if let Err(error) = chat.send(&zalo_id, &text).await {
+                    tracing::warn!(error = %error, "could not tell an organiser about a join request");
+                }
+            }
+            Ok(None) => {
+                tracing::info!("join request for an organiser without a linked Zalo account")
+            }
+            Err(error) => {
+                tracing::warn!(error = %error, "could not find an organiser's Zalo account")
+            }
+        }
+    }
+    Ok(outcome)
+}
+
+async fn decide_join<B, D, M, P>(
+    ctx: &BotContext<'_, B, D, M, P>,
+    message: &Incoming,
+    id: i64,
+    approve: bool,
+    now: DateTime<Utc>,
+) -> Result<String, BotError>
+where
+    B: BotRepository + GroupRepository,
+{
+    // The reply names the player; it must not be posted to a group.
+    if message.chat_kind == ChatKind::Group {
+        return Ok(fill(&COPY.join_decide_privately, &[("bot", ctx.bot_name)]));
+    }
+    let Some(organiser) = ctx
+        .bot
+        .linked_user(&message.sender_id)
+        .await
+        .map_err(fail)?
+    else {
+        return unlinked(ctx, message, now).await;
+    };
+    let decision = match ctx
+        .bot
+        .decide_join(organiser, id, approve, now)
+        .await
+        .map_err(fail)?
+    {
+        DecideOutcome::Decided(decision) => decision,
+        DecideOutcome::NotFound => {
+            return Ok(fill(&COPY.join_not_found, &[("id", &id.to_string())]));
+        }
+    };
+    let name = name_or_player(decision.player_name.as_deref());
+    // The player hears it privately when their Zalo account is linked; the web
+    // page shows it either way.
+    if let Some(chat) = ctx.chat
+        && let Some(zalo_id) = ctx.bot.zalo_id_of(decision.player).await.map_err(fail)?
+    {
+        let url = format!("{}/g/{}", ctx.frontend_origin, decision.public_id);
+        let text = if decision.approved {
+            fill(
+                &COPY.join_approved_player,
+                &[("title", &decision.title), ("url", &url)],
+            )
+        } else {
+            fill(&COPY.join_declined_player, &[("title", &decision.title)])
+        };
+        if let Err(error) = chat.send(&zalo_id, &text).await {
+            tracing::warn!(error = %error, "could not tell a player about their join request");
+        }
+    }
+    Ok(if decision.approved {
+        let mut reply = fill(
+            &COPY.join_approved_organiser,
+            &[("name", name), ("title", &decision.title)],
+        );
+        if decision.group_link.is_none() {
+            reply.push_str(&fill(&COPY.join_needs_group_link, &[("bot", ctx.bot_name)]));
+        }
+        reply
+    } else {
+        fill(
+            &COPY.join_declined_organiser,
+            &[("name", name), ("title", &decision.title)],
+        )
+    })
+}
+
+async fn waiting_joins<B, D, M, P>(
+    ctx: &BotContext<'_, B, D, M, P>,
+    message: &Incoming,
+    now: DateTime<Utc>,
+) -> Result<String, BotError>
+where
+    B: BotRepository + GroupRepository,
+{
+    if message.chat_kind == ChatKind::Group {
+        return Ok(fill(&COPY.join_decide_privately, &[("bot", ctx.bot_name)]));
+    }
+    let Some(organiser) = ctx
+        .bot
+        .linked_user(&message.sender_id)
+        .await
+        .map_err(fail)?
+    else {
+        return unlinked(ctx, message, now).await;
+    };
+    let waiting = ctx
+        .bot
+        .waiting_requests(organiser, now)
+        .await
+        .map_err(fail)?;
+    if waiting.is_empty() {
+        return Ok(COPY.join_none_waiting.clone());
+    }
+    let items = waiting
+        .iter()
+        .map(|request| {
+            fill(
+                &COPY.join_waiting_item,
+                &[
+                    ("id", &request.id.to_string()),
+                    ("name", name_or_player(request.player_name.as_deref())),
+                    ("title", &request.title),
+                ],
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    Ok(fill(&COPY.join_waiting_list, &[("items", &items)]))
+}
+
+async fn set_group_link<B, D, M, P>(
+    ctx: &BotContext<'_, B, D, M, P>,
+    message: &Incoming,
+    text: &str,
+    mention: &str,
+) -> Result<String, BotError>
+where
+    B: BotRepository + GroupRepository,
+{
+    if message.chat_kind == ChatKind::Private {
+        return Ok(fill(&COPY.group_link_in_group, &[("bot", ctx.bot_name)]));
+    }
+    let Some(link) = find_group_link(text) else {
+        return Ok(fill(&COPY.group_link_missing, &[("mention", mention)]));
+    };
+    let Some(organiser) = ctx
+        .bot
+        .linked_user(&message.sender_id)
+        .await
+        .map_err(fail)?
+    else {
+        return unlinked(ctx, message, ctx.clock.now()).await;
+    };
+    let updated = ctx
+        .bot
+        .set_group_link(&message.chat_id, organiser, link)
+        .await
+        .map_err(fail)?;
+    Ok(if updated > 0 {
+        COPY.group_link_saved.clone()
+    } else {
+        COPY.group_link_no_series.clone()
+    })
 }
 
 #[cfg(test)]
