@@ -155,10 +155,16 @@ pub struct FakeChat {
     pub sent: Arc<Mutex<Vec<(String, String)>>>,
     /// When true, every send fails (the bot was removed from the chat).
     pub failing: Arc<Mutex<bool>>,
+    /// When true, sends to private chats (ids without the group "zgr" prefix)
+    /// fail, as Zalo may refuse people who never wrote to the bot.
+    pub refuse_private: Arc<Mutex<bool>>,
 }
 
 impl ChatReply for FakeChat {
     fn send<'a>(&'a self, chat_id: &'a str, text: &'a str) -> SendFuture<'a> {
+        if *self.refuse_private.lock().unwrap() && !chat_id.starts_with("zgr") {
+            return Box::pin(async { Err(SendError("not allowed".to_owned())) });
+        }
         if *self.failing.lock().unwrap() {
             return Box::pin(async { Err(SendError("fake failure".to_owned())) });
         }

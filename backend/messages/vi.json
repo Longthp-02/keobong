@@ -1,9 +1,10 @@
 {
-  "help": "Chào bạn! Mình là {bot} ⚽ Mình giúp được mấy việc này:\n\n⚽ Tạo kèo:\n{mention}tối nay 19h–20h30 SSA sân 7 thiếu 3, 60k/người\n\n📋 Bảng điểm danh (ai chơi ngày nào):\n{mention}tạo bảng điểm danh T7, CN tuần này, chơi lúc 18h\nThêm \"hằng tuần\" để mỗi tối Thứ 2 mình tự đăng bảng mới. Tắt: {mention}tắt bảng\n\n⏰ Nhắc hẹn:\n{mention}nhắc mỗi thứ 5 lúc 20h: Cuối tuần này ai đá không?\nXem hoặc tắt: {mention}tắt nhắc\n\nSau khi mình tóm tắt, trả lời \"{mention}ok\" để lưu hoặc \"{mention}huỷ\".\nLần đầu dùng, nhắn riêng cho mình chữ \"liên kết\".",
+  "help": "Chào bạn! Mình là {bot} ⚽ Mình giúp được mấy việc này:\n\n🔎 Tìm kèo để đá:\n{mention}tìm kèo\n\n⚽ Tạo kèo:\n{mention}tối nay 19h–20h30 SSA sân 7 thiếu 3, 60k/người\n\n📋 Bảng điểm danh (ai chơi ngày nào):\n{mention}tạo bảng điểm danh T7, CN tuần này, chơi lúc 18h\nThêm \"hằng tuần\" để mỗi tối Thứ 2 mình tự đăng bảng mới. Tắt: {mention}tắt bảng\n\n⏰ Nhắc hẹn:\n{mention}nhắc mỗi thứ 5 lúc 20h: Cuối tuần này ai đá không?\nXem hoặc tắt: {mention}tắt nhắc\n\nSau khi mình tóm tắt, trả lời \"{mention}ok\" để lưu hoặc \"{mention}huỷ\".\nLần đầu dùng, nhắn riêng cho mình chữ \"liên kết\".",
   "linkInGroup": "Để bắt đầu, bạn nhắn riêng cho {bot} chữ \"liên kết\" nhé. Link liên kết chỉ gửi trong chat riêng để không ai dùng nhầm tài khoản của bạn.",
+  "linkSentPrivately": "Mình vừa nhắn riêng cho bạn link liên kết 👆 Mở chat với {bot}, bấm link rồi đăng nhập Google (chỉ 1 lần) là đăng kèo được.\nNếu bạn chỉ muốn tìm kèo để đá thì gõ \"@{bot} tìm kèo\" nhé.",
   "linkPrivate": "Bấm link này để liên kết Zalo với tài khoản Đá Ghép (đăng nhập bằng Google). Link dùng một lần, hết hạn sau 15 phút, đừng gửi cho ai:\n{url}",
   "linked": "✅ Đã liên kết Zalo với tài khoản Đá Ghép \"{name}\". Kèo bạn tạo qua bot sẽ đứng tên tài khoản này. Nếu không phải bạn, nhắn \"liên kết\" để liên kết lại.",
-  "notLinked": "Mình chưa biết bạn là chủ kèo nào. Nhắn riêng cho {bot} chữ \"liên kết\" để bắt đầu nhé.",
+  "notLinked": "Mình là {bot} ⚽ Bạn muốn làm gì?\n• Tìm kèo để đá: gõ \"@{bot} tìm kèo\", hoặc xem các kèo đang mở ở daghep.vn\n• Bạn là chủ kèo, muốn đăng kèo hay tạo bảng điểm danh: nhắn riêng cho {bot} chữ \"liên kết\" (chỉ cần 1 lần).",
   "missing": "Mình còn thiếu: {fields}.\nGửi lại tin đầy đủ giúp mình nhé, ví dụ:\n{mention}tối nay 19h–20h30 SSA sân 7 thiếu 3, 60k/người",
   "fields": {
     "venue": "sân ({venues})",
@@ -94,6 +95,11 @@
   "noSeries": "Ở đây chưa có bảng hằng tuần nào. Ví dụ:\n{mention}tạo bảng điểm danh T7, CN hằng tuần, chơi lúc 18h",
   "seriesStopped": "Đã dừng bảng hằng tuần số {n}. Bảng của tuần này vẫn mở tới hết ngày chơi.",
   "seriesNotFound": "Không có bảng hằng tuần số {n}. Gõ \"{mention}tắt bảng\" để xem danh sách.",
+  "openMatches": "⚽ Kèo đang tìm người:\n{items}\nXem thêm và giữ chỗ ở daghep.vn",
+  "openMatchLine": "• {day} {start}–{end} · {venue} · {format} · còn {places} chỗ · {price}\n  👉 {url}",
+  "noOpenMatches": "Hiện chưa có kèo nào đang tìm người. Bạn ghé daghep.vn sau nhé, hoặc rủ chủ kèo trong nhóm đăng kèo qua {bot}.",
+  "openMatchesUnavailable": "Mình chưa xem được danh sách kèo lúc này. Bạn xem các kèo đang mở ở daghep.vn nhé.",
+  "organiserHint": "Bạn là chủ kèo muốn đăng kèo? Nhắn riêng cho {bot} chữ \"liên kết\" (chỉ 1 lần).",
   "pollMissingNames": "Chưa trả lời: {names}\n",
   "pollMoreNames": "{names} và {n} người khác",
   "playerName": "Người chơi",
@@ -196,6 +202,24 @@
       "tuần nào cũng",
       "hang tuan",
       "moi tuan"
+    ],
+    "findMatches": [
+      "tìm kèo",
+      "tim keo",
+      "kèo nào",
+      "keo nao",
+      "có kèo",
+      "co keo",
+      "muốn đá",
+      "muon da",
+      "đá ghép",
+      "da ghep",
+      "cần kèo",
+      "xin kèo",
+      "kiếm kèo",
+      "kiem keo",
+      "ai đá không",
+      "ai da khong"
     ]
   }
 }

@@ -66,6 +66,8 @@ pub enum Command {
     ListReminders,
     /// Stop the reminder with this number in the list; `None` shows the list.
     StopReminder(Option<i64>),
+    /// A player looking for a match to join ("tối nay có kèo nào không").
+    FindMatches,
     /// A match described in the organiser's own words.
     Describe(String),
 }
@@ -121,6 +123,8 @@ pub fn parse_command(text: &str, kind: ChatKind, bot_name: &str) -> Option<Comma
         Command::Poll(rest.to_owned())
     } else if asks_for_reminder(&word) {
         Command::Remind(rest.to_owned())
+    } else if asks_for_matches(&word) {
+        Command::FindMatches
     } else {
         Command::Describe(rest.to_owned())
     })
@@ -156,6 +160,47 @@ fn asks_for_reminder(word: &str) -> bool {
     tokens
         .get(lead)
         .is_some_and(|first| commands.remind.iter().any(|remind| remind == first))
+}
+
+/// Whether a message asks for open matches: it uses a "find" phrase and, since
+/// organisers' match posts carry times and counts, has no digits.
+pub fn asks_for_matches(text: &str) -> bool {
+    !text.chars().any(|c| c.is_ascii_digit()) && mentions_find_phrase(text)
+}
+
+/// Whether the text holds a "find a match" phrase as whole words anywhere.
+pub fn mentions_find_phrase(text: &str) -> bool {
+    let text = text.to_lowercase();
+    let tokens: Vec<&str> = text
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|token| !token.is_empty())
+        .collect();
+    COPY.commands.find_matches.iter().any(|phrase| {
+        let phrase: Vec<&str> = phrase.split_whitespace().collect();
+        tokens
+            .windows(phrase.len())
+            .any(|window| window == phrase.as_slice())
+    })
+}
+
+/// One open match, as the bot lists it to a player.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OpenMatchLine {
+    pub share_id: String,
+    pub venue_name: String,
+    pub starts_at: DateTime<Utc>,
+    pub ends_at: DateTime<Utc>,
+    pub format: Format,
+    pub places_left: i64,
+    pub price_per_player_vnd: i64,
+}
+
+pub type FindFuture<'a> =
+    Pin<Box<dyn Future<Output = Result<Vec<OpenMatchLine>, String>> + Send + 'a>>;
+
+/// Port: the soonest upcoming matches with open places (the public match list).
+pub trait MatchFinder: Send + Sync {
+    fn find(&self, limit: usize) -> FindFuture<'_>;
 }
 
 /// Strips the tag when the text starts with it as a whole word, ignoring case.
@@ -360,6 +405,12 @@ pub struct BotCopy {
     pub no_series: String,
     pub series_stopped: String,
     pub series_not_found: String,
+    pub open_matches: String,
+    pub link_sent_privately: String,
+    pub organiser_hint: String,
+    pub open_matches_unavailable: String,
+    pub open_match_line: String,
+    pub no_open_matches: String,
     pub poll_missing_names: String,
     pub poll_more_names: String,
     pub player_name: String,
@@ -390,6 +441,8 @@ pub struct Commands {
     pub stop_poll: Vec<String>,
     /// Words that ask for a poll every week ("hằng tuần").
     pub weekly: Vec<String>,
+    /// Phrases of a player looking for a match ("kèo nào", "muốn đá").
+    pub find_matches: Vec<String>,
 }
 
 const COPY_JSON: &str = include_str!("../../messages/vi.json");
@@ -558,6 +611,49 @@ mod tests {
                 "tạo bảng điểm danh T7, CN, nhắc lúc 20h".to_owned()
             ))
         );
+        // Players looking for a match, in their own words.
+        for text in [
+            "tui muốn đá",
+            "tối nay có kèo nào ko tui muốn đá ghép",
+            "đá ghép",
+            "tìm kèo",
+        ] {
+            assert_eq!(
+                parse_command(&format!("@Bot DaGhep {text}"), ChatKind::Group, BOT),
+                Some(Command::FindMatches),
+                "{text}"
+            );
+        }
+        // An organiser's post with times and counts is still a match post,
+        // even with a "find" phrase in it.
+        assert_eq!(
+            parse_command(
+                "@Bot DaGhep tối nay 19h có kèo thiếu 3",
+                ChatKind::Group,
+                BOT
+            ),
+            Some(Command::Describe("tối nay 19h có kèo thiếu 3".to_owned()))
+        );
+        // Poll and reminder requests win over "find" phrases.
+        assert!(matches!(
+            parse_command(
+                "@Bot DaGhep nhắc mỗi thứ năm: ai đá không?",
+                ChatKind::Group,
+                BOT
+            ),
+            Some(Command::Remind(_))
+        ));
+        assert!(matches!(
+            parse_command(
+                "@Bot DaGhep tạo bảng điểm danh thứ bảy, muốn đá thì vào",
+                ChatKind::Group,
+                BOT
+            ),
+            Some(Command::Poll(_))
+        ));
+        // Whole words only: "muon dat san" (book a pitch) is not "muon da".
+        assert!(!mentions_find_phrase("muon dat san"));
+        assert!(mentions_find_phrase("ai muon da khong"));
         // A match post that mentions "nhắc" later is still a match.
         let post = "tối nay 19h SSA sân 7 thiếu 3, nhắc ae mang áo trắng";
         assert_eq!(

@@ -116,21 +116,38 @@ impl Bot {
             .await
     }
 
+    /// Delivers a message and returns the bot's reply in that chat. Messages it
+    /// sent the sender privately at the same time are in `chat.sent`.
     async fn deliver(&self, body: &Value) -> Option<String> {
         let before = self.chat.sent.lock().unwrap().len();
         let response = call(&self.app, webhook_request(body, Some(BOT_SECRET))).await;
         assert_eq!(response.status(), StatusCode::OK);
+        let message = &body.get("result").unwrap_or(body)["message"];
+        let chat_id = message["chat"]["id"].as_str().unwrap();
+        let sender = message["from"]["id"].as_str().unwrap();
         let sent = self.chat.sent.lock().unwrap();
-        assert!(sent.len() <= before + 1, "at most one reply per message");
-        sent.get(before).map(|(chat, text)| {
-            assert_eq!(
-                chat,
-                body.get("result").unwrap_or(body)["message"]["chat"]["id"]
-                    .as_str()
-                    .unwrap()
-            );
-            text.clone()
-        })
+        let new = &sent[before..];
+        assert!(
+            new.iter()
+                .all(|(chat, _)| chat == chat_id || chat == sender),
+            "replies go to the chat or privately to the sender"
+        );
+        let replies: Vec<_> = new.iter().filter(|(chat, _)| chat == chat_id).collect();
+        assert!(replies.len() <= 1, "at most one reply per message");
+        if chat_id != sender {
+            let private = new.iter().filter(|(chat, _)| chat == sender).count();
+            assert!(private <= 1, "at most one private message per message");
+        }
+        replies.last().map(|(_, text)| text.clone())
+    }
+
+    /// What the bot sent `to` privately since `before` messages.
+    fn private_since(&self, before: usize, to: &str) -> Vec<String> {
+        self.chat.sent.lock().unwrap()[before..]
+            .iter()
+            .filter(|(chat, _)| chat == to)
+            .map(|(_, text)| text.clone())
+            .collect()
     }
 
     async fn in_group(&self, sender: &str, text: &str) -> Option<String> {
@@ -237,8 +254,14 @@ async fn a_repeated_delivery_is_answered_once(pool: PgPool) {
 async fn linking_happens_only_in_a_private_chat_with_a_one_time_code(pool: PgPool) {
     let bot = bot(pool, tonight());
 
+    // In a group the link is never posted there; it goes to the sender privately.
+    let before = bot.chat.sent.lock().unwrap().len();
     let in_group = bot.in_group(HOST, "liên kết").await.unwrap();
     assert!(!in_group.contains("/bot/link"), "{in_group}");
+    assert!(in_group.contains("nhắn riêng"), "{in_group}");
+    let private = bot.private_since(before, HOST);
+    assert_eq!(private.len(), 1);
+    assert!(private[0].contains("/bot/link?code="), "{}", private[0]);
 
     let reply = bot.say(HOST, "PRIVATE", HOST, "liên kết").await.unwrap();
     assert!(
@@ -294,10 +317,78 @@ async fn linking_needs_a_signed_in_user(pool: PgPool) {
 async fn an_unlinked_sender_is_told_how_to_start_and_nothing_is_read(pool: PgPool) {
     let bot = bot(pool, tonight());
 
+    let before = bot.chat.sent.lock().unwrap().len();
     let reply = bot.in_group(HOST, "tối nay 19h SSA thiếu 3").await.unwrap();
 
-    assert!(reply.contains("liên kết"), "{reply}");
+    // The bot sends the link privately and says so in the group.
+    assert!(
+        reply.contains("vừa nhắn riêng cho bạn link liên kết"),
+        "{reply}"
+    );
+    assert!(reply.contains("@Bot DaGhep tìm kèo"), "{reply}");
+    assert!(bot.private_since(before, HOST)[0].contains("/bot/link?code="));
     assert!(bot.reader.calls.lock().unwrap().is_empty());
+}
+
+#[sqlx::test]
+async fn when_zalo_refuses_a_private_message_the_group_reply_explains_both_paths(pool: PgPool) {
+    let bot = bot(pool, tonight());
+    // Zalo refuses messages to people who never wrote to the bot: here the
+    // fake refuses every private chat, i.e. any chat that is not the group.
+    *bot.chat.refuse_private.lock().unwrap() = true;
+
+    let reply = bot.in_group(HOST, "tối nay 19h SSA thiếu 3").await.unwrap();
+
+    assert!(reply.contains("Tìm kèo để đá"), "{reply}");
+    assert!(
+        reply.contains("nhắn riêng cho Bot DaGhep chữ \"liên kết\""),
+        "{reply}"
+    );
+}
+
+#[sqlx::test]
+async fn players_asking_for_a_match_get_the_open_matches(pool: PgPool) {
+    let bot = bot(pool.clone(), tonight());
+    // No open match yet: where to look.
+    let none = bot
+        .in_group(OTHER, "tối nay có kèo nào ko tui muốn đá ghép")
+        .await
+        .unwrap();
+    assert!(none.contains("chưa có kèo nào đang tìm người"), "{none}");
+
+    // A host creates one through the bot.
+    let session = bot.link(HOST, "host").await;
+    add_payout(&bot.app, &session).await;
+    bot.in_group(HOST, "tối nay 19h–20h30 SSA sân 7 thiếu 3, 60k/người")
+        .await
+        .unwrap();
+    let created = bot.in_group(HOST, "ok").await.unwrap();
+    let share = created.split("/m/").nth(1).unwrap().trim().to_owned();
+
+    for ask in ["tui muốn đá", "@Bot DaGhep tìm kèo", "đá ghép"] {
+        let text = ask.trim_start_matches("@Bot DaGhep ");
+        let list = bot.in_group(OTHER, text).await.unwrap();
+        assert!(list.contains("Kèo đang tìm người"), "{list}");
+        assert!(list.contains("Thứ 5 01/10 19:00–20:30"), "{list}");
+        assert!(list.contains("SSA Sports Center"), "{list}");
+        assert!(list.contains("còn 3 chỗ · 60.000đ/người"), "{list}");
+        assert!(list.contains(&format!("{FRONTEND}/m/{share}")), "{list}");
+    }
+    // An unlinked sender whose message has a time still gets the list, and how
+    // to post matches in case they are an organiser.
+    let with_time = bot.in_group(OTHER, "có kèo 19h không").await.unwrap();
+    assert!(with_time.contains("Kèo đang tìm người"), "{with_time}");
+    assert!(
+        with_time.contains("Bạn là chủ kèo muốn đăng kèo?"),
+        "{with_time}"
+    );
+    // A linked organiser asking without times gets the list too.
+    let organiser = bot
+        .in_group(HOST, "tối nay có kèo nào không")
+        .await
+        .unwrap();
+    assert!(organiser.contains("Kèo đang tìm người"), "{organiser}");
+    assert!(bot.reader.calls.lock().unwrap().len() == 1);
 }
 
 #[sqlx::test]

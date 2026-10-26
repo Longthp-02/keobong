@@ -15,7 +15,9 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
-use super::domain::{COPY, ChatKind, ChatReply, Incoming, fill};
+use super::domain::{
+    COPY, ChatKind, ChatReply, FindFuture, Incoming, MatchFinder, OpenMatchLine, fill,
+};
 use super::polls::{AnswerOutcome, MAX_POLL_DAYS, Poll, PollReader, PollRepository};
 use super::reminders::ReminderReader;
 use super::repo::PgBotRepository;
@@ -25,11 +27,14 @@ use super::service::{
 use crate::auth::{AuthRejection, AuthState, AuthenticatedUser};
 use crate::clock::Clock;
 use crate::config::Secret;
+use crate::discovery::service::open_matches;
 use crate::drafts::PgDraftRepository;
 use crate::drafts::domain::MatchTextReader;
 use crate::matches::PgMatchRepository;
 use crate::matches::domain::ShareId;
+use crate::matches::service::ListRequest;
 use crate::payments::PgPayoutRepository;
+use crate::slots::PgSlotRepository;
 
 /// Header Zalo sends with every webhook call, carrying our secret.
 const SECRET_HEADER: &str = "x-bot-api-secret-token";
@@ -55,6 +60,7 @@ pub struct BotState {
     pub drafts: PgDraftRepository,
     pub matches: PgMatchRepository,
     pub payouts: PgPayoutRepository,
+    pub slots: PgSlotRepository,
     pub clock: Arc<dyn Clock>,
     pub reader: Option<Arc<dyn MatchTextReader>>,
     pub zalo: Option<Arc<ZaloSettings>>,
@@ -76,6 +82,46 @@ pub fn router(state: BotState) -> Router {
         .route("/api/polls/{share_id}", get(get_poll))
         .route("/api/polls/{share_id}/answers", put(answer_poll))
         .with_state(state)
+}
+
+/// The public match list, as the bot reads it for players.
+struct OpenMatchFinder {
+    matches: PgMatchRepository,
+    slots: PgSlotRepository,
+    clock: Arc<dyn Clock>,
+}
+
+impl MatchFinder for OpenMatchFinder {
+    fn find(&self, limit: usize) -> FindFuture<'_> {
+        Box::pin(async move {
+            let request = ListRequest {
+                day: None,
+                match_type: None,
+                near: None,
+                after: None,
+            };
+            let page = open_matches(&self.matches, &self.slots, self.clock.as_ref(), request)
+                .await
+                .map_err(|error| error.to_string())?;
+            Ok(page
+                .matches
+                .into_iter()
+                .take(limit)
+                .map(|open| {
+                    let found = open.listed.found;
+                    OpenMatchLine {
+                        share_id: found.share_id.as_str().to_owned(),
+                        price_per_player_vnd: found.price_per_player_vnd(),
+                        venue_name: found.venue_name,
+                        starts_at: found.starts_at,
+                        ends_at: found.ends_at,
+                        format: found.format,
+                        places_left: open.places_left,
+                    }
+                })
+                .collect())
+        })
+    }
 }
 
 /// Compares secrets without leaking how much of them matched.
@@ -153,6 +199,11 @@ async fn webhook(State(state): State<BotState>, headers: HeaderMap, body: Bytes)
         );
         return Json(json!({ "ok": true })).into_response();
     };
+    let finder = OpenMatchFinder {
+        matches: state.matches.clone(),
+        slots: state.slots.clone(),
+        clock: state.clock.clone(),
+    };
     let ctx = BotContext {
         bot: &state.bot,
         drafts: &state.drafts,
@@ -162,6 +213,8 @@ async fn webhook(State(state): State<BotState>, headers: HeaderMap, body: Bytes)
         reader: state.reader.as_deref(),
         reminder_reader: zalo.reminder_reader.as_deref(),
         poll_reader: zalo.poll_reader.as_deref(),
+        finder: Some(&finder),
+        chat: Some(zalo.reply.as_ref()),
         frontend_origin: &state.frontend_origin,
         bot_name: &zalo.bot_name,
     };
