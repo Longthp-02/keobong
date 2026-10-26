@@ -2221,19 +2221,52 @@ async fn a_day_in_two_open_polls_gets_the_links_only(pool: PgPool) {
     assert!(!reply.contains("ghi rõ ngày"), "{reply}");
 }
 
-#[sqlx::test]
-async fn a_link_message_zalo_cannot_show_as_text_gets_a_hint_once(pool: PgPool) {
-    let bot = bot(pool, tonight());
-    let mut body = update(GROUP, "GROUP", HOST, "unused", "m-link-1");
+fn unsupported(chat_id: &str, chat_type: &str, sender: &str, id: &str) -> Value {
+    let mut body = update(chat_id, chat_type, sender, "unused", id);
     body["event_name"] = json!("message.unsupported.received");
     body["message"].as_object_mut().unwrap().remove("text");
-    let reply = bot.deliver(&body).await.unwrap();
-    assert!(reply.contains("xem trước"), "{reply}");
-    assert_eq!(bot.deliver(&body).await, None, "a repeated delivery");
+    body
+}
 
-    // When Zalo sends the text along, it is read as usual.
-    let mut body = update(GROUP, "GROUP", HOST, "@Bot DaGhep help", "m-link-2");
+#[sqlx::test]
+async fn a_message_zalo_cannot_show_as_text_gets_a_hint_at_most_hourly_in_a_group(pool: PgPool) {
+    let bot = bot(pool, tonight());
+    let reply = bot
+        .deliver(&unsupported(GROUP, "GROUP", HOST, "m-link-1"))
+        .await
+        .unwrap();
+    assert!(reply.contains("chỉ đọc được tin nhắn chữ"), "{reply}");
+    assert!(reply.contains("@Bot DaGhep thêm sân"), "{reply}");
+    let again = unsupported(GROUP, "GROUP", HOST, "m-link-1");
+    assert_eq!(bot.deliver(&again).await, None, "a repeated delivery");
+    // Zalo may pass on such group messages without a tag: one hint an hour.
+    let other = unsupported(GROUP, "GROUP", OTHER, "m-link-2");
+    assert_eq!(bot.deliver(&other).await, None);
+    bot.clock.advance(Duration::hours(1));
+    let later = unsupported(GROUP, "GROUP", OTHER, "m-link-3");
+    assert!(bot.deliver(&later).await.is_some());
+
+    // Privately every such message gets the hint, without the tag.
+    let private = bot
+        .deliver(&unsupported(OTHER, "PRIVATE", OTHER, "m-link-4"))
+        .await
+        .unwrap();
+    assert!(private.contains("\nthêm sân"), "{private}");
+}
+
+#[sqlx::test]
+async fn a_message_zalo_cannot_show_as_text_is_read_when_it_has_text(pool: PgPool) {
+    let bot = bot(pool, tonight());
+    let mut body = update(GROUP, "GROUP", HOST, "@Bot DaGhep help", "m-link-5");
     body["event_name"] = json!("message.unsupported.received");
-    let reply = bot.deliver(&body).await.unwrap();
-    assert!(reply.contains("tìm kèo"), "{reply}");
+    assert!(bot.deliver(&body).await.unwrap().contains("tìm kèo"));
+
+    let mut caption = unsupported(GROUP, "GROUP", HOST, "m-link-6");
+    caption["message"]["caption"] = json!("@Bot DaGhep help");
+    assert!(bot.deliver(&caption).await.unwrap().contains("tìm kèo"));
+
+    // Untagged text in a group is not for the bot.
+    let mut untagged = unsupported(GROUP, "GROUP", HOST, "m-link-7");
+    untagged["message"]["caption"] = json!("sân mới nè");
+    assert_eq!(bot.deliver(&untagged).await, None);
 }

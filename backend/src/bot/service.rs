@@ -87,8 +87,9 @@ where
     M: MatchRepository,
     P: PayoutRepository,
 {
-    // Zalo passes on a link with a preview without its text. In a group it only
-    // passes on messages that tag the bot, so this one was meant for it.
+    // A message Zalo could not pass on as text (a link with a preview, a voice
+    // note): the bot says it only reads text. Zalo may pass such group messages
+    // on without a tag, so a group gets this at most once an hour.
     if message.text.trim().is_empty() {
         let now = ctx.clock.now();
         let outcome = ctx
@@ -96,13 +97,29 @@ where
             .record_update(&message.message_id, &message.sender_id, now)
             .await
             .map_err(fail)?;
-        return Ok((outcome == UpdateOutcome::New).then(|| {
-            let mention = match message.chat_kind {
-                ChatKind::Group => format!("@{} ", ctx.bot_name),
-                ChatKind::Private => String::new(),
-            };
-            fill(&COPY.unsupported_message, &[("mention", &mention)])
-        }));
+        if outcome != UpdateOutcome::New {
+            return Ok(None);
+        }
+        let mention = match message.chat_kind {
+            ChatKind::Group => {
+                let hour = local_time(now).format("%Y%m%d%H");
+                let hint_id = format!("hint:{}:{hour}", message.chat_id);
+                let first = ctx
+                    .bot
+                    .record_update(&hint_id, &message.chat_id, now)
+                    .await
+                    .map_err(fail)?;
+                if first != UpdateOutcome::New {
+                    return Ok(None);
+                }
+                format!("@{} ", ctx.bot_name)
+            }
+            ChatKind::Private => String::new(),
+        };
+        return Ok(Some(fill(
+            &COPY.unsupported_message,
+            &[("mention", &mention)],
+        )));
     }
     let Some(command) = parse_command(&message.text, message.chat_kind, ctx.bot_name) else {
         return Ok(None);

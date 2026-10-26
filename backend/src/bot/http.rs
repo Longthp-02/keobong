@@ -156,14 +156,6 @@ fn incoming(body: &Value) -> Option<Incoming> {
         _ => return None,
     };
     let message = &result["message"];
-    if unsupported {
-        // Which fields such a message has, never their values, to learn its shape.
-        let fields: Vec<&str> = message
-            .as_object()
-            .map(|object| object.keys().map(String::as_str).collect())
-            .unwrap_or_default();
-        tracing::info!(fields = ?fields, "unsupported Zalo message");
-    }
     if message["from"]["is_bot"] == true {
         return None;
     }
@@ -180,6 +172,31 @@ fn incoming(body: &Value) -> Option<Incoming> {
         }
         Some(id)
     };
+    if unsupported {
+        // Which fields such a message has, one level deep, never their values,
+        // to learn its shape; and whether it came from a group.
+        let fields: Vec<String> = message
+            .as_object()
+            .map(|object| {
+                object
+                    .iter()
+                    .map(|(key, value)| match value.as_object() {
+                        Some(inner) => format!(
+                            "{key}{{{}}}",
+                            inner
+                                .keys()
+                                .map(String::as_str)
+                                .collect::<Vec<_>>()
+                                .join(",")
+                        ),
+                        None => key.clone(),
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        let chat_type = message["chat"]["chat_type"].as_str().unwrap_or("missing");
+        tracing::info!(fields = ?fields, chat_type, "unsupported Zalo message");
+    }
     let chat_kind = match message["chat"]["chat_type"].as_str()? {
         "PRIVATE" => ChatKind::Private,
         "GROUP" => ChatKind::Group,
