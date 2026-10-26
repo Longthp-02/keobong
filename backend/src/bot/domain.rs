@@ -68,6 +68,20 @@ pub enum Command {
     StopReminder(Option<i64>),
     /// A player looking for a match to join ("tối nay có kèo nào không").
     FindMatches,
+    /// A venue from a Google Maps link ("thêm sân Lakeview https://maps…").
+    AddVenue(String),
+    /// An admin's decision on a pending venue ("duyệt sân 12").
+    DecideVenue {
+        id: i64,
+        approve: bool,
+    },
+    /// An admin asks which venues wait for a decision.
+    PendingVenues,
+    /// Show or hide a weekly poll on the home page ("công khai bảng 1").
+    PublishPoll {
+        number: Option<i64>,
+        public: bool,
+    },
     /// A match described in the organiser's own words.
     Describe(String),
 }
@@ -105,6 +119,10 @@ pub fn parse_command(text: &str, kind: ChatKind, bot_name: &str) -> Option<Comma
     };
     let stop = stop_after(&commands.stop_reminder);
     let stop_poll = stop_after(&commands.stop_poll);
+    let approve_venue = stop_after(&commands.approve_venue);
+    let reject_venue = stop_after(&commands.reject_venue);
+    let publish = stop_after(&commands.publish_poll);
+    let hide = stop_after(&commands.hide_poll);
     Some(if is(&commands.help) {
         Command::Help
     } else if is(&commands.link) {
@@ -117,6 +135,24 @@ pub fn parse_command(text: &str, kind: ChatKind, bot_name: &str) -> Option<Comma
         Command::StopReminder(number(&after))
     } else if let Some(after) = stop_poll {
         Command::StopPoll(number(&after))
+    } else if let Some(id) = approve_venue.as_deref().and_then(number) {
+        Command::DecideVenue { id, approve: true }
+    } else if let Some(id) = reject_venue.as_deref().and_then(number) {
+        Command::DecideVenue { id, approve: false }
+    } else if is(&commands.pending_venues) {
+        Command::PendingVenues
+    } else if let Some(number) = publish.as_deref().and_then(only_number) {
+        Command::PublishPoll {
+            number,
+            public: true,
+        }
+    } else if let Some(number) = hide.as_deref().and_then(only_number) {
+        Command::PublishPoll {
+            number,
+            public: false,
+        }
+    } else if starts_with_words(&word, &commands.add_venue) {
+        Command::AddVenue(rest.to_owned())
     } else if is(&commands.list_reminders) {
         Command::ListReminders
     } else if starts_with_words(&word, &commands.poll) {
@@ -128,6 +164,22 @@ pub fn parse_command(text: &str, kind: ChatKind, bot_name: &str) -> Option<Comma
     } else {
         Command::Describe(rest.to_owned())
     })
+}
+
+/// A toggle's argument: nothing (show the list) or just a number ("1", "số 1",
+/// "#1"). Anything else is not a toggle ("công khai bảng điểm danh T7…").
+fn only_number(after: &str) -> Option<Option<i64>> {
+    let rest = after
+        .trim()
+        .trim_start_matches('#')
+        .trim_start_matches("số")
+        .trim_start_matches("so ")
+        .trim();
+    if rest.is_empty() {
+        Some(None)
+    } else {
+        rest.parse().ok().map(Some)
+    }
 }
 
 /// Whether the text's first words are one of `phrases` ("tạo bảng điểm danh …").
@@ -250,6 +302,12 @@ pub trait BotRepository: Send + Sync {
         &self,
         zalo_user_id: &str,
     ) -> impl Future<Output = Result<Option<UserId>, RepoError>> + Send;
+
+    /// The Zalo account linked to `user`, for private messages to them.
+    fn zalo_id_of(
+        &self,
+        user: UserId,
+    ) -> impl Future<Output = Result<Option<String>, RepoError>> + Send;
 
     fn save_link_code(
         &self,
@@ -406,6 +464,31 @@ pub struct BotCopy {
     pub series_stopped: String,
     pub series_not_found: String,
     pub open_matches: String,
+    pub sports: HashMap<String, String>,
+    pub group_public: String,
+    pub venue_needs_link: String,
+    pub venue_needs_sport: String,
+    pub venue_bad_link: String,
+    pub venue_outside: String,
+    pub venue_submitted: String,
+    pub venue_admin_notice: String,
+    pub venue_approved: String,
+    pub venue_rejected: String,
+    pub venue_approved_admin: String,
+    pub venue_rejected_admin: String,
+    pub venue_duplicate: String,
+    pub venue_exists: String,
+    pub venue_named: String,
+    /// Words a venue name may already start with ("Sân").
+    pub venue_prefixes: Vec<String>,
+    pub venue_not_pending: String,
+    pub admin_only: String,
+    pub no_pending_venues: String,
+    pub pending_venues_list: String,
+    pub pending_venue_item: String,
+    pub series_published: String,
+    pub series_hidden: String,
+    pub publish_hint: String,
     pub link_sent_privately: String,
     pub organiser_hint: String,
     pub open_matches_unavailable: String,
@@ -443,6 +526,20 @@ pub struct Commands {
     pub weekly: Vec<String>,
     /// Phrases of a player looking for a match ("kèo nào", "muốn đá").
     pub find_matches: Vec<String>,
+    /// First words of a venue request ("thêm sân").
+    pub add_venue: Vec<String>,
+    /// Admin prefixes followed by a venue id ("duyệt sân 12").
+    pub approve_venue: Vec<String>,
+    pub reject_venue: Vec<String>,
+    pub pending_venues: Vec<String>,
+    /// Prefixes followed by a weekly poll's number ("công khai bảng 1").
+    pub publish_poll: Vec<String>,
+    pub hide_poll: Vec<String>,
+    /// Words that ask for a weekly poll to be public when it is made.
+    pub public: Vec<String>,
+    /// Sport words in a venue request.
+    pub venue_football: Vec<String>,
+    pub venue_basketball: Vec<String>,
 }
 
 const COPY_JSON: &str = include_str!("../../messages/vi.json");
@@ -611,6 +708,57 @@ mod tests {
                 "tạo bảng điểm danh T7, CN, nhắc lúc 20h".to_owned()
             ))
         );
+        assert_eq!(
+            parse_command(
+                "@Bot DaGhep thêm sân Lakeview https://maps.app.goo.gl/x",
+                ChatKind::Group,
+                BOT
+            ),
+            Some(Command::AddVenue(
+                "thêm sân Lakeview https://maps.app.goo.gl/x".to_owned()
+            ))
+        );
+        assert_eq!(
+            parse_command("duyệt sân 12", ChatKind::Private, BOT),
+            Some(Command::DecideVenue {
+                id: 12,
+                approve: true
+            })
+        );
+        assert_eq!(
+            parse_command("từ chối sân 3", ChatKind::Private, BOT),
+            Some(Command::DecideVenue {
+                id: 3,
+                approve: false
+            })
+        );
+        assert_eq!(
+            parse_command("sân chờ duyệt", ChatKind::Private, BOT),
+            Some(Command::PendingVenues)
+        );
+        assert_eq!(
+            parse_command("@Bot DaGhep công khai bảng 1", ChatKind::Group, BOT),
+            Some(Command::PublishPoll {
+                number: Some(1),
+                public: true
+            })
+        );
+        assert_eq!(
+            parse_command("@Bot DaGhep ẩn bảng 2", ChatKind::Group, BOT),
+            Some(Command::PublishPoll {
+                number: Some(2),
+                public: false
+            })
+        );
+        // A poll request that starts with "công khai" is not a toggle.
+        assert!(!matches!(
+            parse_command(
+                "@Bot DaGhep công khai bảng điểm danh T7, CN hằng tuần 18h",
+                ChatKind::Group,
+                BOT
+            ),
+            Some(Command::PublishPoll { .. })
+        ));
         // Players looking for a match, in their own words.
         for text in [
             "tui muốn đá",

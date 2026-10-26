@@ -55,5 +55,6 @@ describe("privacy policy", () => {
     expect(text).toContain("bảng điểm danh");
     expect(text).toContain("ai có link bảng đều xem được");
     expect(text).toContain("Bảng hằng tuần");
+    expect(text).toContain("không có tên ai");
   });
 });

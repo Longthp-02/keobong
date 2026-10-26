@@ -1,5 +1,5 @@
 {
-  "help": "Chào bạn! Mình là {bot} ⚽ Mình giúp được mấy việc này:\n\n🔎 Tìm kèo để đá:\n{mention}tìm kèo\n\n⚽ Tạo kèo:\n{mention}tối nay 19h–20h30 SSA sân 7 thiếu 3, 60k/người\n\n📋 Bảng điểm danh (ai chơi ngày nào):\n{mention}tạo bảng điểm danh T7, CN tuần này, chơi lúc 18h\nThêm \"hằng tuần\" để mỗi tối Thứ 2 mình tự đăng bảng mới. Tắt: {mention}tắt bảng\n\n⏰ Nhắc hẹn:\n{mention}nhắc mỗi thứ 5 lúc 20h: Cuối tuần này ai đá không?\nXem hoặc tắt: {mention}tắt nhắc\n\nSau khi mình tóm tắt, trả lời \"{mention}ok\" để lưu hoặc \"{mention}huỷ\".\nLần đầu dùng, nhắn riêng cho mình chữ \"liên kết\".",
+  "help": "Chào bạn! Mình là {bot} ⚽ Mình giúp được mấy việc này:\n\n🔎 Tìm kèo để đá:\n{mention}tìm kèo\n\n⚽ Tạo kèo:\n{mention}tối nay 19h–20h30 SSA sân 7 thiếu 3, 60k/người\n\n📋 Bảng điểm danh (ai chơi ngày nào):\n{mention}tạo bảng điểm danh T7, CN tuần này, chơi lúc 18h\nThêm \"hằng tuần\" để mỗi tối Thứ 2 mình tự đăng bảng mới, thêm \"công khai\" để nhóm hiện trên trang chủ daghep.vn. Tắt: {mention}tắt bảng\n\n📍 Thêm sân (gửi link Google Maps):\n{mention}thêm sân Lakeview bóng rổ https://maps.app.goo.gl/...\n\n⏰ Nhắc hẹn:\n{mention}nhắc mỗi thứ 5 lúc 20h: Cuối tuần này ai đá không?\nXem hoặc tắt: {mention}tắt nhắc\n\nSau khi mình tóm tắt, trả lời \"{mention}ok\" để lưu hoặc \"{mention}huỷ\".\nLần đầu dùng, nhắn riêng cho mình chữ \"liên kết\".",
   "linkInGroup": "Để bắt đầu, bạn nhắn riêng cho {bot} chữ \"liên kết\" nhé. Link liên kết chỉ gửi trong chat riêng để không ai dùng nhầm tài khoản của bạn.",
   "linkSentPrivately": "Mình vừa nhắn riêng cho bạn link liên kết 👆 Mở chat với {bot}, bấm link rồi đăng nhập Google (chỉ 1 lần) là đăng kèo được.\nNếu bạn chỉ muốn tìm kèo để đá thì gõ \"@{bot} tìm kèo\" nhé.",
   "linkPrivate": "Bấm link này để liên kết Zalo với tài khoản Đá Ghép (đăng nhập bằng Google). Link dùng một lần, hết hạn sau 15 phút, đừng gửi cho ai:\n{url}",
@@ -38,7 +38,9 @@
   "formats": {
     "five_a_side": "Sân 5",
     "seven_a_side": "Sân 7",
-    "eleven_a_side": "Sân 11"
+    "eleven_a_side": "Sân 11",
+    "3x3": "3x3",
+    "5x5": "5x5"
   },
   "weekdays": [
     "Chủ nhật",
@@ -96,6 +98,36 @@
   "seriesStopped": "Đã dừng bảng hằng tuần số {n}. Bảng của tuần này vẫn mở tới hết ngày chơi.",
   "seriesNotFound": "Không có bảng hằng tuần số {n}. Gõ \"{mention}tắt bảng\" để xem danh sách.",
   "openMatches": "⚽ Kèo đang tìm người:\n{items}\nXem thêm và giữ chỗ ở daghep.vn",
+  "sports": {
+    "football": "⚽ Bóng đá",
+    "basketball": "🏀 Bóng rổ"
+  },
+  "groupPublic": "🌐 Hiện trên trang chủ daghep.vn",
+  "venueNeedsLink": "Gửi kèm link Google Maps của sân nhé, ví dụ:\n{mention}thêm sân Lakeview bóng rổ https://maps.app.goo.gl/...",
+  "venueNeedsSport": "Sân này cho bóng đá hay bóng rổ? Gửi lại kèm chữ \"bóng đá\" hoặc \"bóng rổ\" nhé.",
+  "venueBadLink": "Mình chưa đọc được vị trí từ link này. Mở sân trên Google Maps, bấm Chia sẻ → Sao chép đường liên kết rồi gửi lại nhé.",
+  "venueOutside": "Vị trí trong link không ở Việt Nam, bạn kiểm tra lại link nhé.",
+  "venueSubmitted": "📍 Đã gửi sân \"{name}\" để duyệt. Khi được duyệt mình sẽ nhắn bạn; sau đó bảng hằng tuần có ghi tên sân này sẽ hiện kèm sân trên trang chủ.",
+  "venueAdminNotice": "📍 Sân mới chờ duyệt (số {id}): {name}\n{sports}\nhttps://maps.google.com/?q={lat},{lng}\nGõ \"duyệt sân {id}\" hoặc \"từ chối sân {id}\".",
+  "venueApproved": "✅ Sân \"{name}\" đã được duyệt. Giờ bạn tạo bảng hằng tuần có ghi tên sân này là được.",
+  "venueRejected": "Sân \"{name}\" chưa được duyệt. Có gì thắc mắc, bạn nhắn cho Đá Ghép nhé.",
+  "venueApprovedAdmin": "Đã duyệt sân số {id}: {name}.",
+  "venueRejectedAdmin": "Đã từ chối sân số {id}: {name}.",
+  "venueDuplicate": "Đã có một sân được duyệt trùng tên với sân số {id}. Từ chối sân này hoặc nhờ người gửi đặt tên khác nhé.",
+  "venueExists": "Sân \"{name}\" đã có rồi, bạn ghi tên sân này khi tạo bảng là được.",
+  "venueNamed": "Sân {name}",
+  "venuePrefixes": [
+    "sân",
+    "san "
+  ],
+  "venueNotPending": "Không có sân chờ duyệt số {id}.",
+  "adminOnly": "Lệnh này chỉ dành cho admin của Đá Ghép.",
+  "noPendingVenues": "Không có sân nào chờ duyệt.",
+  "pendingVenuesList": "Sân chờ duyệt:\n{items}",
+  "pendingVenueItem": "• số {id}: {name} ({sports})\n  https://maps.google.com/?q={lat},{lng}",
+  "seriesPublished": "🌐 Bảng hằng tuần số {n} giờ hiện trên trang chủ daghep.vn: tên bảng, môn, sân, ngày, giờ chơi và số người điểm danh (không có tên ai).",
+  "seriesHidden": "Đã ẩn bảng hằng tuần số {n} khỏi trang chủ.",
+  "publishHint": "Gõ \"{mention}công khai bảng 1\" để hiện bảng số 1 trên trang chủ, \"{mention}ẩn bảng 1\" để ẩn.",
   "openMatchLine": "• {day} {start}–{end} · {venue} · {format} · còn {places} chỗ · {price}\n  👉 {url}",
   "noOpenMatches": "Hiện chưa có kèo nào đang tìm người. Bạn ghé daghep.vn sau nhé, hoặc rủ chủ kèo trong nhóm đăng kèo qua {bot}.",
   "openMatchesUnavailable": "Mình chưa xem được danh sách kèo lúc này. Bạn xem các kèo đang mở ở daghep.vn nhé.",
@@ -220,6 +252,44 @@
       "kiem keo",
       "ai đá không",
       "ai da khong"
+    ],
+    "addVenue": [
+      "thêm sân",
+      "them san"
+    ],
+    "approveVenue": [
+      "duyệt sân",
+      "duyet san"
+    ],
+    "rejectVenue": [
+      "từ chối sân",
+      "tu choi san"
+    ],
+    "pendingVenues": [
+      "sân chờ duyệt",
+      "san cho duyet"
+    ],
+    "publishPoll": [
+      "công khai bảng",
+      "cong khai bang"
+    ],
+    "hidePoll": [
+      "ẩn bảng",
+      "an bang"
+    ],
+    "public": [
+      "công khai",
+      "cong khai"
+    ],
+    "venueFootball": [
+      "bóng đá",
+      "bong da",
+      "đá bóng",
+      "da bong"
+    ],
+    "venueBasketball": [
+      "bóng rổ",
+      "bong ro"
     ]
   }
 }

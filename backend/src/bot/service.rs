@@ -12,9 +12,10 @@ use super::domain::{
     DEFAULT_LEVEL_MIN_TENTHS, DEFAULT_MATCH_TYPE, DRAFT_MINUTES, Incoming, LINK_CODE_MINUTES,
     MatchFinder, UpdateOutcome, entry, fill, mentions_find_phrase, parse_command,
 };
+use super::maps::{MapsLocator, find_maps_link};
 use super::polls::{
-    MAX_NAMES_IN_NUDGE, MAX_SERIES_LATE_HOURS, MEMBER_DAYS, PendingPoll, Poll, PollPlan,
-    PollReader, PollRepository, PollRequest, PollSeries, first_week, tally, weekday_bits,
+    MAX_NAMES_IN_NUDGE, MAX_SERIES_LATE_HOURS, MEMBER_DAYS, PendingPoll, Poll, PollGroup, PollPlan,
+    PollReader, PollRepository, PollRequest, PollSeries, RawPoll, first_week, tally, weekday_bits,
 };
 use super::reminders::{
     EVERY_DAY, MAX_LATE_MINUTES, PendingReminder, ReminderReader, ReminderRequest, Repeat, Schedule,
@@ -30,9 +31,14 @@ use crate::matches::domain::{
     local_time, price_per_player_vnd,
 };
 use crate::matches::service::{CreateMatchError, create_match};
+use crate::matches::venues::{
+    DecideError, GameFormat, GroupVenue, MAX_VENUE_NAME_CHARS, Sport, VenueRepository, VenueStatus,
+    VenueSubmission, in_vietnam, new_slug,
+};
 use crate::payments::domain::PayoutRepository;
 use crate::payments::service::has_payout_account;
 use crate::random::random_bytes;
+use crate::text::clean_name;
 
 /// What one message needs: storage, the other features' ports and settings.
 pub struct BotContext<'a, B, D, M, P> {
@@ -49,6 +55,10 @@ pub struct BotContext<'a, B, D, M, P> {
     /// Sends private messages (a link code to someone who tried the bot in a
     /// group); `None` only replies in the chat.
     pub chat: Option<&'a dyn ChatReply>,
+    /// Reads a Google Maps link's place; `None` refuses new venues.
+    pub maps: Option<&'a dyn MapsLocator>,
+    /// Đá Ghép accounts that approve venues.
+    pub admins: &'a [UserId],
     /// The web app's origin, for links in replies.
     pub frontend_origin: &'a str,
     /// The bot's display name, as tagged in groups ("Bot DaGhep").
@@ -70,7 +80,7 @@ pub async fn handle_message<B, D, M, P>(
     message: &Incoming,
 ) -> Result<Option<String>, BotError>
 where
-    B: BotRepository + PollRepository,
+    B: BotRepository + PollRepository + VenueRepository,
     D: DraftRepository,
     M: MatchRepository,
     P: PayoutRepository,
@@ -154,6 +164,12 @@ where
         Command::ListReminders => list_reminders(ctx, message, &mention).await?,
         Command::StopReminder(number) => stop_reminder(ctx, message, number, &mention).await?,
         Command::FindMatches => find_matches(ctx).await,
+        Command::AddVenue(text) => add_venue(ctx, message, &text, &mention, now).await?,
+        Command::DecideVenue { id, approve } => decide_venue(ctx, message, id, approve).await?,
+        Command::PendingVenues => pending_venues(ctx, message).await?,
+        Command::PublishPoll { number, public } => {
+            publish_poll(ctx, message, number, public, &mention).await?
+        }
         Command::Describe(text) => describe(ctx, message, &text, &mention, now).await?,
     };
     Ok(Some(reply))
@@ -744,7 +760,7 @@ async fn poll<B, D, M, P>(
     now: DateTime<Utc>,
 ) -> Result<String, BotError>
 where
-    B: BotRepository + PollRepository,
+    B: BotRepository + PollRepository + VenueRepository,
     D: DraftRepository,
 {
     let Some(user) = ctx
@@ -766,8 +782,20 @@ where
     if let Some(limited) = use_ai_read(ctx, user, now, &create_url).await? {
         return Ok(limited);
     }
+    let venues = ctx
+        .bot
+        .venues_with_status(VenueStatus::Approved)
+        .await
+        .map_err(fail)?;
     let today = local_date(now);
-    let raw = match reader.read(PollRequest { text, today }).await {
+    let raw = match reader
+        .read(PollRequest {
+            text,
+            today,
+            venues: &venues,
+        })
+        .await
+    {
         Ok(raw) => raw,
         Err(error) => {
             tracing::warn!(error = %error, "bot could not read a poll");
@@ -777,6 +805,7 @@ where
     // The reader must say weekly and the request must too, so a poll never
     // repeats unless someone asked for it.
     let weekly = raw.weekly && asks_weekly(text);
+    let group = poll_group(&raw, &venues, weekly && asks_public(text));
     let plan = match raw.checked(today) {
         Ok(plan) => plan,
         Err(gaps) => {
@@ -799,6 +828,7 @@ where
         user,
         plan,
         weekly,
+        group,
         expires_at: now + Duration::minutes(DRAFT_MINUTES),
     };
     ctx.bot.save_pending_poll(&pending).await.map_err(fail)?;
@@ -823,6 +853,10 @@ where
             ("lastDay", &last_day),
         ],
     );
+    if let Some(line) = group_line(&pending.group, &venues) {
+        reply.push('\n');
+        reply.push_str(&line);
+    }
     if weekly {
         reply.push('\n');
         reply.push_str(&fill(
@@ -862,7 +896,7 @@ where
     let share_id = ShareId::generate().map_err(fail)?;
     let Some(poll) = ctx
         .bot
-        .add_poll(&pending.chat_id, pending.user, &plan, &share_id, now)
+        .add_poll(&pending.chat_id, pending.user, &plan, &share_id, None, now)
         .await
         .map_err(fail)?
     else {
@@ -879,8 +913,14 @@ where
             play_time: poll.plan.play_time,
             nudge_time: poll.plan.nudge_time,
             next_post_at: first_week(weekdays, poll.plan.nudge_time, now).1,
+            group: pending.group,
         };
-        let saved = ctx.bot.add_series(&series, now).await.map_err(fail)?;
+        let saved = ctx
+            .bot
+            .add_series(&series, poll.id, now)
+            .await
+            .map_err(fail)?
+            .is_some();
         let note = if saved {
             fill(
                 &COPY.poll_weekly_saved,
@@ -896,6 +936,422 @@ where
         reply.push_str(&note);
     }
     Ok(reply)
+}
+
+/// What the reader said the group plays and where. A venue counts only when it
+/// is approved; a format implies its sport.
+fn poll_group(raw: &RawPoll, venues: &[GroupVenue], public: bool) -> PollGroup {
+    let format = raw.format.as_deref().and_then(GameFormat::parse);
+    let sport = raw
+        .sport
+        .as_deref()
+        .and_then(Sport::parse)
+        .or(format.map(GameFormat::sport));
+    // A format of another sport is dropped rather than mixed.
+    let format = format.filter(|format| sport.is_none_or(|sport| format.sport() == sport));
+    let venue_id = raw
+        .venue_id
+        .as_deref()
+        .and_then(|slug| venues.iter().find(|venue| venue.slug == slug))
+        .map(|venue| venue.id);
+    PollGroup {
+        sport,
+        format,
+        venue_id,
+        public,
+    }
+}
+
+/// "🏀 Bóng rổ · 3x3 · 📍 Sân Lakeview · 🌐 Hiện trên trang chủ daghep.vn".
+fn group_line(group: &PollGroup, venues: &[GroupVenue]) -> Option<String> {
+    let mut parts = Vec::new();
+    if let Some(sport) = group.sport {
+        parts.push(entry(&COPY.sports, sport.as_str()).to_owned());
+    }
+    if let Some(format) = group.format {
+        parts.push(entry(&COPY.formats, format.as_str()).to_owned());
+    }
+    if let Some(venue) = group
+        .venue_id
+        .and_then(|id| venues.iter().find(|venue| venue.id == id))
+    {
+        parts.push(format!("📍 {}", venue.name));
+    }
+    if group.public {
+        parts.push(COPY.group_public.clone());
+    }
+    (!parts.is_empty()).then(|| parts.join(" · "))
+}
+
+/// Whether the request itself asks for the home page ("công khai").
+fn asks_public(text: &str) -> bool {
+    let text = text.to_lowercase();
+    COPY.commands
+        .public
+        .iter()
+        .any(|word| text.contains(word.as_str()))
+}
+
+fn is_admin<B, D, M, P>(ctx: &BotContext<'_, B, D, M, P>, user: Option<UserId>) -> bool {
+    user.is_some_and(|user| ctx.admins.contains(&user))
+}
+
+/// The words of `text`, lowercased, for matching phrases.
+fn lower_words(text: &str) -> Vec<String> {
+    text.split_whitespace().map(str::to_lowercase).collect()
+}
+
+/// Removes every occurrence of `phrase` (whole words, any case) from `words`.
+fn drop_phrase(words: &mut Vec<&str>, phrase: &str) {
+    let phrase = lower_words(phrase);
+    if phrase.is_empty() {
+        return;
+    }
+    let mut index = 0;
+    while index + phrase.len() <= words.len() {
+        let window: Vec<String> = words[index..index + phrase.len()]
+            .iter()
+            .map(|word| word.to_lowercase())
+            .collect();
+        if window == phrase {
+            words.drain(index..index + phrase.len());
+        } else {
+            index += 1;
+        }
+    }
+}
+
+/// "Sân Lakeview" from "thêm sân Lakeview bóng rổ https://…", or the name in
+/// the Maps link when the message has none.
+fn venue_name(text: &str, link: &str, label: Option<&str>) -> Option<String> {
+    let mut words: Vec<&str> = text
+        .split_whitespace()
+        .filter(|word| *word != link)
+        .collect();
+    let commands = &COPY.commands;
+    for lead in &commands.add_venue {
+        let lead_words = lower_words(lead);
+        let starts = words.len() >= lead_words.len()
+            && words[..lead_words.len()]
+                .iter()
+                .map(|word| word.to_lowercase())
+                .eq(lead_words.iter().cloned());
+        if starts {
+            words.drain(..lead_words.len());
+            break;
+        }
+    }
+    for phrase in commands
+        .venue_football
+        .iter()
+        .chain(&commands.venue_basketball)
+    {
+        drop_phrase(&mut words, phrase);
+    }
+    let typed = clean_name(&words.join(" "), MAX_VENUE_NAME_CHARS);
+    let name = typed.or_else(|| label.and_then(|label| clean_name(label, MAX_VENUE_NAME_CHARS)))?;
+    let has_prefix = COPY
+        .venue_prefixes
+        .iter()
+        .any(|prefix| name.to_lowercase().starts_with(&prefix.to_lowercase()));
+    Some(if has_prefix {
+        name
+    } else {
+        fill(&COPY.venue_named, &[("name", &name)])
+    })
+}
+
+/// Sports a venue request names ("bóng rổ", "bóng đá").
+fn venue_sports(text: &str) -> Vec<Sport> {
+    let words = lower_words(text);
+    let has = |phrases: &[String]| {
+        phrases.iter().any(|phrase| {
+            let phrase = lower_words(phrase);
+            !phrase.is_empty()
+                && words
+                    .windows(phrase.len())
+                    .any(|window| window == phrase.as_slice())
+        })
+    };
+    let mut sports = Vec::new();
+    if has(&COPY.commands.venue_football) {
+        sports.push(Sport::Football);
+    }
+    if has(&COPY.commands.venue_basketball) {
+        sports.push(Sport::Basketball);
+    }
+    sports
+}
+
+fn sports_text(sports: &[Sport]) -> String {
+    sports
+        .iter()
+        .map(|sport| entry(&COPY.sports, sport.as_str()))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+async fn add_venue<B, D, M, P>(
+    ctx: &BotContext<'_, B, D, M, P>,
+    message: &Incoming,
+    text: &str,
+    mention: &str,
+    now: DateTime<Utc>,
+) -> Result<String, BotError>
+where
+    B: BotRepository + VenueRepository,
+{
+    let Some(user) = ctx
+        .bot
+        .linked_user(&message.sender_id)
+        .await
+        .map_err(fail)?
+    else {
+        return unlinked(ctx, message, now).await;
+    };
+    let Some(link) = find_maps_link(text) else {
+        return Ok(fill(&COPY.venue_needs_link, &[("mention", mention)]));
+    };
+    let sports = venue_sports(text);
+    if sports.is_empty() {
+        return Ok(COPY.venue_needs_sport.clone());
+    }
+    let Some(maps) = ctx.maps else {
+        return Ok(COPY.venue_bad_link.clone());
+    };
+    let place = match maps.locate(link).await {
+        Ok(place) => place,
+        Err(error) => {
+            tracing::info!(error = %error, "could not read a Maps link");
+            return Ok(COPY.venue_bad_link.clone());
+        }
+    };
+    if !in_vietnam(place.lat, place.lng) {
+        return Ok(COPY.venue_outside.clone());
+    }
+    let Some(name) = venue_name(text, link, place.label.as_deref()) else {
+        return Ok(fill(&COPY.venue_needs_link, &[("mention", mention)]));
+    };
+    let address = place
+        .label
+        .as_deref()
+        .and_then(|label| clean_name(label, 200))
+        .unwrap_or_else(|| name.clone());
+    let submission = VenueSubmission {
+        name: name.clone(),
+        address,
+        lat: place.lat,
+        lng: place.lng,
+        sports: sports.clone(),
+        maps_url: link.chars().take(500).collect(),
+        submitted_by: user,
+    };
+    let approved = ctx
+        .bot
+        .venues_with_status(VenueStatus::Approved)
+        .await
+        .map_err(fail)?;
+    if approved
+        .iter()
+        .any(|venue| venue.name.to_lowercase() == name.to_lowercase())
+    {
+        return Ok(fill(&COPY.venue_exists, &[("name", &name)]));
+    }
+    let slug = new_slug(&name).map_err(fail)?;
+    let id = ctx
+        .bot
+        .submit_venue(&submission, &slug)
+        .await
+        .map_err(fail)?;
+    let notice = fill(
+        &COPY.venue_admin_notice,
+        &[
+            ("id", &id.to_string()),
+            ("name", &name),
+            ("sports", &sports_text(&sports)),
+            ("lat", &format!("{:.6}", place.lat)),
+            ("lng", &format!("{:.6}", place.lng)),
+        ],
+    );
+    // The venue is saved: a failed notice must not turn into a "failed" reply.
+    if let Err(error) = notify_admins(ctx, &notice).await {
+        tracing::warn!(error = %error, "could not notify admins about a venue");
+    }
+    Ok(fill(&COPY.venue_submitted, &[("name", &name)]))
+}
+
+/// Sends a private message to every admin linked to Zalo.
+async fn notify_admins<B, D, M, P>(
+    ctx: &BotContext<'_, B, D, M, P>,
+    text: &str,
+) -> Result<(), BotError>
+where
+    B: BotRepository,
+{
+    let Some(chat) = ctx.chat else {
+        return Ok(());
+    };
+    for admin in ctx.admins {
+        if let Some(zalo_id) = ctx.bot.zalo_id_of(*admin).await.map_err(fail)?
+            && let Err(error) = chat.send(&zalo_id, text).await
+        {
+            tracing::warn!(error = %error, "could not notify an admin");
+        }
+    }
+    Ok(())
+}
+
+async fn decide_venue<B, D, M, P>(
+    ctx: &BotContext<'_, B, D, M, P>,
+    message: &Incoming,
+    id: i64,
+    approve: bool,
+) -> Result<String, BotError>
+where
+    B: BotRepository + VenueRepository,
+{
+    let sender = ctx
+        .bot
+        .linked_user(&message.sender_id)
+        .await
+        .map_err(fail)?;
+    if !is_admin(ctx, sender) {
+        return Ok(COPY.admin_only.clone());
+    }
+    let status = if approve {
+        VenueStatus::Approved
+    } else {
+        VenueStatus::Rejected
+    };
+    let decided = match ctx.bot.decide_venue(id, status).await {
+        Ok(decided) => decided,
+        Err(DecideError::Duplicate) => {
+            return Ok(fill(&COPY.venue_duplicate, &[("id", &id.to_string())]));
+        }
+        Err(DecideError::Repo(error)) => return Err(fail(error)),
+    };
+    let Some((name, submitter)) = decided else {
+        return Ok(fill(&COPY.venue_not_pending, &[("id", &id.to_string())]));
+    };
+    if let (Some(submitter), Some(chat)) = (submitter, ctx.chat) {
+        // An admin approving their own venue already reads the reply.
+        if let Some(zalo_id) = ctx
+            .bot
+            .zalo_id_of(submitter)
+            .await
+            .map_err(fail)?
+            .filter(|zalo_id| *zalo_id != message.sender_id)
+        {
+            let template = if approve {
+                &COPY.venue_approved
+            } else {
+                &COPY.venue_rejected
+            };
+            if let Err(error) = chat
+                .send(&zalo_id, &fill(template, &[("name", &name)]))
+                .await
+            {
+                tracing::warn!(error = %error, "could not tell an organiser about their venue");
+            }
+        }
+    }
+    let template = if approve {
+        &COPY.venue_approved_admin
+    } else {
+        &COPY.venue_rejected_admin
+    };
+    Ok(fill(template, &[("id", &id.to_string()), ("name", &name)]))
+}
+
+async fn pending_venues<B, D, M, P>(
+    ctx: &BotContext<'_, B, D, M, P>,
+    message: &Incoming,
+) -> Result<String, BotError>
+where
+    B: BotRepository + VenueRepository,
+{
+    let sender = ctx
+        .bot
+        .linked_user(&message.sender_id)
+        .await
+        .map_err(fail)?;
+    if !is_admin(ctx, sender) {
+        return Ok(COPY.admin_only.clone());
+    }
+    let pending = ctx
+        .bot
+        .venues_with_status(VenueStatus::Pending)
+        .await
+        .map_err(fail)?;
+    if pending.is_empty() {
+        return Ok(COPY.no_pending_venues.clone());
+    }
+    let items = pending
+        .iter()
+        .map(|venue| {
+            fill(
+                &COPY.pending_venue_item,
+                &[
+                    ("id", &venue.id.to_string()),
+                    ("name", &venue.name),
+                    ("sports", &sports_text(&venue.sports)),
+                    ("lat", &format!("{:.6}", venue.lat)),
+                    ("lng", &format!("{:.6}", venue.lng)),
+                ],
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    Ok(fill(&COPY.pending_venues_list, &[("items", &items)]))
+}
+
+async fn publish_poll<B, D, M, P>(
+    ctx: &BotContext<'_, B, D, M, P>,
+    message: &Incoming,
+    number: Option<i64>,
+    public: bool,
+    mention: &str,
+) -> Result<String, BotError>
+where
+    B: BotRepository + PollRepository,
+{
+    let Some(number) = number else {
+        let list = stop_poll_series(ctx, message, None, mention).await?;
+        return Ok(format!(
+            "{list}\n{}",
+            fill(&COPY.publish_hint, &[("mention", mention)])
+        ));
+    };
+    if ctx
+        .bot
+        .linked_user(&message.sender_id)
+        .await
+        .map_err(fail)?
+        .is_none()
+    {
+        return unlinked(ctx, message, ctx.clock.now()).await;
+    }
+    let all = ctx.bot.series(&message.chat_id).await.map_err(fail)?;
+    let n = number.to_string();
+    let target = usize::try_from(number)
+        .ok()
+        .and_then(|number| number.checked_sub(1))
+        .and_then(|index| all.get(index));
+    let updated = match target {
+        Some(series) => ctx
+            .bot
+            .set_series_public(&message.chat_id, series.id, public)
+            .await
+            .map_err(fail)?,
+        None => false,
+    };
+    Ok(if !updated {
+        fill(&COPY.series_not_found, &[("n", &n), ("mention", mention)])
+    } else if public {
+        fill(&COPY.series_published, &[("n", &n)])
+    } else {
+        fill(&COPY.series_hidden, &[("n", &n)])
+    })
 }
 
 /// A weekly series' first poll: the asked-for weekdays still ahead this week.
@@ -1023,7 +1479,14 @@ pub async fn run_due_series<B: PollRepository>(
         }
         let share_id = ShareId::generate().map_err(fail)?;
         let poll = match bot
-            .add_poll(&series.chat_id, series.user, &plan, &share_id, now)
+            .add_poll(
+                &series.chat_id,
+                series.user,
+                &plan,
+                &share_id,
+                Some(series.id),
+                now,
+            )
             .await
         {
             Ok(Some(poll)) => poll,

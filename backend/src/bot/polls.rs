@@ -10,6 +10,7 @@ use chrono::{DateTime, Datelike, Duration, NaiveDate, NaiveTime, Utc};
 
 use crate::auth::UserId;
 use crate::matches::domain::{ShareId, local_date, local_instant};
+use crate::matches::venues::{GameFormat, GroupVenue, Sport};
 
 /// Open polls one chat may have at a time.
 pub const MAX_OPEN_POLLS_PER_CHAT: i64 = 3;
@@ -44,6 +45,12 @@ pub struct RawPoll {
     pub nudge_time: Option<String>,
     /// "hằng tuần": a new poll for the same weekdays every week until stopped.
     pub weekly: bool,
+    /// "football" or "basketball".
+    pub sport: Option<String>,
+    /// "3x3", "5x5", "five_a_side", "seven_a_side" or "eleven_a_side".
+    pub format: Option<String>,
+    /// A venue slug from the list the reader was given.
+    pub venue_id: Option<String>,
 }
 
 /// A poll that passed the rules.
@@ -153,6 +160,8 @@ impl PollPlan {
 pub struct PollRequest<'a> {
     pub text: &'a str,
     pub today: NaiveDate,
+    /// Approved venues the reader may pick from.
+    pub venues: &'a [GroupVenue],
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -177,6 +186,7 @@ pub struct PendingPoll {
     pub plan: PollPlan,
     /// Repeat every week until stopped.
     pub weekly: bool,
+    pub group: PollGroup,
     pub expires_at: DateTime<Utc>,
 }
 
@@ -193,6 +203,32 @@ pub struct PollSeries {
     pub play_time: Option<NaiveTime>,
     pub nudge_time: NaiveTime,
     pub next_post_at: DateTime<Utc>,
+    pub group: PollGroup,
+}
+
+/// What a group plays and where, and whether the home page shows it
+/// (`docs/public-groups-plan.md`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct PollGroup {
+    pub sport: Option<Sport>,
+    pub format: Option<GameFormat>,
+    /// An approved venue's id.
+    pub venue_id: Option<i64>,
+    pub public: bool,
+}
+
+/// A public group as the home page lists it. No member names.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PublicGroup {
+    pub title: String,
+    pub group: PollGroup,
+    pub venue_name: Option<String>,
+    pub venue_address: Option<String>,
+    pub weekdays: u8,
+    pub play_time: Option<NaiveTime>,
+    /// This week's poll, when one is open: yes-counts per day and how many
+    /// players answered.
+    pub week: Option<(Vec<(NaiveDate, i64)>, i64)>,
 }
 
 /// Weekly polls one chat may have at a time.
@@ -399,6 +435,7 @@ pub trait PollRepository: Send + Sync {
         user: UserId,
         plan: &PollPlan,
         share_id: &ShareId,
+        series_id: Option<i64>,
         now: DateTime<Utc>,
     ) -> impl Future<Output = Result<Option<Poll>, PollRepoError>> + Send;
 
@@ -437,12 +474,27 @@ pub trait PollRepository: Send + Sync {
     ) -> impl Future<Output = Result<Vec<Member>, PollRepoError>> + Send;
 
     /// Saves a weekly series unless its chat already has `MAX_SERIES_PER_CHAT`;
-    /// returns whether it was saved.
+    /// returns its id when saved, and ties `first_poll` to it.
     fn add_series(
         &self,
         series: &PollSeries,
+        first_poll: i64,
         now: DateTime<Utc>,
+    ) -> impl Future<Output = Result<Option<i64>, PollRepoError>> + Send;
+
+    /// Shows or hides a series on the home page; returns whether it exists.
+    fn set_series_public(
+        &self,
+        chat_id: &str,
+        id: i64,
+        public: bool,
     ) -> impl Future<Output = Result<bool, PollRepoError>> + Send;
+
+    /// Public series, newest first, with their venue and this week's counts.
+    fn public_groups(
+        &self,
+        now: DateTime<Utc>,
+    ) -> impl Future<Output = Result<Vec<PublicGroup>, PollRepoError>> + Send;
 
     /// The chat's weekly series, oldest first (their list numbers).
     fn series(
@@ -504,6 +556,7 @@ mod tests {
             play_time: Some("18:00".to_owned()),
             nudge_time: None,
             weekly: false,
+            ..RawPoll::default()
         }
     }
 
@@ -558,6 +611,7 @@ mod tests {
             play_time: None,
             nudge_time: Some("8pm".to_owned()),
             weekly: false,
+            ..RawPoll::default()
         };
         assert_eq!(
             empty.checked(today()).unwrap_err(),
@@ -630,6 +684,7 @@ mod tests {
             play_time: None,
             nudge_time: eight_pm(),
             next_post_at: at("2099-10-11T13:00:00Z"),
+            group: PollGroup::default(),
         };
         // Posted Sunday 11 for the week of Monday 12.
         let posted = at("2099-10-11T13:00:00Z");

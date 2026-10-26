@@ -4,12 +4,27 @@ use chrono::{DateTime, NaiveDate, NaiveTime, Utc};
 
 use super::polls::{
     AnswerOutcome, MAX_OPEN_POLLS_PER_CHAT, MAX_SERIES_FAILURES, MAX_SERIES_PER_CHAT, Member,
-    PendingPoll, Poll, PollAnswer, PollPlan, PollRepoError, PollRepository, PollSeries, post_at,
-    week_posted_at,
+    PendingPoll, Poll, PollAnswer, PollGroup, PollPlan, PollRepoError, PollRepository, PollSeries,
+    PublicGroup, post_at, week_posted_at,
 };
 use super::repo::PgBotRepository;
 use crate::auth::UserId;
 use crate::matches::domain::ShareId;
+use crate::matches::venues::{GameFormat, Sport};
+
+type PublicGroupRow = (
+    String,
+    Option<String>,
+    Option<String>,
+    Option<i64>,
+    i16,
+    Option<NaiveTime>,
+    Option<String>,
+    Option<String>,
+    Option<Vec<NaiveDate>>,
+    Option<Vec<i64>>,
+    Option<i64>,
+);
 
 fn poll_error(error: sqlx::Error) -> PollRepoError {
     PollRepoError(error.to_string())
@@ -55,7 +70,38 @@ type PendingPollRow = (
     NaiveTime,
     DateTime<Utc>,
     bool,
+    Option<String>,
+    Option<String>,
+    Option<i64>,
+    bool,
 );
+
+/// A group's columns, as stored: sport, format, venue id and public.
+type GroupColumns = (Option<String>, Option<String>, Option<i64>, bool);
+
+fn group_from_columns(
+    (sport, format, venue_id, public): GroupColumns,
+) -> Result<PollGroup, PollRepoError> {
+    let sport = sport
+        .map(|sport| {
+            Sport::parse(&sport)
+                .ok_or_else(|| PollRepoError(format!("stored group has an unknown sport {sport}")))
+        })
+        .transpose()?;
+    let format = format
+        .map(|format| {
+            GameFormat::parse(&format).ok_or_else(|| {
+                PollRepoError(format!("stored group has an unknown format {format}"))
+            })
+        })
+        .transpose()?;
+    Ok(PollGroup {
+        sport,
+        format,
+        venue_id,
+        public,
+    })
+}
 
 type SeriesRow = (
     i64,
@@ -66,13 +112,30 @@ type SeriesRow = (
     Option<NaiveTime>,
     NaiveTime,
     DateTime<Utc>,
+    Option<String>,
+    Option<String>,
+    Option<i64>,
+    bool,
 );
 
-const SERIES_COLUMNS: &str =
-    "id, chat_id, user_id, title, weekdays, play_time, nudge_time, next_post_at";
+const SERIES_COLUMNS: &str = "id, chat_id, user_id, title, weekdays, play_time, nudge_time,
+     next_post_at, sport, game_format, venue_id, public";
 
 fn series_from_row(row: SeriesRow) -> Result<PollSeries, PollRepoError> {
-    let (id, chat_id, user, title, weekdays, play_time, nudge_time, next_post_at) = row;
+    let (
+        id,
+        chat_id,
+        user,
+        title,
+        weekdays,
+        play_time,
+        nudge_time,
+        next_post_at,
+        sport,
+        format,
+        venue_id,
+        public,
+    ) = row;
     let weekdays = u8::try_from(weekdays)
         .ok()
         .filter(|bits| (1..=127).contains(bits))
@@ -86,6 +149,7 @@ fn series_from_row(row: SeriesRow) -> Result<PollSeries, PollRepoError> {
         play_time,
         nudge_time,
         next_post_at,
+        group: group_from_columns((sport, format, venue_id, public))?,
     })
 }
 
@@ -120,12 +184,14 @@ impl PollRepository for PgBotRepository {
         }
         sqlx::query(
             "INSERT INTO bot_pending_polls (zalo_user_id, chat_id, user_id, title, days,
-                 nudge_time, expires_at, play_time, weekly)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                 nudge_time, expires_at, play_time, weekly, sport, game_format, venue_id, public)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
              ON CONFLICT (zalo_user_id, chat_id) DO UPDATE SET
                  user_id = EXCLUDED.user_id, title = EXCLUDED.title, days = EXCLUDED.days,
                  nudge_time = EXCLUDED.nudge_time, expires_at = EXCLUDED.expires_at,
-                 play_time = EXCLUDED.play_time, weekly = EXCLUDED.weekly",
+                 play_time = EXCLUDED.play_time, weekly = EXCLUDED.weekly,
+                 sport = EXCLUDED.sport, game_format = EXCLUDED.game_format,
+                 venue_id = EXCLUDED.venue_id, public = EXCLUDED.public",
         )
         .bind(&pending.zalo_user_id)
         .bind(&pending.chat_id)
@@ -136,6 +202,10 @@ impl PollRepository for PgBotRepository {
         .bind(pending.expires_at)
         .bind(pending.plan.play_time)
         .bind(pending.weekly)
+        .bind(pending.group.sport.map(Sport::as_str))
+        .bind(pending.group.format.map(GameFormat::as_str))
+        .bind(pending.group.venue_id)
+        .bind(pending.group.public)
         .execute(&mut *tx)
         .await
         .map_err(poll_error)?;
@@ -150,28 +220,44 @@ impl PollRepository for PgBotRepository {
     ) -> Result<Option<PendingPoll>, PollRepoError> {
         let row: Option<PendingPollRow> = sqlx::query_as(
             "DELETE FROM bot_pending_polls WHERE zalo_user_id = $1 AND chat_id = $2
-                 RETURNING user_id, title, days, play_time, nudge_time, expires_at, weekly",
+                 RETURNING user_id, title, days, play_time, nudge_time, expires_at, weekly,
+                     sport, game_format, venue_id, public",
         )
         .bind(zalo_user_id)
         .bind(chat_id)
         .fetch_optional(self.pool())
         .await
         .map_err(poll_error)?;
-        Ok(row.filter(|row| row.5 > now).map(
-            |(user, title, days, play_time, nudge_time, expires_at, weekly)| PendingPoll {
-                zalo_user_id: zalo_user_id.to_owned(),
-                chat_id: chat_id.to_owned(),
-                user: UserId(user),
-                plan: PollPlan {
-                    title,
-                    days,
-                    play_time,
-                    nudge_time,
-                },
-                weekly,
-                expires_at,
+        let Some(row) = row.filter(|row| row.5 > now) else {
+            return Ok(None);
+        };
+        let (
+            user,
+            title,
+            days,
+            play_time,
+            nudge_time,
+            expires_at,
+            weekly,
+            sport,
+            format,
+            venue_id,
+            public,
+        ) = row;
+        Ok(Some(PendingPoll {
+            zalo_user_id: zalo_user_id.to_owned(),
+            chat_id: chat_id.to_owned(),
+            user: UserId(user),
+            plan: PollPlan {
+                title,
+                days,
+                play_time,
+                nudge_time,
             },
-        ))
+            weekly,
+            group: group_from_columns((sport, format, venue_id, public))?,
+            expires_at,
+        }))
     }
 
     async fn add_poll(
@@ -180,6 +266,7 @@ impl PollRepository for PgBotRepository {
         user: UserId,
         plan: &PollPlan,
         share_id: &ShareId,
+        series_id: Option<i64>,
         now: DateTime<Utc>,
     ) -> Result<Option<Poll>, PollRepoError> {
         let mut tx = self.pool().begin().await.map_err(poll_error)?;
@@ -202,8 +289,8 @@ impl PollRepository for PgBotRepository {
         }
         let row: PollRow = sqlx::query_as(&format!(
             "INSERT INTO bot_polls (share_id, chat_id, user_id, title, days, nudge_time,
-                 next_nudge_at, closes_at, created_at, play_time)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                 next_nudge_at, closes_at, created_at, play_time, series_id)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
              RETURNING {POLL_COLUMNS}"
         ))
         .bind(share_id.as_str())
@@ -216,6 +303,7 @@ impl PollRepository for PgBotRepository {
         .bind(plan.closes_at())
         .bind(now)
         .bind(plan.play_time)
+        .bind(series_id)
         .fetch_one(&mut *tx)
         .await
         .map_err(poll_error)?;
@@ -386,8 +474,9 @@ impl PollRepository for PgBotRepository {
     async fn add_series(
         &self,
         series: &PollSeries,
+        first_poll: i64,
         now: DateTime<Utc>,
-    ) -> Result<bool, PollRepoError> {
+    ) -> Result<Option<i64>, PollRepoError> {
         let mut tx = self.pool().begin().await.map_err(poll_error)?;
         // Serialises adds per chat so two "ok"s cannot both pass the count.
         sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended('bot_poll_series:' || $1, 0))")
@@ -402,12 +491,13 @@ impl PollRepository for PgBotRepository {
                 .await
                 .map_err(poll_error)?;
         if count >= MAX_SERIES_PER_CHAT {
-            return Ok(false);
+            return Ok(None);
         }
-        sqlx::query(
+        let id: i64 = sqlx::query_scalar(
             "INSERT INTO bot_poll_series (chat_id, user_id, title, weekdays, play_time,
-                 nudge_time, next_post_at, created_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+                 nudge_time, next_post_at, created_at, sport, game_format, venue_id, public)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+             RETURNING id",
         )
         .bind(&series.chat_id)
         .bind(series.user.0)
@@ -417,11 +507,111 @@ impl PollRepository for PgBotRepository {
         .bind(series.nudge_time)
         .bind(series.next_post_at)
         .bind(now)
-        .execute(&mut *tx)
+        .bind(series.group.sport.map(Sport::as_str))
+        .bind(series.group.format.map(GameFormat::as_str))
+        .bind(series.group.venue_id)
+        .bind(series.group.public)
+        .fetch_one(&mut *tx)
         .await
         .map_err(poll_error)?;
+        sqlx::query("UPDATE bot_polls SET series_id = $2 WHERE id = $1")
+            .bind(first_poll)
+            .bind(id)
+            .execute(&mut *tx)
+            .await
+            .map_err(poll_error)?;
         tx.commit().await.map_err(poll_error)?;
-        Ok(true)
+        Ok(Some(id))
+    }
+
+    async fn set_series_public(
+        &self,
+        chat_id: &str,
+        id: i64,
+        public: bool,
+    ) -> Result<bool, PollRepoError> {
+        let updated =
+            sqlx::query("UPDATE bot_poll_series SET public = $3 WHERE chat_id = $1 AND id = $2")
+                .bind(chat_id)
+                .bind(id)
+                .bind(public)
+                .execute(self.pool())
+                .await
+                .map_err(poll_error)?
+                .rows_affected();
+        Ok(updated == 1)
+    }
+
+    async fn public_groups(&self, now: DateTime<Utc>) -> Result<Vec<PublicGroup>, PollRepoError> {
+        // One statement: a venue shows only once approved; "this week" is the
+        // series' poll that closes soonest and is still open.
+        let rows: Vec<PublicGroupRow> = sqlx::query_as(
+            "SELECT s.title, s.sport, s.game_format, s.venue_id, s.weekdays, s.play_time,
+                    v.name, v.address, w.days, w.yes, w.players
+             FROM bot_poll_series s
+             LEFT JOIN venues v ON v.id = s.venue_id AND v.status = 'approved'
+             LEFT JOIN LATERAL (
+                 SELECT p.days,
+                        ARRAY(
+                            SELECT count(a.user_id) FILTER (WHERE a.attending)
+                            FROM unnest(p.days) AS d(day)
+                            LEFT JOIN bot_poll_answers a ON a.poll_id = p.id AND a.day = d.day
+                            GROUP BY d.day ORDER BY d.day
+                        ) AS yes,
+                        (SELECT count(DISTINCT user_id) FROM bot_poll_answers
+                         WHERE poll_id = p.id) AS players
+                 FROM bot_polls p
+                 WHERE p.series_id = s.id AND p.closes_at > $1
+                 ORDER BY p.closes_at LIMIT 1
+             ) w ON true
+             WHERE s.public
+             ORDER BY s.id DESC
+             LIMIT 50",
+        )
+        .bind(now)
+        .fetch_all(self.pool())
+        .await
+        .map_err(poll_error)?;
+        rows.into_iter()
+            .map(
+                |(
+                    title,
+                    sport,
+                    format,
+                    venue_id,
+                    weekdays,
+                    play_time,
+                    venue_name,
+                    address,
+                    days,
+                    yes,
+                    players,
+                )| {
+                    let week = match (days, yes, players) {
+                        (Some(mut days), Some(yes), Some(players)) => {
+                            days.sort();
+                            Some((days.into_iter().zip(yes).collect(), players))
+                        }
+                        _ => None,
+                    };
+                    let shown_venue = venue_name.is_some();
+                    Ok(PublicGroup {
+                        title,
+                        group: group_from_columns((
+                            sport,
+                            format,
+                            venue_id.filter(|_| shown_venue),
+                            true,
+                        ))?,
+                        venue_name,
+                        venue_address: address,
+                        weekdays: u8::try_from(weekdays).unwrap_or(0),
+                        play_time,
+                        week,
+                    })
+                },
+            )
+            .collect()
     }
 
     async fn series(&self, chat_id: &str) -> Result<Vec<PollSeries>, PollRepoError> {

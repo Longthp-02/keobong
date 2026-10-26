@@ -4,6 +4,7 @@ pub mod domain;
 mod http;
 mod repo;
 pub mod service;
+pub mod venues;
 
 pub use http::{MatchView, router};
 pub use repo::PgMatchRepository;
