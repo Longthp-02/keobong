@@ -406,3 +406,34 @@ export async function browserAnswerPoll(
     return { ok: false, error: "failed" };
   }
 }
+
+export type PublicGroup = {
+  title: string;
+  sport: "football" | "basketball" | null;
+  format: "3x3" | "5x5" | "five_a_side" | "seven_a_side" | "eleven_a_side" | null;
+  venue: { name: string; address: string } | null;
+  /** Sunday = 0 … Saturday = 6. */
+  weekdays: number[];
+  playTime: string | null;
+  /** This week's poll, when one is open. */
+  week: { players: number; yes: { day: string; yes: number }[] } | null;
+};
+
+/** Public weekly groups for the home page; empty when unavailable, so the page still loads. */
+export async function getGroups(options: Options = {}): Promise<PublicGroup[]> {
+  try {
+    const baseUrl = options.baseUrl ?? apiBaseUrl();
+    const fetchImpl = options.fetchImpl ?? fetch;
+    const response = await fetchImpl(`${baseUrl}/api/groups`, {
+      headers: { accept: "application/json" },
+      next: { revalidate: 60 },
+    } as RequestInit);
+    if (!response.ok) {
+      throw new Error(`Groups API failed with status ${response.status}`);
+    }
+    return ((await response.json()) as { groups: PublicGroup[] }).groups;
+  } catch (error) {
+    console.error("groups unavailable", error);
+    return [];
+  }
+}

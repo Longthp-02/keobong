@@ -14,6 +14,9 @@ use super::reminders::{
 };
 use crate::auth::UserId;
 use crate::matches::domain::{Format, MatchType};
+use crate::matches::venues::{
+    GroupVenue, PgVenueRepository, VenueRepository, VenueStatus, VenueSubmission,
+};
 
 #[derive(Clone)]
 pub struct PgBotRepository {
@@ -150,6 +153,14 @@ impl BotRepository for PgBotRepository {
                 .await
                 .map_err(repo_error)?;
         Ok(id.map(UserId))
+    }
+
+    async fn zalo_id_of(&self, user: UserId) -> Result<Option<String>, RepoError> {
+        sqlx::query_scalar("SELECT zalo_user_id FROM zalo_links WHERE user_id = $1")
+            .bind(user.0)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(repo_error)
     }
 
     async fn save_link_code(
@@ -543,5 +554,36 @@ impl BotRepository for PgBotRepository {
             .await
             .map_err(repo_error)?;
         Ok(())
+    }
+}
+
+impl VenueRepository for PgBotRepository {
+    async fn submit_venue(
+        &self,
+        venue: &VenueSubmission,
+        slug: &str,
+    ) -> Result<i64, crate::matches::domain::RepoError> {
+        PgVenueRepository::new(self.pool.clone())
+            .submit_venue(venue, slug)
+            .await
+    }
+
+    async fn decide_venue(
+        &self,
+        id: i64,
+        status: VenueStatus,
+    ) -> Result<Option<(String, Option<UserId>)>, crate::matches::domain::RepoError> {
+        PgVenueRepository::new(self.pool.clone())
+            .decide_venue(id, status)
+            .await
+    }
+
+    async fn venues_with_status(
+        &self,
+        status: VenueStatus,
+    ) -> Result<Vec<GroupVenue>, crate::matches::domain::RepoError> {
+        PgVenueRepository::new(self.pool.clone())
+            .venues_with_status(status)
+            .await
     }
 }

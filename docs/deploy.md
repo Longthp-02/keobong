@@ -152,6 +152,9 @@ gcloud run services update-traffic daghep-api --region "$REGION" --to-revisions 
 Before rolling back, disable the automatic releases (GitHub → Actions → Deploy API → ⋯ → Disable workflow). Otherwise the next run on `main` sees the old revision serving and releases the newer code again. Enable the workflow again once the fix is merged.
 Traffic stays pinned until the next release's step 3 (`--to-latest`).
 
+## Admins (venue approval)
+Venues organisers add from a Google Maps link wait for an admin. Admins are Đá Ghép user ids in `ADMIN_USER_IDS` (comma separated), set once with `gcloud run services update daghep-api --region asia-southeast1 --update-env-vars ADMIN_USER_IDS=<id>`. Find an id in Neon with `SELECT id, display_name FROM users ORDER BY id;`. An admin must have linked Zalo to get the private notices ("duyệt sân N", "từ chối sân N", "sân chờ duyệt").
+
 ## Account deletion request: Zalo bot data
 User rows are kept anonymised, so `ON DELETE CASCADE` does not remove bot data. When a user asks to delete their account, also run this in `psql`, after `\set uid <their users.id>`:
 ```sql
@@ -161,6 +164,7 @@ DELETE FROM bot_poll_series WHERE user_id = :uid;
 DELETE FROM bot_polls WHERE user_id = :uid;
 DELETE FROM bot_pending_polls WHERE user_id = :uid;
 DELETE FROM bot_chat_members WHERE user_id = :uid;
+UPDATE venues SET submitted_by = NULL WHERE submitted_by = :uid;
 DELETE FROM bot_poll_answers WHERE user_id = :uid;
 DELETE FROM bot_pending_reminders WHERE user_id = :uid;
 DELETE FROM bot_drafts WHERE user_id = :uid;

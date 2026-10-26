@@ -8,6 +8,7 @@
 pub mod anthropic;
 pub mod domain;
 mod http;
+pub mod maps;
 mod poll_repo;
 pub mod polls;
 pub mod reminders;

@@ -7,10 +7,12 @@ use std::time::Duration;
 
 use axum::http::{HeaderValue, Method};
 use daghep_api::Deps;
+use daghep_api::auth::UserId;
 use daghep_api::auth::domain::IdentityProvider;
 use daghep_api::auth::google::GoogleProvider;
 use daghep_api::bot::ZaloSettings;
 use daghep_api::bot::anthropic::AnthropicBotReader;
+use daghep_api::bot::maps::HttpMapsLocator;
 use daghep_api::bot::polls::PollReader;
 use daghep_api::bot::reminders::ReminderReader;
 use daghep_api::bot::zalo::ZaloReply;
@@ -112,6 +114,8 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
             bot_name: bot.bot_name,
             reminder_reader,
             poll_reader,
+            maps: Some(Arc::new(HttpMapsLocator::new()?)),
+            admins: config.admin_user_ids.iter().copied().map(UserId).collect(),
             cron_secret: bot.cron_secret,
         })),
         None => None,

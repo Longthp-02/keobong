@@ -18,13 +18,14 @@ use sha2::{Digest, Sha256};
 use super::domain::{
     COPY, ChatKind, ChatReply, FindFuture, Incoming, MatchFinder, OpenMatchLine, fill,
 };
+use super::maps::MapsLocator;
 use super::polls::{AnswerOutcome, MAX_POLL_DAYS, Poll, PollReader, PollRepository};
 use super::reminders::ReminderReader;
 use super::repo::PgBotRepository;
 use super::service::{
     BotContext, handle_message, redeem_link, run_due_polls, run_due_reminders, run_due_series,
 };
-use crate::auth::{AuthRejection, AuthState, AuthenticatedUser};
+use crate::auth::{AuthRejection, AuthState, AuthenticatedUser, UserId};
 use crate::clock::Clock;
 use crate::config::Secret;
 use crate::discovery::service::open_matches;
@@ -50,6 +51,10 @@ pub struct ZaloSettings {
     pub reminder_reader: Option<Arc<dyn ReminderReader>>,
     /// `None` makes the bot answer poll requests with "resting".
     pub poll_reader: Option<Arc<dyn PollReader>>,
+    /// Reads Google Maps links for new venues; `None` refuses them.
+    pub maps: Option<Arc<dyn MapsLocator>>,
+    /// Đá Ghép accounts that approve venues (`ADMIN_USER_IDS`).
+    pub admins: Vec<UserId>,
     /// `None` disables the scheduler endpoint (404); reminders then never post.
     pub cron_secret: Option<Secret>,
 }
@@ -80,6 +85,7 @@ pub fn router(state: BotState) -> Router {
         .route("/api/bot/link", post(link))
         .route("/api/bot/reminders/run", post(run_reminders))
         .route("/api/polls/{share_id}", get(get_poll))
+        .route("/api/groups", get(get_groups))
         .route("/api/polls/{share_id}/answers", put(answer_poll))
         .with_state(state)
 }
@@ -213,6 +219,8 @@ async fn webhook(State(state): State<BotState>, headers: HeaderMap, body: Bytes)
         reader: state.reader.as_deref(),
         reminder_reader: zalo.reminder_reader.as_deref(),
         poll_reader: zalo.poll_reader.as_deref(),
+        maps: zalo.maps.as_deref(),
+        admins: &zalo.admins,
         finder: Some(&finder),
         chat: Some(zalo.reply.as_ref()),
         frontend_origin: &state.frontend_origin,
@@ -281,6 +289,48 @@ async fn run_reminders(State(state): State<BotState>, headers: HeaderMap) -> Res
                 .into_response()
         }
     }
+}
+
+/// Public weekly groups for the home page. No member names; cached briefly.
+async fn get_groups(State(state): State<BotState>) -> Response {
+    let groups = match state.bot.public_groups(state.clock.now()).await {
+        Ok(groups) => groups,
+        Err(error) => {
+            tracing::error!(error = %error, "failed to load public groups");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "internal_error" })),
+            )
+                .into_response();
+        }
+    };
+    let day = |day: &chrono::NaiveDate| day.format("%Y-%m-%d").to_string();
+    let body: Vec<Value> = groups
+        .iter()
+        .map(|group| {
+            json!({
+                "title": group.title,
+                "sport": group.group.sport.map(|sport| sport.as_str()),
+                "format": group.group.format.map(|format| format.as_str()),
+                "venue": group.venue_name.as_ref().map(|name| json!({
+                    "name": name,
+                    "address": group.venue_address,
+                })),
+                // Sunday = 0 … Saturday = 6.
+                "weekdays": (0..7).filter(|day| group.weekdays & (1 << day) != 0).collect::<Vec<u8>>(),
+                "playTime": group.play_time.map(|time| time.format("%H:%M").to_string()),
+                "week": group.week.as_ref().map(|(yes, players)| json!({
+                    "players": players,
+                    "yes": yes.iter().map(|(d, n)| json!({ "day": day(d), "yes": n })).collect::<Vec<_>>(),
+                })),
+            })
+        })
+        .collect();
+    (
+        [(CACHE_CONTROL, "public, max-age=60")],
+        Json(json!({ "groups": body })),
+    )
+        .into_response()
 }
 
 fn private(status: StatusCode, body: Value) -> Response {

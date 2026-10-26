@@ -29,6 +29,7 @@ struct Bot {
     reader: FakeReader,
     reminders: FakeReminderReader,
     polls: FakePollReader,
+    maps: FakeMaps,
     clock: TestClock,
     pool: PgPool,
 }
@@ -60,19 +61,22 @@ fn bot(pool: PgPool, answer: RawDraft) -> Bot {
     let clock = TestClock::at(NOW);
     let reminders = FakeReminderReader::default();
     let polls = FakePollReader::default();
+    let maps = FakeMaps::default();
     Bot {
-        app: app_with_readers(
+        app: app_with_maps(
             pool.clone(),
             clock.clone(),
             reader.clone(),
             chat.clone(),
             reminders.clone(),
             polls.clone(),
+            maps.clone(),
         ),
         chat,
         reader,
         reminders,
         polls,
+        maps,
         clock,
         pool,
     }
@@ -127,10 +131,12 @@ impl Bot {
         let sender = message["from"]["id"].as_str().unwrap();
         let sent = self.chat.sent.lock().unwrap();
         let new = &sent[before..];
+        // Others may get notices (an admin, a venue's proposer), never a link code.
         assert!(
-            new.iter()
-                .all(|(chat, _)| chat == chat_id || chat == sender),
-            "replies go to the chat or privately to the sender"
+            new.iter().all(|(chat, text)| chat == chat_id
+                || chat == sender
+                || !text.contains("/bot/link")),
+            "link codes go only to the sender"
         );
         let replies: Vec<_> = new.iter().filter(|(chat, _)| chat == chat_id).collect();
         assert!(replies.len() <= 1, "at most one reply per message");
@@ -628,6 +634,8 @@ async fn without_a_reader_it_points_to_the_web_form(pool: PgPool) {
             bot_name: "Bot DaGhep".to_owned(),
             reminder_reader: None,
             poll_reader: None,
+            maps: None,
+            admins: vec![],
             cron_secret: None,
         })),
     });
@@ -637,6 +645,7 @@ async fn without_a_reader_it_points_to_the_web_form(pool: PgPool) {
         reader: FakeReader::default(),
         reminders: FakeReminderReader::default(),
         polls: FakePollReader::default(),
+        maps: FakeMaps::default(),
         clock,
         pool,
     };
@@ -1023,6 +1032,7 @@ fn weekend_poll() -> RawPoll {
         // Not stated: the bot nudges at 20:00.
         nudge_time: None,
         weekly: false,
+        ..RawPoll::default()
     }
 }
 
@@ -1695,4 +1705,262 @@ async fn huy_cancels_a_pending_weekly_poll(pool: PgPool) {
         .unwrap();
     let cancelled = bot.in_group(HOST, "huỷ").await.unwrap();
     assert!(cancelled.contains("Đã huỷ"), "{cancelled}");
+}
+
+// ---- Venues and public groups ----
+
+const LAKEVIEW_LINK: &str = "https://maps.app.goo.gl/Lakeview1";
+
+impl Bot {
+    /// HOST (the admin, first account) proposes and approves Lakeview; returns its id.
+    async fn add_lakeview(&self) -> i64 {
+        let before = self.chat.sent.lock().unwrap().len();
+        let reply = self
+            .in_group(HOST, &format!("thêm sân Lakeview bóng rổ {LAKEVIEW_LINK}"))
+            .await
+            .unwrap();
+        assert!(reply.contains("Đã gửi sân \"Sân Lakeview\""), "{reply}");
+        let notice = self.private_since(before, HOST).join("\n");
+        let id: i64 = notice
+            .split("(số ")
+            .nth(1)
+            .and_then(|rest| rest.split(')').next())
+            .and_then(|id| id.parse().ok())
+            .unwrap_or_else(|| panic!("an admin notice with the id: {notice}"));
+        assert!(notice.contains("🏀 Bóng rổ"), "{notice}");
+        let decided = self
+            .say(HOST, "PRIVATE", HOST, &format!("duyệt sân {id}"))
+            .await
+            .unwrap();
+        assert!(
+            decided.contains(&format!("Đã duyệt sân số {id}")),
+            "{decided}"
+        );
+        id
+    }
+
+    async fn groups(&self) -> Value {
+        let response = call(
+            &self.app,
+            Request::get("/api/groups").body(Body::empty()).unwrap(),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::OK);
+        json_body(response).await["groups"].clone()
+    }
+
+    async fn add_public_lakeview_group(&self) -> String {
+        self.poll_answer(Some(RawPoll {
+            weekly: true,
+            sport: Some("basketball".to_owned()),
+            format: Some("3x3".to_owned()),
+            venue_id: Some(self.lakeview_slug().await),
+            ..weekend_poll()
+        }));
+        let summary = self
+            .in_group(
+                HOST,
+                "tạo bảng điểm danh bóng rổ 3x3 sân Lakeview T7, CN hằng tuần, chơi lúc 18h, công khai",
+            )
+            .await
+            .unwrap();
+        assert!(
+            summary.contains("🏀 Bóng rổ · 3x3 · 📍 Sân Lakeview · 🌐 Hiện trên trang chủ"),
+            "{summary}"
+        );
+        self.in_group(HOST, "ok").await.unwrap()
+    }
+
+    async fn lakeview_slug(&self) -> String {
+        sqlx::query_scalar("SELECT slug FROM venues WHERE name = 'Sân Lakeview'")
+            .fetch_one(&self.pool)
+            .await
+            .unwrap()
+    }
+}
+
+#[sqlx::test]
+async fn an_organiser_adds_a_venue_and_an_admin_approves_it(pool: PgPool) {
+    let bot = bot(pool.clone(), tonight());
+    bot.link(HOST, "host").await;
+    bot.link(OTHER, "other").await;
+
+    // OTHER (not an admin) proposes it; the admin gets a private notice.
+    let before = bot.chat.sent.lock().unwrap().len();
+    let reply = bot
+        .in_group(OTHER, &format!("thêm sân Lakeview bóng rổ {LAKEVIEW_LINK}"))
+        .await
+        .unwrap();
+    assert!(
+        reply.contains("Đã gửi sân \"Sân Lakeview\" để duyệt"),
+        "{reply}"
+    );
+    let notice = bot.private_since(before, HOST).join("\n");
+    assert!(notice.contains("Sân mới chờ duyệt"), "{notice}");
+    assert!(notice.contains("10.790500,106.751200"), "{notice}");
+    let (status, active): (String, bool) =
+        sqlx::query_as("SELECT status, active FROM venues WHERE name = 'Sân Lakeview'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    // Pending, and never offered for football matches.
+    assert_eq!((status.as_str(), active), ("pending", false));
+    let id: i64 = sqlx::query_scalar("SELECT id FROM venues WHERE name = 'Sân Lakeview'")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+
+    // Only an admin may decide.
+    let refused = bot
+        .say(OTHER, "PRIVATE", OTHER, &format!("duyệt sân {id}"))
+        .await
+        .unwrap();
+    assert!(refused.contains("chỉ dành cho admin"), "{refused}");
+    let list = bot
+        .say(HOST, "PRIVATE", HOST, "sân chờ duyệt")
+        .await
+        .unwrap();
+    assert!(list.contains(&format!("số {id}: Sân Lakeview")), "{list}");
+
+    let before = bot.chat.sent.lock().unwrap().len();
+    let decided = bot
+        .say(HOST, "PRIVATE", HOST, &format!("duyệt sân {id}"))
+        .await
+        .unwrap();
+    assert!(decided.contains("Đã duyệt sân số"), "{decided}");
+    // The organiser who proposed it is told privately.
+    let told = bot.private_since(before, OTHER).join("\n");
+    assert!(
+        told.contains("Sân \"Sân Lakeview\" đã được duyệt"),
+        "{told}"
+    );
+    let again = bot
+        .say(HOST, "PRIVATE", HOST, &format!("duyệt sân {id}"))
+        .await
+        .unwrap();
+    assert!(again.contains("Không có sân chờ duyệt"), "{again}");
+}
+
+#[sqlx::test]
+async fn a_venue_request_needs_a_maps_link_a_sport_and_a_place_in_vietnam(pool: PgPool) {
+    let bot = bot(pool, tonight());
+    bot.link(HOST, "host").await;
+    let no_link = bot
+        .in_group(HOST, "thêm sân Lakeview bóng rổ")
+        .await
+        .unwrap();
+    assert!(no_link.contains("link Google Maps"), "{no_link}");
+    let other_site = bot
+        .in_group(HOST, "thêm sân Lakeview bóng rổ http://evil.example/x")
+        .await
+        .unwrap();
+    assert!(other_site.contains("link Google Maps"), "{other_site}");
+    let no_sport = bot
+        .in_group(HOST, &format!("thêm sân Lakeview {LAKEVIEW_LINK}"))
+        .await
+        .unwrap();
+    assert!(no_sport.contains("bóng đá hay bóng rổ"), "{no_sport}");
+    *bot.maps.place.lock().unwrap() = Some(daghep_api::bot::maps::MapsPlace {
+        lat: 48.85,
+        lng: 2.35,
+        label: None,
+    });
+    let abroad = bot
+        .in_group(HOST, &format!("thêm sân Lakeview bóng rổ {LAKEVIEW_LINK}"))
+        .await
+        .unwrap();
+    assert!(abroad.contains("không ở Việt Nam"), "{abroad}");
+    *bot.maps.place.lock().unwrap() = None;
+    let unreadable = bot
+        .in_group(HOST, &format!("thêm sân Lakeview bóng rổ {LAKEVIEW_LINK}"))
+        .await
+        .unwrap();
+    assert!(unreadable.contains("chưa đọc được vị trí"), "{unreadable}");
+}
+
+#[sqlx::test]
+async fn a_public_weekly_group_shows_on_the_home_page_without_names(pool: PgPool) {
+    let bot = bot(pool, tonight());
+    bot.link(HOST, "host").await;
+    bot.add_lakeview().await;
+    assert_eq!(bot.groups().await, json!([]));
+
+    let posted = bot.add_public_lakeview_group().await;
+    let share_id = poll_share_id(&posted);
+    let nam = sign_in(&bot.app, "nam").await;
+    bot.answer_poll(
+        &share_id,
+        Some(&nam),
+        json!([
+            { "day": "2099-10-03", "attending": true },
+            { "day": "2099-10-04", "attending": false }
+        ]),
+    )
+    .await;
+
+    let groups = bot.groups().await;
+    assert_eq!(
+        groups,
+        json!([{
+            "title": "Ai chơi bóng rổ cuối tuần này?",
+            "sport": "basketball",
+            "format": "3x3",
+            "venue": { "name": "Sân Lakeview", "address": "Sân bóng rổ Lakeview" },
+            "weekdays": [0, 6],
+            "playTime": "18:00",
+            "week": {
+                "players": 1,
+                "yes": [{ "day": "2099-10-03", "yes": 1 }, { "day": "2099-10-04", "yes": 0 }]
+            }
+        }])
+    );
+    assert!(!groups.to_string().contains("Player"), "no names: {groups}");
+
+    // Hidden again, it leaves the home page; shown again, it comes back.
+    let hidden = bot.in_group(HOST, "ẩn bảng 1").await.unwrap();
+    assert!(hidden.contains("Đã ẩn bảng hằng tuần số 1"), "{hidden}");
+    assert_eq!(bot.groups().await, json!([]));
+    let shown = bot.in_group(HOST, "công khai bảng 1").await.unwrap();
+    assert!(shown.contains("giờ hiện trên trang chủ"), "{shown}");
+    assert_eq!(bot.groups().await.as_array().unwrap().len(), 1);
+    // Only linked members change it.
+    let refused = bot.in_group(OTHER, "ẩn bảng 1").await.unwrap();
+    assert!(refused.contains("liên kết"), "{refused}");
+}
+
+#[sqlx::test]
+async fn weekly_groups_are_private_unless_asked_and_pending_venues_stay_hidden(pool: PgPool) {
+    let bot = bot(pool.clone(), tonight());
+    bot.link(HOST, "host").await;
+    // A weekly group without "công khai" is not listed.
+    bot.add_weekly_poll().await;
+    assert_eq!(bot.groups().await, json!([]));
+
+    // A public group whose venue is still pending shows without the venue.
+    bot.in_group(HOST, &format!("thêm sân Lakeview bóng rổ {LAKEVIEW_LINK}"))
+        .await
+        .unwrap();
+    let slug = bot.lakeview_slug().await;
+    bot.poll_answer(Some(RawPoll {
+        weekly: true,
+        sport: Some("basketball".to_owned()),
+        venue_id: Some(slug),
+        ..weekend_poll()
+    }));
+    let summary = bot
+        .in_group(
+            HOST,
+            "tạo bảng điểm danh bóng rổ sân Lakeview T7, CN hằng tuần, công khai",
+        )
+        .await
+        .unwrap();
+    assert!(
+        !summary.contains("📍"),
+        "a pending venue is not offered: {summary}"
+    );
+    bot.in_group(HOST, "ok").await.unwrap();
+    let groups = bot.groups().await;
+    assert_eq!(groups.as_array().unwrap().len(), 1, "{groups}");
+    assert_eq!(groups[0]["venue"], Value::Null);
+    assert_eq!(groups[0]["sport"], "basketball");
 }

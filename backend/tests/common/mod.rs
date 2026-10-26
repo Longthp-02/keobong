@@ -16,6 +16,7 @@ use daghep_api::auth::domain::{
 };
 use daghep_api::bot::ZaloSettings;
 use daghep_api::bot::domain::{ChatReply, SendError, SendFuture};
+use daghep_api::bot::maps::{MapsError, MapsFuture, MapsLocator, MapsPlace};
 use daghep_api::bot::polls::{PollFuture, PollReader, PollReaderError, PollRequest, RawPoll};
 use daghep_api::bot::reminders::{
     RawReminder, ReminderFuture, ReminderReader, ReminderReaderError, ReminderRequest,
@@ -221,6 +222,34 @@ impl PollReader for FakePollReader {
     }
 }
 
+/// Fake Google Maps: every link points at `place` (or fails when it is `None`).
+#[derive(Clone)]
+pub struct FakeMaps {
+    pub place: Arc<Mutex<Option<MapsPlace>>>,
+}
+
+impl Default for FakeMaps {
+    fn default() -> Self {
+        Self {
+            place: Arc::new(Mutex::new(Some(MapsPlace {
+                lat: 10.7905,
+                lng: 106.7512,
+                label: Some("Sân bóng rổ Lakeview".to_owned()),
+            }))),
+        }
+    }
+}
+
+impl MapsLocator for FakeMaps {
+    fn locate<'a>(&'a self, _url: &'a str) -> MapsFuture<'a> {
+        let place = self.place.lock().unwrap().clone();
+        Box::pin(async move { place.ok_or(MapsError::NoPlace) })
+    }
+}
+
+/// The admin in bot tests: the first account a test creates.
+pub const ADMIN_USER_ID: i64 = 1;
+
 pub fn app_with_bot(pool: PgPool, clock: TestClock, reader: FakeReader, chat: FakeChat) -> Router {
     app_with_readers(
         pool,
@@ -240,6 +269,26 @@ pub fn app_with_readers(
     reminders: FakeReminderReader,
     polls: FakePollReader,
 ) -> Router {
+    app_with_maps(
+        pool,
+        clock,
+        reader,
+        chat,
+        reminders,
+        polls,
+        FakeMaps::default(),
+    )
+}
+
+pub fn app_with_maps(
+    pool: PgPool,
+    clock: TestClock,
+    reader: FakeReader,
+    chat: FakeChat,
+    reminders: FakeReminderReader,
+    polls: FakePollReader,
+    maps: FakeMaps,
+) -> Router {
     daghep_api::app(Deps {
         pool,
         clock: Arc::new(clock),
@@ -252,6 +301,8 @@ pub fn app_with_readers(
             bot_name: "Bot DaGhep".to_owned(),
             reminder_reader: Some(Arc::new(reminders)),
             poll_reader: Some(Arc::new(polls)),
+            maps: Some(Arc::new(maps)),
+            admins: vec![daghep_api::auth::UserId(ADMIN_USER_ID)],
             cron_secret: Some(daghep_api::config::Secret::new(CRON_SECRET.to_owned())),
         })),
     })

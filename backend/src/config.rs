@@ -69,6 +69,8 @@ pub struct Config {
     pub anthropic: Option<AnthropicConfig>,
     /// `None` disables the Zalo bot.
     pub zalo_bot: Option<ZaloBotConfig>,
+    /// Đá Ghép user ids that approve venues (`ADMIN_USER_IDS`, comma separated).
+    pub admin_user_ids: Vec<i64>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -161,6 +163,20 @@ impl Config {
             (None, None) => None,
             _ => return Err(ConfigError::PartialZaloBot),
         };
+        let admin_user_ids = match get("ADMIN_USER_IDS") {
+            Some(raw) => raw
+                .split(',')
+                .map(str::trim)
+                .filter(|id| !id.is_empty())
+                .map(|id| {
+                    id.parse::<i64>().map_err(|_| ConfigError::Invalid {
+                        name: "ADMIN_USER_IDS",
+                        value: raw.clone(),
+                    })
+                })
+                .collect::<Result<Vec<_>, _>>()?,
+            None => Vec::new(),
+        };
         Ok(Self {
             database_url,
             port,
@@ -168,6 +184,7 @@ impl Config {
             google,
             anthropic,
             zalo_bot,
+            admin_user_ids,
         })
     }
 }
@@ -261,6 +278,21 @@ mod tests {
         assert!(matches!(short, Err(ConfigError::PartialZaloBot)));
         let partial = config(&[DB, ("ZALO_BOT_TOKEN", "t")]);
         assert!(matches!(partial, Err(ConfigError::PartialZaloBot)));
+    }
+
+    #[test]
+    fn admins_are_a_comma_separated_list_of_user_ids() {
+        assert!(config(&[DB]).unwrap().admin_user_ids.is_empty());
+        assert_eq!(
+            config(&[DB, ("ADMIN_USER_IDS", "1, 42")])
+                .unwrap()
+                .admin_user_ids,
+            vec![1, 42]
+        );
+        assert!(matches!(
+            config(&[DB, ("ADMIN_USER_IDS", "1,long")]),
+            Err(ConfigError::Invalid { .. })
+        ));
     }
 
     #[test]

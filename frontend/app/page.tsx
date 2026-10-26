@@ -1,8 +1,9 @@
+import { GroupList } from "../components/GroupList";
 import { MatchList } from "../components/MatchList";
-import { isApiConfigured } from "../lib/api";
+import { getGroups, isApiConfigured } from "../lib/api";
 import messages from "../messages/vi.json";
 
-export default function HomePage() {
+export default async function HomePage() {
   // Without a backend (a preview with no API) there is nothing to list yet.
   if (!isApiConfigured()) {
     return (
@@ -18,6 +19,7 @@ export default function HomePage() {
       <h1 className="visually-hidden">{messages.app.name}</h1>
       <p className="muted home__tagline">{messages.app.tagline}</p>
       <MatchList />
+      <GroupList groups={await getGroups()} />
     </>
   );
 }

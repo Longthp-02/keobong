@@ -1308,3 +1308,71 @@ button.slot__button:focus-visible {
   gap: 6px;
   min-height: 44px;
 }
+
+/* Public weekly groups on the home page. */
+.groups {
+  margin-top: 32px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.groups__title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 26px;
+}
+
+.groups__intro {
+  margin: 0;
+}
+
+.groups__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 12px;
+}
+
+.group-card {
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
+}
+
+.group-card p {
+  margin: 0;
+}
+
+.group-card__top {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--brand-text);
+}
+
+.group-card__title {
+  margin-top: 4px !important;
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.group-card__address {
+  font-size: 14px;
+}
+
+.group-card__when {
+  margin-top: 6px !important;
+}
+
+.group-card__players {
+  margin-top: 6px !important;
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--slot-bg);
+  color: var(--slot-ink);
+  font-size: 14px;
+  font-weight: 600;
+}
