@@ -1,6 +1,6 @@
 # Public groups plan
 
-Status: agreed with Long 2026-10-26 (chat). Builds on the Zalo bot polls in `docs/zalo-bot-plan.md`.
+Status: agreed with Long 2026-10-26 (chat); step 1 migration approved 2026-10-26. Builds on the Zalo bot polls in `docs/zalo-bot-plan.md`.
 
 ## Goal
 The home page shows groups that really play through Đá Ghép ("🏀 Bóng rổ 3x3 · Sân Lakeview · T7, CN 15:00 · 8 người điểm danh tuần này"), so visitors see the app is alive. Visitors can ask to join; the group's organiser approves.
