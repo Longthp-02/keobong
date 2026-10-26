@@ -474,7 +474,7 @@
     "playersThisWeek": "{n} người điểm danh tuần này",
     "noPollYet": "Bảng tuần mới sẽ được đăng trong nhóm Zalo",
     "yesOnDay": "{day}: {n} người chơi",
-    "howToAnswer": "Điểm danh trong nhóm Zalo (liên kết 1 lần): @Bot DaGhep {example}",
+    "howToAnswer": "Điểm danh trong nhóm Zalo (liên kết tài khoản 1 lần): @Bot DaGhep {example}",
     "yes": "có",
     "no": "không"
   }

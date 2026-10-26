@@ -180,16 +180,21 @@ fn incoming(body: &Value) -> Option<Incoming> {
             .map(|object| {
                 object
                     .iter()
-                    .map(|(key, value)| match value.as_object() {
-                        Some(inner) => format!(
-                            "{key}{{{}}}",
-                            inner
-                                .keys()
-                                .map(String::as_str)
-                                .collect::<Vec<_>>()
-                                .join(",")
-                        ),
-                        None => key.clone(),
+                    .map(|(key, value)| {
+                        match value
+                            .as_object()
+                            .or_else(|| value.as_array()?.first()?.as_object())
+                        {
+                            Some(inner) => format!(
+                                "{key}{{{}}}",
+                                inner
+                                    .keys()
+                                    .map(String::as_str)
+                                    .collect::<Vec<_>>()
+                                    .join(",")
+                            ),
+                            None => key.clone(),
+                        }
                     })
                     .collect()
             })
