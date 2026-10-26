@@ -90,6 +90,8 @@ Rules:\n\
 - days as YYYY-MM-DD, today or later: \"thứ 2\"/\"t2\" … \"thứ 7\"/\"t7\" and \"chủ nhật\"/\"cn\" mean the next such day \
 (today if today is that day); \"cuối tuần\" is the next Saturday and Sunday; \"tuần sau\" moves them one week later.\n\
 - playTime as HH:MM, 24-hour: when they play (\"chơi lúc 18h\", \"18h\", \"6h chiều\" is 18:00, \"7h sáng\" is 07:00). Null when not stated.\n\
+- weekly: true only when the request asks for the poll every week (\"hằng tuần\", \"hàng tuần\", \"mỗi tuần\", \"tuần nào cũng\"); \
+then days are this coming week's dates for those weekdays. False for \"tuần này\" or no repetition.\n\
 - nudgeTime as HH:MM, 24-hour: only a time the request gives for reminding people who have not answered (\"nhắc lúc 21h\" is 21:00). Null otherwise; a play time is not a nudge time.\n\
 - title: a short friendly Vietnamese question for the poll, at most {MAX_TITLE_CHARS} characters, keeping the sender's \
 meaning and sport (for \"điểm danh bóng rổ T7 CN\" write \"Ai chơi bóng rổ cuối tuần này?\").\n\
@@ -114,8 +116,9 @@ fn poll_request_body(model: &str, request: &PollRequest<'_>) -> Value {
                     "days": { "type": "array", "items": { "type": "string" }, "description": "YYYY-MM-DD" },
                     "playTime": { "type": ["string", "null"], "description": "HH:MM, when they play" },
                     "nudgeTime": { "type": ["string", "null"], "description": "HH:MM, when to remind" },
+                    "weekly": { "type": "boolean", "description": "Repeat every week until stopped" },
                 },
-                "required": ["title", "days", "playTime", "nudgeTime"],
+                "required": ["title", "days", "playTime", "nudgeTime", "weekly"],
             },
         }],
         "tool_choice": { "type": "tool", "name": POLL_TOOL },
@@ -138,6 +141,7 @@ fn poll_from_reply(reply: &Value) -> Result<RawPoll, PollReaderError> {
             .unwrap_or_default(),
         play_time: input["playTime"].as_str().map(str::to_owned),
         nudge_time: input["nudgeTime"].as_str().map(str::to_owned),
+        weekly: input["weekly"].as_bool().unwrap_or(false),
     })
 }
 
@@ -265,6 +269,7 @@ mod tests {
         } }] });
         let raw = poll_from_reply(&reply).unwrap();
         assert_eq!(raw.play_time.as_deref(), Some("18:00"));
+        assert!(!raw.weekly);
         assert_eq!(raw.days, vec!["2099-10-03", "2099-10-04"]);
         assert_eq!(raw.nudge_time.as_deref(), Some("20:00"));
         assert!(poll_from_reply(&json!({ "content": [] })).is_err());

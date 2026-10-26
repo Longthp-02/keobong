@@ -3,8 +3,9 @@
 use chrono::{DateTime, NaiveDate, NaiveTime, Utc};
 
 use super::polls::{
-    AnswerOutcome, MAX_OPEN_POLLS_PER_CHAT, Member, PendingPoll, Poll, PollAnswer, PollPlan,
-    PollRepoError, PollRepository,
+    AnswerOutcome, MAX_OPEN_POLLS_PER_CHAT, MAX_SERIES_FAILURES, MAX_SERIES_PER_CHAT, Member,
+    PendingPoll, Poll, PollAnswer, PollPlan, PollRepoError, PollRepository, PollSeries, post_at,
+    week_posted_at,
 };
 use super::repo::PgBotRepository;
 use crate::auth::UserId;
@@ -53,7 +54,40 @@ type PendingPollRow = (
     Option<NaiveTime>,
     NaiveTime,
     DateTime<Utc>,
+    bool,
 );
+
+type SeriesRow = (
+    i64,
+    String,
+    i64,
+    String,
+    i16,
+    Option<NaiveTime>,
+    NaiveTime,
+    DateTime<Utc>,
+);
+
+const SERIES_COLUMNS: &str =
+    "id, chat_id, user_id, title, weekdays, play_time, nudge_time, next_post_at";
+
+fn series_from_row(row: SeriesRow) -> Result<PollSeries, PollRepoError> {
+    let (id, chat_id, user, title, weekdays, play_time, nudge_time, next_post_at) = row;
+    let weekdays = u8::try_from(weekdays)
+        .ok()
+        .filter(|bits| (1..=127).contains(bits))
+        .ok_or_else(|| PollRepoError(format!("stored series {id} has invalid weekdays")))?;
+    Ok(PollSeries {
+        id,
+        chat_id,
+        user: UserId(user),
+        title,
+        weekdays,
+        play_time,
+        nudge_time,
+        next_post_at,
+    })
+}
 
 type DueRow = (
     i64,
@@ -86,12 +120,12 @@ impl PollRepository for PgBotRepository {
         }
         sqlx::query(
             "INSERT INTO bot_pending_polls (zalo_user_id, chat_id, user_id, title, days,
-                 nudge_time, expires_at, play_time)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                 nudge_time, expires_at, play_time, weekly)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
              ON CONFLICT (zalo_user_id, chat_id) DO UPDATE SET
                  user_id = EXCLUDED.user_id, title = EXCLUDED.title, days = EXCLUDED.days,
                  nudge_time = EXCLUDED.nudge_time, expires_at = EXCLUDED.expires_at,
-                 play_time = EXCLUDED.play_time",
+                 play_time = EXCLUDED.play_time, weekly = EXCLUDED.weekly",
         )
         .bind(&pending.zalo_user_id)
         .bind(&pending.chat_id)
@@ -101,6 +135,7 @@ impl PollRepository for PgBotRepository {
         .bind(pending.plan.nudge_time)
         .bind(pending.expires_at)
         .bind(pending.plan.play_time)
+        .bind(pending.weekly)
         .execute(&mut *tx)
         .await
         .map_err(poll_error)?;
@@ -115,7 +150,7 @@ impl PollRepository for PgBotRepository {
     ) -> Result<Option<PendingPoll>, PollRepoError> {
         let row: Option<PendingPollRow> = sqlx::query_as(
             "DELETE FROM bot_pending_polls WHERE zalo_user_id = $1 AND chat_id = $2
-                 RETURNING user_id, title, days, play_time, nudge_time, expires_at",
+                 RETURNING user_id, title, days, play_time, nudge_time, expires_at, weekly",
         )
         .bind(zalo_user_id)
         .bind(chat_id)
@@ -123,7 +158,7 @@ impl PollRepository for PgBotRepository {
         .await
         .map_err(poll_error)?;
         Ok(row.filter(|row| row.5 > now).map(
-            |(user, title, days, play_time, nudge_time, expires_at)| PendingPoll {
+            |(user, title, days, play_time, nudge_time, expires_at, weekly)| PendingPoll {
                 zalo_user_id: zalo_user_id.to_owned(),
                 chat_id: chat_id.to_owned(),
                 user: UserId(user),
@@ -133,6 +168,7 @@ impl PollRepository for PgBotRepository {
                     play_time,
                     nudge_time,
                 },
+                weekly,
                 expires_at,
             },
         ))
@@ -345,5 +381,125 @@ impl PollRepository for PgBotRepository {
         }
         tx.commit().await.map_err(poll_error)?;
         Ok(due)
+    }
+
+    async fn add_series(
+        &self,
+        series: &PollSeries,
+        now: DateTime<Utc>,
+    ) -> Result<bool, PollRepoError> {
+        let mut tx = self.pool().begin().await.map_err(poll_error)?;
+        // Serialises adds per chat so two "ok"s cannot both pass the count.
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended('bot_poll_series:' || $1, 0))")
+            .bind(&series.chat_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(poll_error)?;
+        let count: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM bot_poll_series WHERE chat_id = $1")
+                .bind(&series.chat_id)
+                .fetch_one(&mut *tx)
+                .await
+                .map_err(poll_error)?;
+        if count >= MAX_SERIES_PER_CHAT {
+            return Ok(false);
+        }
+        sqlx::query(
+            "INSERT INTO bot_poll_series (chat_id, user_id, title, weekdays, play_time,
+                 nudge_time, next_post_at, created_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+        )
+        .bind(&series.chat_id)
+        .bind(series.user.0)
+        .bind(&series.title)
+        .bind(i16::from(series.weekdays))
+        .bind(series.play_time)
+        .bind(series.nudge_time)
+        .bind(series.next_post_at)
+        .bind(now)
+        .execute(&mut *tx)
+        .await
+        .map_err(poll_error)?;
+        tx.commit().await.map_err(poll_error)?;
+        Ok(true)
+    }
+
+    async fn series(&self, chat_id: &str) -> Result<Vec<PollSeries>, PollRepoError> {
+        let rows: Vec<SeriesRow> = sqlx::query_as(&format!(
+            "SELECT {SERIES_COLUMNS} FROM bot_poll_series WHERE chat_id = $1 ORDER BY id"
+        ))
+        .bind(chat_id)
+        .fetch_all(self.pool())
+        .await
+        .map_err(poll_error)?;
+        rows.into_iter().map(series_from_row).collect()
+    }
+
+    async fn delete_series(&self, chat_id: &str, id: i64) -> Result<bool, PollRepoError> {
+        let deleted = sqlx::query("DELETE FROM bot_poll_series WHERE chat_id = $1 AND id = $2")
+            .bind(chat_id)
+            .bind(id)
+            .execute(self.pool())
+            .await
+            .map_err(poll_error)?
+            .rows_affected();
+        Ok(deleted == 1)
+    }
+
+    async fn claim_due_series(&self, now: DateTime<Utc>) -> Result<Vec<PollSeries>, PollRepoError> {
+        let mut tx = self.pool().begin().await.map_err(poll_error)?;
+        let rows: Vec<SeriesRow> = sqlx::query_as(&format!(
+            "SELECT {SERIES_COLUMNS} FROM bot_poll_series WHERE next_post_at <= $1
+             ORDER BY next_post_at LIMIT $2 FOR UPDATE SKIP LOCKED"
+        ))
+        .bind(now)
+        .bind(NUDGES_PER_RUN)
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(poll_error)?;
+        let mut due = Vec::with_capacity(rows.len());
+        for row in rows {
+            let series = series_from_row(row)?;
+            // The next week's post after now, skipping weeks missed in an outage.
+            let mut week = week_posted_at(series.next_post_at) + chrono::Duration::days(7);
+            let mut next = post_at(series.weekdays, series.nudge_time, week);
+            while next <= now {
+                week += chrono::Duration::days(7);
+                next = post_at(series.weekdays, series.nudge_time, week);
+            }
+            sqlx::query("UPDATE bot_poll_series SET next_post_at = $2 WHERE id = $1")
+                .bind(series.id)
+                .bind(next)
+                .execute(&mut *tx)
+                .await
+                .map_err(poll_error)?;
+            due.push(series);
+        }
+        tx.commit().await.map_err(poll_error)?;
+        Ok(due)
+    }
+
+    async fn record_series_post(&self, id: i64, delivered: bool) -> Result<(), PollRepoError> {
+        if delivered {
+            sqlx::query("UPDATE bot_poll_series SET failures = 0 WHERE id = $1 AND failures > 0")
+                .bind(id)
+                .execute(self.pool())
+                .await
+                .map_err(poll_error)?;
+            return Ok(());
+        }
+        // Postgres applies only one change per row per statement: two statements.
+        sqlx::query("UPDATE bot_poll_series SET failures = failures + 1 WHERE id = $1")
+            .bind(id)
+            .execute(self.pool())
+            .await
+            .map_err(poll_error)?;
+        sqlx::query("DELETE FROM bot_poll_series WHERE id = $1 AND failures >= $2")
+            .bind(id)
+            .bind(MAX_SERIES_FAILURES)
+            .execute(self.pool())
+            .await
+            .map_err(poll_error)?;
+        Ok(())
     }
 }
