@@ -444,6 +444,13 @@ pub trait PollRepository: Send + Sync {
         share_id: &ShareId,
     ) -> impl Future<Output = Result<Option<Poll>, PollRepoError>> + Send;
 
+    /// The chat's polls still open at `now`, newest first.
+    fn open_polls(
+        &self,
+        chat_id: &str,
+        now: DateTime<Utc>,
+    ) -> impl Future<Output = Result<Vec<Poll>, PollRepoError>> + Send;
+
     fn answers(
         &self,
         poll_id: i64,

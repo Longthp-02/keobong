@@ -500,7 +500,23 @@ pub struct BotCopy {
     pub every_day: String,
     pub on_weekdays: String,
     pub month_day: String,
+    pub answer_yes: String,
+    pub answer_no: String,
+    pub answer_day: String,
+    pub answer_saved: String,
+    pub answer_count: String,
+    pub answer_missing_days: String,
+    pub answer_not_in_poll: String,
+    pub answer_which_day: String,
+    pub answer_closed: String,
+    pub answer_link_sent: String,
+    pub answer_needs_link: String,
+    pub answer_hint: String,
+    pub answer_which_poll: String,
+    pub answer_which_poll_links: String,
+    pub answer_poll_link: String,
     pub commands: Commands,
+    pub answer_words: super::answers::AnswerWords,
 }
 
 /// Words that mean a command (lower case, without trailing punctuation).
@@ -586,6 +602,17 @@ mod tests {
             parse_command("@bot daghep OK", ChatKind::Group, BOT),
             Some(Command::Confirm)
         );
+    }
+
+    #[test]
+    fn cancel_may_end_with_a_friendly_word() {
+        for text in ["@Bot DaGhep huỷ nha", "@Bot DaGhep hủy nhé"] {
+            assert_eq!(
+                parse_command(text, ChatKind::Group, BOT),
+                Some(Command::Cancel),
+                "{text}"
+            );
+        }
     }
 
     #[test]

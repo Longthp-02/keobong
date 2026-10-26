@@ -265,6 +265,7 @@ async fn run_reminders(State(state): State<BotState>, headers: HeaderMap) -> Res
         state.clock.as_ref(),
         zalo.reply.as_ref(),
         &state.frontend_origin,
+        &zalo.bot_name,
     )
     .await;
     let weekly = run_due_series(
@@ -272,6 +273,7 @@ async fn run_reminders(State(state): State<BotState>, headers: HeaderMap) -> Res
         state.clock.as_ref(),
         zalo.reply.as_ref(),
         &state.frontend_origin,
+        &zalo.bot_name,
     )
     .await;
     match reminders.and_then(|reminders| {

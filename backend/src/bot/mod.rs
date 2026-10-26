@@ -5,6 +5,7 @@
 //! `bot_poll_answers` and `bot_chat_members`, and
 //! uses `drafts`, `matches` and `payments` only through their public services.
 
+pub mod answers;
 pub mod anthropic;
 pub mod domain;
 mod http;
