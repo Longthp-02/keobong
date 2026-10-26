@@ -3,11 +3,18 @@ import messages from "../messages/vi.json";
 
 const t = messages.groups;
 
-/** Monday first, as people say them: "T7, CN". */
-function weekdaysText(weekdays: number[]): string {
+/** Monday first, as people say them: ["T7", "CN"]. */
+function weekdayNames(weekdays: number[]): string[] {
   return [1, 2, 3, 4, 5, 6, 0]
     .filter((day) => weekdays.includes(day))
-    .map((day) => messages.poll.weekdays[day])
+    .map((day) => messages.poll.weekdays[day]);
+}
+
+/** How a member answers in the chat, from the group's first days: "T7 có, CN không". */
+function answerExample(weekdays: number[]): string {
+  return weekdayNames(weekdays)
+    .slice(0, 2)
+    .map((day, index) => `${day} ${index === 0 ? t.yes : t.no}`)
     .join(", ");
 }
 
@@ -34,16 +41,32 @@ export function GroupList({ groups }: { groups: PublicGroup[] }) {
       <ul className="groups__list">
         {groups.map((group, index) => {
           const top = headline(group);
-          const when = [weekdaysText(group.weekdays), group.playTime].filter(Boolean).join(" · ");
+          const when = [weekdayNames(group.weekdays).join(", "), group.playTime]
+            .filter(Boolean)
+            .join(" · ");
           return (
             <li key={index} className="group-card">
               {top ? <p className="group-card__top">{top}</p> : null}
               <p className="group-card__title">{group.title}</p>
-              {group.venue ? <p className="muted group-card__address">{group.venue.address}</p> : null}
+              {group.venue ? (
+                <p className="muted group-card__address">
+                  {group.venue.address}
+                </p>
+              ) : null}
               <p className="group-card__when">{when}</p>
               <p className="group-card__players">
-                {group.week ? t.playersThisWeek.replace("{n}", String(group.week.players)) : t.noPollYet}
+                {group.week
+                  ? t.playersThisWeek.replace("{n}", String(group.week.players))
+                  : t.noPollYet}
               </p>
+              {group.weekdays.length > 0 ? (
+                <p className="muted group-card__answer">
+                  {t.howToAnswer.replace(
+                    "{example}",
+                    answerExample(group.weekdays),
+                  )}
+                </p>
+              ) : null}
             </li>
           );
         })}

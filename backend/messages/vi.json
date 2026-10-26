@@ -149,6 +149,7 @@
   "answerHint": "Muốn điểm danh thì gõ:\n{mention}{example}\nHoặc chọn trên web: {url}\nXem các lệnh khác: {mention}help",
   "answerWhichPoll": "Nhóm đang có {n} bảng điểm danh. Bạn ghi rõ ngày (ví dụ \"T7 có\"), hoặc bấm vào bảng muốn trả lời:\n{links}",
   "answerPollLink": "• {title}: {url}",
+  "unsupportedMessage": "Mình chỉ đọc được tin nhắn chữ 😅 Nếu bạn gửi link (ví dụ link Google Maps), dán link xong bấm dấu ✕ trên ô xem trước để tắt nó rồi mới gửi. Ví dụ:\n{mention}thêm sân Lakeview bóng rổ https://maps.app.goo.gl/...",
   "commands": {
     "help": [
       "",

@@ -149,9 +149,12 @@ fn incoming(body: &Value) -> Option<Incoming> {
         Some(result) if body["ok"] == true => result,
         _ => body,
     };
-    if result["event_name"] != "message.text.received" {
-        return None;
-    }
+    let unsupported = match result["event_name"].as_str() {
+        Some("message.text.received") => false,
+        // Zalo sends a link with a preview this way; it may carry no text.
+        Some("message.unsupported.received") => true,
+        _ => return None,
+    };
     let message = &result["message"];
     if message["from"]["is_bot"] == true {
         return None;
@@ -169,6 +172,36 @@ fn incoming(body: &Value) -> Option<Incoming> {
         }
         Some(id)
     };
+    if unsupported {
+        // Which fields such a message has, one level deep, never their values,
+        // to learn its shape; and whether it came from a group.
+        let fields: Vec<String> = message
+            .as_object()
+            .map(|object| {
+                object
+                    .iter()
+                    .map(|(key, value)| {
+                        match value
+                            .as_object()
+                            .or_else(|| value.as_array()?.first()?.as_object())
+                        {
+                            Some(inner) => format!(
+                                "{key}{{{}}}",
+                                inner
+                                    .keys()
+                                    .map(String::as_str)
+                                    .collect::<Vec<_>>()
+                                    .join(",")
+                            ),
+                            None => key.clone(),
+                        }
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        let chat_type = message["chat"]["chat_type"].as_str().unwrap_or("missing");
+        tracing::info!(fields = ?fields, chat_type, "unsupported Zalo message");
+    }
     let chat_kind = match message["chat"]["chat_type"].as_str()? {
         "PRIVATE" => ChatKind::Private,
         "GROUP" => ChatKind::Group,
@@ -179,7 +212,13 @@ fn incoming(body: &Value) -> Option<Incoming> {
         chat_id: id(&message["chat"]["id"], 64)?,
         chat_kind,
         sender_id: id(&message["from"]["id"], 64)?,
-        text: text(&message["text"])?,
+        text: if unsupported {
+            text(&message["text"])
+                .or_else(|| text(&message["caption"]))
+                .unwrap_or_default()
+        } else {
+            text(&message["text"])?
+        },
     })
 }
 
@@ -615,6 +654,16 @@ mod tests {
         let bare = body["result"].clone();
         assert_eq!(incoming(&bare), incoming(&body));
         assert!(incoming(&bare).is_some());
+        // A message Zalo cannot show as text (a link with a preview): its text
+        // when it has one, otherwise empty, so the bot can say what to do.
+        let mut link = body["result"].clone();
+        link["event_name"] = json!("message.unsupported.received");
+        assert_eq!(incoming(&link), incoming(&body));
+        link["message"].as_object_mut().unwrap().remove("text");
+        assert_eq!(
+            incoming(&link).map(|message| message.text),
+            Some(String::new())
+        );
         let not_ok = json!({ "ok": false, "result": bare });
         assert_eq!(incoming(&not_ok), None);
         assert_eq!(incoming(&json!(["not", "an", "object"])), None);

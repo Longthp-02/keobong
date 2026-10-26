@@ -48,6 +48,7 @@ pub struct Incoming {
     pub chat_id: String,
     pub chat_kind: ChatKind,
     pub sender_id: String,
+    /// Empty for a message Zalo could not pass on as text (a link preview).
     pub text: String,
 }
 
@@ -512,6 +513,7 @@ pub struct BotCopy {
     pub answer_link_sent: String,
     pub answer_needs_link: String,
     pub answer_hint: String,
+    pub unsupported_message: String,
     pub answer_which_poll: String,
     pub answer_which_poll_links: String,
     pub answer_poll_link: String,

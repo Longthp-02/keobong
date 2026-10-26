@@ -459,7 +459,7 @@
   },
   "groups": {
     "title": "Nhóm đang chơi trên Đá Ghép",
-    "intro": "Các nhóm chơi đều đặn mỗi tuần, điểm danh qua Bot DaGhep.",
+    "intro": "Các nhóm chơi đều đặn mỗi tuần. Thành viên điểm danh ngay trong nhóm Zalo bằng Bot DaGhep, hoặc bấm link bảng bot gửi trong nhóm.",
     "sports": {
       "football": "⚽ Bóng đá",
       "basketball": "🏀 Bóng rổ"
@@ -472,7 +472,10 @@
       "eleven_a_side": "Sân 11"
     },
     "playersThisWeek": "{n} người điểm danh tuần này",
-    "noPollYet": "Bảng điểm danh tuần này sắp mở",
-    "yesOnDay": "{day}: {n} người chơi"
+    "noPollYet": "Bảng tuần mới sẽ được đăng trong nhóm Zalo",
+    "yesOnDay": "{day}: {n} người chơi",
+    "howToAnswer": "Điểm danh trong nhóm Zalo (liên kết tài khoản 1 lần): @Bot DaGhep {example}",
+    "yes": "có",
+    "no": "không"
   }
 }
