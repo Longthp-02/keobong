@@ -129,7 +129,8 @@ pub fn read_answer(text: &str) -> Option<AnswerIntent> {
                 .iter()
                 .filter(|(item, _)| *item != Item::Filler)
                 .collect();
-            // "T7 có CN không": a new day after a yes, no or play word starts a new part.
+            // "T7 có CN không": a new day after a day and its yes, no or play word
+            // starts a new part ("đá CN không" stays one part: a question).
             let mut pieces: Vec<Vec<&(Item, &[String])>> = vec![Vec::new()];
             for entry in meaningful {
                 let Some(current) = pieces.last_mut() else {
@@ -137,7 +138,8 @@ pub fn read_answer(text: &str) -> Option<AnswerIntent> {
                 };
                 let answered = current
                     .iter()
-                    .any(|(item, _)| matches!(item, Item::Yes | Item::No | Item::Play));
+                    .any(|(item, _)| matches!(item, Item::Yes | Item::No | Item::Play))
+                    && current.iter().any(|(item, _)| matches!(item, Item::Day(_)));
                 if matches!(entry.0, Item::Day(_)) && answered {
                     pieces.push(vec![entry]);
                 } else {
@@ -540,6 +542,8 @@ mod tests {
             "Thứ 7 đá không anh em",
             "CN đánh k",
             "T7 bận không",
+            "ae đá CN không",
+            "đá CN không",
         ] {
             assert_eq!(read_answer(text), None, "{text}");
         }
