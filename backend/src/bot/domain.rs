@@ -606,6 +606,8 @@ pub struct Commands {
     pub group_link: Vec<String>,
     /// An organiser asks which join requests wait ("yêu cầu chờ duyệt").
     pub waiting_joins: Vec<String>,
+    /// A player asking for the chat's poll ("bảng điểm danh" alone).
+    pub show_poll: Vec<String>,
 }
 
 const COPY_JSON: &str = include_str!("../../messages/vi.json");

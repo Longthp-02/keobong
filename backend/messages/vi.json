@@ -129,7 +129,7 @@
   "seriesHidden": "Đã ẩn bảng hằng tuần số {n} khỏi trang chủ.",
   "publishHint": "Gõ \"{mention}công khai bảng 1\" để hiện bảng số 1 trên trang chủ, \"{mention}ẩn bảng 1\" để ẩn.",
   "openMatchLine": "• {day} {start}–{end} · {venue} · {format} · còn {places} chỗ · {price}\n  👉 {url}",
-  "noOpenMatches": "Hiện chưa có kèo nào đang tìm người. Bạn ghé daghep.vn sau nhé, ở đó còn có các nhóm chơi đều đặn mỗi tuần (bóng đá, bóng rổ) để xin tham gia. Hoặc rủ chủ kèo trong nhóm đăng kèo qua {bot}.",
+  "noOpenMatches": "Hiện chưa có kèo nào đang tìm người. Bạn ghé daghep.vn sau nhé, ở đó có thể có các nhóm chơi hằng tuần để xin tham gia. Hoặc rủ chủ kèo trong nhóm đăng kèo qua {bot}.",
   "openMatchesUnavailable": "Mình chưa xem được danh sách kèo lúc này. Bạn xem các kèo đang mở ở daghep.vn nhé.",
   "organiserHint": "Bạn là chủ kèo muốn đăng kèo? Nhắn riêng cho {bot} chữ \"liên kết\" (chỉ 1 lần).",
   "pollMissingNames": "Chưa trả lời: {names}\n",
@@ -165,7 +165,7 @@
   "joinNoneWaiting": "Không có yêu cầu vào nhóm nào đang chờ bạn.",
   "joinDecidePrivately": "Bạn duyệt yêu cầu vào nhóm trong tin nhắn riêng với {bot} nhé, để tên người xin không hiện trong nhóm.",
   "groupLinkInGroup": "Gửi lệnh này trong nhóm Zalo của bạn (có tag @{bot}) để mình biết link thuộc nhóm nào.",
-  "openPollInChat": "📋 Nhóm này đang có bảng điểm danh \"{title}\". Điểm danh bằng cách gõ:\n{mention}{example}\nHoặc bấm vào bảng: {url}",
+  "openPollInChat": "📋 Nhóm này đang có bảng điểm danh \"{title}\". Điểm danh bằng cách gõ (lần đầu cần liên kết tài khoản 1 lần):\n{mention}{example}\nHoặc bấm vào bảng: {url}",
   "commands": {
     "help": [
       "",
@@ -348,6 +348,12 @@
       "yeu cau cho duyet",
       "người chờ duyệt",
       "nguoi cho duyet"
+    ],
+    "showPoll": [
+      "bảng điểm danh",
+      "bang diem danh",
+      "điểm danh ở đâu",
+      "xem bảng"
     ]
   },
   "answerWords": {

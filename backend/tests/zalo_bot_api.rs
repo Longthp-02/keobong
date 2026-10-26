@@ -2636,6 +2636,25 @@ async fn asking_for_the_poll_shows_how_to_answer_it(pool: PgPool) {
         );
     }
     assert_eq!(bot.polls.calls.lock().unwrap().len(), reads, "no AI read");
+    let asked = bot.in_group(OTHER, "bảng điểm danh?").await.unwrap();
+    assert!(asked.contains(&format!("/p/{share_id}")), "{asked}");
+
+    // Making a poll still reads the request, even with one open.
+    bot.in_group(HOST, "tạo bảng điểm danh").await.unwrap();
+    assert_eq!(bot.polls.calls.lock().unwrap().len(), reads + 1);
+}
+
+#[sqlx::test]
+async fn asking_for_the_poll_without_one_open_is_read_as_before(pool: PgPool) {
+    let bot = bot(pool, tonight());
+    bot.link(HOST, "host").await;
+    bot.poll_answer(Some(weekend_poll()));
+    let summary = bot.in_group(HOST, "bảng điểm danh").await.unwrap();
+    assert!(
+        summary.contains("Ai chơi bóng rổ cuối tuần này?"),
+        "{summary}"
+    );
+    assert_eq!(bot.polls.calls.lock().unwrap().len(), 1);
 }
 
 #[sqlx::test]

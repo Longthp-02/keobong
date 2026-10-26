@@ -202,9 +202,14 @@ where
         Command::StopReminder(number) => stop_reminder(ctx, message, number, &mention).await?,
         Command::FindMatches => {
             let found = find_matches(ctx).await;
-            match open_poll_in_chat(ctx, message, &mention, now).await? {
-                Some(poll) => format!("{found}\n\n{poll}"),
-                None => found,
+            // Like the match list, a failed lookup must not spoil the reply.
+            match open_poll_in_chat(ctx, message, &mention, now).await {
+                Ok(Some(poll)) => format!("{found}\n\n{poll}"),
+                Ok(None) => found,
+                Err(error) => {
+                    tracing::warn!(error = %error, "bot could not look up the chat's poll");
+                    found
+                }
             }
         }
         Command::AddVenue(text) => add_venue(ctx, message, &text, &mention, now).await?,
@@ -832,12 +837,12 @@ where
     D: DraftRepository,
 {
     // "@Bot DaGhep bảng điểm danh" alone is a player looking for the poll, not
-    // an organiser making one.
+    // an organiser making one ("tạo bảng điểm danh …" still makes one).
     let bare = text
         .trim()
         .trim_end_matches(['.', '!', '?', ' '])
         .to_lowercase();
-    if COPY.commands.poll.contains(&bare)
+    if COPY.commands.show_poll.contains(&bare)
         && let Some(hint) = open_poll_in_chat(ctx, message, mention, now).await?
     {
         return Ok(hint);
