@@ -557,6 +557,7 @@ pub struct BotCopy {
     pub join_none_waiting: String,
     pub join_decide_privately: String,
     pub group_link_in_group: String,
+    pub open_poll_in_chat: String,
     pub commands: Commands,
     pub answer_words: super::answers::AnswerWords,
 }
@@ -605,6 +606,8 @@ pub struct Commands {
     pub group_link: Vec<String>,
     /// An organiser asks which join requests wait ("yêu cầu chờ duyệt").
     pub waiting_joins: Vec<String>,
+    /// A player asking for the chat's poll ("bảng điểm danh" alone).
+    pub show_poll: Vec<String>,
 }
 
 const COPY_JSON: &str = include_str!("../../messages/vi.json");

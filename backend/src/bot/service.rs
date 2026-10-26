@@ -200,7 +200,18 @@ where
         Command::Remind(text) => remind(ctx, message, &text, &mention, now).await?,
         Command::ListReminders => list_reminders(ctx, message, &mention).await?,
         Command::StopReminder(number) => stop_reminder(ctx, message, number, &mention).await?,
-        Command::FindMatches => find_matches(ctx).await,
+        Command::FindMatches => {
+            let found = find_matches(ctx).await;
+            // Like the match list, a failed lookup must not spoil the reply.
+            match open_poll_in_chat(ctx, message, &mention, now).await {
+                Ok(Some(poll)) => format!("{found}\n\n{poll}"),
+                Ok(None) => found,
+                Err(error) => {
+                    tracing::warn!(error = %error, "bot could not look up the chat's poll");
+                    found
+                }
+            }
+        }
         Command::AddVenue(text) => add_venue(ctx, message, &text, &mention, now).await?,
         Command::DecideVenue { id, approve } => decide_venue(ctx, message, id, approve).await?,
         Command::PendingVenues => pending_venues(ctx, message).await?,
@@ -825,6 +836,17 @@ where
     B: BotRepository + PollRepository + VenueRepository,
     D: DraftRepository,
 {
+    // "@Bot DaGhep bảng điểm danh" alone is a player looking for the poll, not
+    // an organiser making one ("tạo bảng điểm danh …" still makes one).
+    let bare = text
+        .trim()
+        .trim_end_matches(['.', '!', '?', ' '])
+        .to_lowercase();
+    if COPY.commands.show_poll.contains(&bare)
+        && let Some(hint) = open_poll_in_chat(ctx, message, mention, now).await?
+    {
+        return Ok(hint);
+    }
     let Some(user) = ctx
         .bot
         .linked_user(&message.sender_id)
@@ -1813,6 +1835,34 @@ fn not_in_poll(poll: &Poll, mention: &str) -> String {
             ("example", &answer_example(&poll.plan)),
         ],
     )
+}
+
+/// The chat's newest open poll and how to answer it, if it has one.
+async fn open_poll_in_chat<B, D, M, P>(
+    ctx: &BotContext<'_, B, D, M, P>,
+    message: &Incoming,
+    mention: &str,
+    now: DateTime<Utc>,
+) -> Result<Option<String>, BotError>
+where
+    B: PollRepository,
+{
+    let polls = ctx
+        .bot
+        .open_polls(&message.chat_id, now)
+        .await
+        .map_err(fail)?;
+    Ok(polls.first().map(|poll| {
+        fill(
+            &COPY.open_poll_in_chat,
+            &[
+                ("title", &poll.plan.title),
+                ("mention", mention),
+                ("example", &answer_example(&poll.plan)),
+                ("url", &poll_url(ctx.frontend_origin, poll)),
+            ],
+        )
+    }))
 }
 
 fn poll_url(frontend_origin: &str, poll: &Poll) -> String {
