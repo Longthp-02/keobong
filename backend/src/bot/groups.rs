@@ -16,8 +16,9 @@ pub const MAX_PENDING_PER_PLAYER: i64 = 5;
 pub const MAX_PENDING_PER_ORGANISER: i64 = 50;
 /// How long a declined player waits before asking the same group again.
 pub const ASK_AGAIN_DAYS: i64 = 7;
-/// Longest Zalo group link stored.
-pub const MAX_GROUP_LINK_CHARS: usize = 100;
+/// Days a request waits for the organiser; after that it lapses and the player
+/// may ask again. TODO: verify with Long (proposed 2026-10-26).
+pub const PENDING_DAYS: i64 = 14;
 
 /// Where a viewer stands with a group.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -61,6 +62,14 @@ pub struct JoinNotice {
     pub player_name: Option<String>,
 }
 
+/// A request waiting for the organiser, as the bot lists it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WaitingRequest {
+    pub id: i64,
+    pub player_name: Option<String>,
+    pub title: String,
+}
+
 /// What deciding a request found.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DecideOutcome {
@@ -90,6 +99,8 @@ pub fn ask_again_at(decided_at: DateTime<Utc>) -> DateTime<Utc> {
 pub fn find_group_link(text: &str) -> Option<&str> {
     text.split_whitespace()
         .map(|word| word.trim_matches(|c: char| matches!(c, '<' | '>' | '(' | ')' | ',' | '.')))
+        // A copied link may carry a query ("?src=share").
+        .map(|word| word.split(['?', '#']).next().unwrap_or(word))
         .find(|word| {
             word.strip_prefix("https://zalo.me/g/").is_some_and(|code| {
                 !code.is_empty()
@@ -131,6 +142,13 @@ pub trait GroupRepository: Send + Sync {
         now: DateTime<Utc>,
     ) -> impl Future<Output = Result<DecideOutcome, GroupRepoError>> + Send;
 
+    /// Requests waiting for `organiser`, oldest first.
+    fn waiting_requests(
+        &self,
+        organiser: UserId,
+        now: DateTime<Utc>,
+    ) -> impl Future<Output = Result<Vec<WaitingRequest>, GroupRepoError>> + Send;
+
     /// Sets the Zalo link of `organiser`'s groups in this chat; returns how many.
     fn set_group_link(
         &self,
@@ -149,6 +167,10 @@ mod tests {
         assert_eq!(
             find_group_link("link nhóm: https://zalo.me/g/abc123XYZ."),
             Some("https://zalo.me/g/abc123XYZ")
+        );
+        assert_eq!(
+            find_group_link("https://zalo.me/g/abc123?src=share"),
+            Some("https://zalo.me/g/abc123")
         );
         for text in [
             "link nhóm: http://zalo.me/g/abc",

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { cookies } from "next/headers";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { cache } from "react";
 import { BrowserAccountBar } from "../../../components/BrowserAccountBar";
 import { GroupJoin } from "../../../components/GroupJoin";
 import { GroupDetails } from "../../../components/GroupList";
@@ -10,6 +11,12 @@ import messages from "../../../messages/vi.json";
 
 type Props = { params: Promise<{ id: string }> };
 
+/** One API call per request for both the metadata and the page. */
+const loadGroup = cache(async (id: string) => {
+  const cookie = sessionCookieHeader((await cookies()).get(SESSION_COOKIE)?.value);
+  return getGroup(id, { cookie });
+});
+
 // The page shows the viewer's own standing with the group, so it is rendered per request.
 export const dynamic = "force-dynamic";
 
@@ -17,7 +24,7 @@ export const dynamic = "force-dynamic";
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { id } = await params;
   const group = isApiConfigured()
-    ? await getGroup(id).catch((error: unknown) => {
+    ? await loadGroup(id).catch((error: unknown) => {
         console.error("group unavailable for metadata", error);
         return null;
       })
@@ -32,8 +39,7 @@ export default async function GroupPage({ params }: Props) {
     notFound();
   }
   const { id } = await params;
-  const cookie = sessionCookieHeader((await cookies()).get(SESSION_COOKIE)?.value);
-  const group = await getGroup(id, { cookie });
+  const group = await loadGroup(id);
   if (!group) {
     notFound();
   }

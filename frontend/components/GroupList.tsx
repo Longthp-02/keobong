@@ -63,7 +63,11 @@ export function GroupList({ groups }: { groups: PublicGroup[] }) {
           return (
             <li key={group.id} className="group-card">
               <GroupDetails group={group} />
-              <a href={`/g/${group.id}`} className="group-card__open">
+              <a
+                href={`/g/${group.id}`}
+                className="group-card__open"
+                aria-label={t.openLabel.replace("{title}", group.title)}
+              >
                 {t.open}
               </a>
             </li>

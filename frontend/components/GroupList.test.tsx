@@ -53,7 +53,8 @@ describe("GroupList", () => {
   it("links each group to its page, where people ask to join", () => {
     render(<GroupList groups={[lakeview]} />);
 
-    const link = screen.getByRole("link", { name: t.open });
+    const link = screen.getByRole("link", { name: t.openLabel.replace("{title}", lakeview.title) });
+    expect(link.textContent).toBe(t.open);
     expect(link.getAttribute("href")).toBe("/g/0123456789ab");
   });
 

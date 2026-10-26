@@ -24,20 +24,23 @@ function localDate(iso: string): string {
 /** Where the viewer stands with a group: sign in, ask to join, wait, or open it. */
 export function GroupJoin({ groupId, initial, join = browserJoinGroup }: Props) {
   const [membership, setMembership] = useState(initial);
-  const [state, setState] = useState<"idle" | "asking" | Exclude<JoinGroupResult, { ok: true }>["error"]>("idle");
+  const [state, setState] = useState<"idle" | "asking" | "sent" | Exclude<JoinGroupResult, { ok: true }>["error"]>(
+    "idle",
+  );
 
   async function ask() {
     setState("asking");
     const result = await join(groupId);
     if (result.ok) {
       setMembership(result.membership);
-      setState("idle");
+      // Announced in the live region, since the button that had focus is gone.
+      setState("sent");
     } else {
       setState(result.error);
     }
   }
 
-  const error = state === "idle" || state === "asking" ? "" : t.errors[state];
+  const status = state === "idle" || state === "asking" ? "" : state === "sent" ? t.sent : t.errors[state];
 
   return (
     <section className="group-join" aria-labelledby="group-join-title">
@@ -79,8 +82,13 @@ export function GroupJoin({ groupId, initial, join = browserJoinGroup }: Props) 
         </div>
       )}
       <p role="status" aria-live="polite">
-        {error}
+        {status}
       </p>
+      {state === "signed_out" ? (
+        <a href={signInUrl(`/g/${groupId}`)} className="button-secondary">
+          {messages.auth.signInWithGoogle}
+        </a>
+      ) : null}
     </section>
   );
 }

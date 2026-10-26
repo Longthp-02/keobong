@@ -2494,3 +2494,125 @@ async fn only_a_groups_organiser_sets_its_zalo_link(pool: PgPool) {
     let missing = bot.in_group(HOST, "link nhóm").await.unwrap();
     assert!(missing.contains("zalo.me/g/"), "{missing}");
 }
+
+#[sqlx::test]
+async fn two_join_requests_at_once_notify_the_organiser_once(pool: PgPool) {
+    let bot = bot(pool, tonight());
+    let (id, _) = bot.public_group().await;
+    let kim = sign_in(&bot.app, "kim").await;
+    let before = bot.chat.sent.lock().unwrap().len();
+    let (first, second) = tokio::join!(bot.join(&id, Some(&kim)), bot.join(&id, Some(&kim)));
+    assert_eq!((first.0, second.0), (StatusCode::OK, StatusCode::OK));
+    assert_eq!(first.1["membership"]["status"], "pending");
+    assert_eq!(second.1["membership"]["status"], "pending");
+    assert_eq!(bot.private_since(before, HOST).len(), 1);
+}
+
+#[sqlx::test]
+async fn answering_a_forwarded_poll_link_on_the_web_does_not_make_a_member(pool: PgPool) {
+    let bot = bot(pool, tonight());
+    let (id, share_id) = bot.public_group().await;
+    let kim = sign_in(&bot.app, "kim").await;
+    bot.answer_poll(
+        &share_id,
+        Some(&kim),
+        json!([{ "day": "2099-10-03", "attending": true }]),
+    )
+    .await;
+    let (_, group) = bot.get_group(&id, Some(&kim)).await;
+    assert_eq!(group["membership"], json!({ "status": "none" }));
+}
+
+#[sqlx::test]
+async fn an_organiser_with_fifty_waiting_requests_takes_no_more(pool: PgPool) {
+    let bot = bot(pool.clone(), tonight());
+    let (id, _) = bot.public_group().await;
+    sqlx::query(
+        "INSERT INTO users (display_name) SELECT 'P' || n FROM generate_series(1, 50) AS n",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO bot_join_requests (series_id, user_id, status, requested_at)
+         SELECT s.id, u.id, 'pending', '2099-10-01'
+         FROM bot_poll_series s, users u WHERE u.display_name LIKE 'P%'",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    let kim = sign_in(&bot.app, "kim").await;
+    let (status, body) = bot.join(&id, Some(&kim)).await;
+    assert_eq!(
+        (status, body["error"].as_str()),
+        (StatusCode::CONFLICT, Some("group_busy"))
+    );
+}
+
+#[sqlx::test]
+async fn an_unanswered_request_lapses_after_fourteen_days(pool: PgPool) {
+    let bot = bot(pool, tonight());
+    let (id, _) = bot.public_group().await;
+    let kim = sign_in(&bot.app, "kim").await;
+    bot.join(&id, Some(&kim)).await;
+    let number = bot.request_number();
+    bot.clock.advance(Duration::days(14));
+    let (_, group) = bot.get_group(&id, Some(&kim)).await;
+    assert_eq!(group["membership"], json!({ "status": "none" }));
+    let late = bot
+        .say(HOST, "PRIVATE", HOST, &format!("nhận {number}"))
+        .await
+        .unwrap();
+    assert!(late.contains("không thấy yêu cầu"), "{late}");
+    let (status, body) = bot.join(&id, Some(&kim)).await;
+    assert_eq!(
+        (status, &body["membership"]["status"]),
+        (StatusCode::OK, &json!("pending"))
+    );
+}
+
+#[sqlx::test]
+async fn organisers_list_waiting_requests_and_decide_only_in_private(pool: PgPool) {
+    let bot = bot(pool, tonight());
+    let (id, _) = bot.public_group().await;
+    let kim = sign_in(&bot.app, "kim").await;
+    bot.join(&id, Some(&kim)).await;
+    let number = bot.request_number();
+
+    let list = bot.say(HOST, "PRIVATE", HOST, "nhận").await.unwrap();
+    assert!(list.contains(&format!("{number}. Player kim")), "{list}");
+    assert!(list.contains("nhận"), "{list}");
+
+    // In the group the decision would show the player's name to everyone.
+    let in_group = bot.in_group(HOST, &format!("nhận {number}")).await.unwrap();
+    assert!(in_group.contains("tin nhắn riêng"), "{in_group}");
+    let (_, group) = bot.get_group(&id, Some(&kim)).await;
+    assert_eq!(group["membership"]["status"], "pending");
+
+    // The group link is set in the group, and a copied link may carry a query.
+    let private = bot
+        .say(HOST, "PRIVATE", HOST, "link nhóm: https://zalo.me/g/abc123")
+        .await
+        .unwrap();
+    assert!(private.contains("trong nhóm Zalo"), "{private}");
+    let saved = bot
+        .in_group(HOST, "link nhóm: https://zalo.me/g/abc123?src=share")
+        .await
+        .unwrap();
+    assert!(saved.contains("Đã lưu link nhóm"), "{saved}");
+}
+
+#[sqlx::test]
+async fn existing_weekly_groups_each_get_their_own_public_id(pool: PgPool) {
+    sqlx::query("INSERT INTO users (display_name) VALUES ('Host')")
+        .execute(&pool)
+        .await
+        .unwrap();
+    insert_series(&pool, "zgr-a", 3).await;
+    let ids: Vec<String> = sqlx::query_scalar("SELECT DISTINCT public_id FROM bot_poll_series")
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+    assert_eq!(ids.len(), 3);
+    assert!(ids.iter().all(|id| id.len() == 12));
+}

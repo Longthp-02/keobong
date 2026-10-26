@@ -209,6 +209,7 @@ where
         }
         Command::DecideJoin { id, approve } => decide_join(ctx, message, id, approve, now).await?,
         Command::SetGroupLink(text) => set_group_link(ctx, message, &text, &mention).await?,
+        Command::WaitingJoins => waiting_joins(ctx, message, now).await?,
         Command::Describe(text) => describe(ctx, message, &text, &mention, now).await?,
     };
     Ok(Some(reply))
@@ -2138,6 +2139,10 @@ async fn decide_join<B, D, M, P>(
 where
     B: BotRepository + GroupRepository,
 {
+    // The reply names the player; it must not be posted to a group.
+    if message.chat_kind == ChatKind::Group {
+        return Ok(fill(&COPY.join_decide_privately, &[("bot", ctx.bot_name)]));
+    }
     let Some(organiser) = ctx
         .bot
         .linked_user(&message.sender_id)
@@ -2193,6 +2198,50 @@ where
     })
 }
 
+async fn waiting_joins<B, D, M, P>(
+    ctx: &BotContext<'_, B, D, M, P>,
+    message: &Incoming,
+    now: DateTime<Utc>,
+) -> Result<String, BotError>
+where
+    B: BotRepository + GroupRepository,
+{
+    if message.chat_kind == ChatKind::Group {
+        return Ok(fill(&COPY.join_decide_privately, &[("bot", ctx.bot_name)]));
+    }
+    let Some(organiser) = ctx
+        .bot
+        .linked_user(&message.sender_id)
+        .await
+        .map_err(fail)?
+    else {
+        return unlinked(ctx, message, now).await;
+    };
+    let waiting = ctx
+        .bot
+        .waiting_requests(organiser, now)
+        .await
+        .map_err(fail)?;
+    if waiting.is_empty() {
+        return Ok(COPY.join_none_waiting.clone());
+    }
+    let items = waiting
+        .iter()
+        .map(|request| {
+            fill(
+                &COPY.join_waiting_item,
+                &[
+                    ("id", &request.id.to_string()),
+                    ("name", name_or_player(request.player_name.as_deref())),
+                    ("title", &request.title),
+                ],
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    Ok(fill(&COPY.join_waiting_list, &[("items", &items)]))
+}
+
 async fn set_group_link<B, D, M, P>(
     ctx: &BotContext<'_, B, D, M, P>,
     message: &Incoming,
@@ -2202,6 +2251,9 @@ async fn set_group_link<B, D, M, P>(
 where
     B: BotRepository + GroupRepository,
 {
+    if message.chat_kind == ChatKind::Private {
+        return Ok(fill(&COPY.group_link_in_group, &[("bot", ctx.bot_name)]));
+    }
     let Some(link) = find_group_link(text) else {
         return Ok(fill(&COPY.group_link_missing, &[("mention", mention)]));
     };

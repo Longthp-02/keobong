@@ -1,5 +1,5 @@
 {
-  "help": "Chào bạn! Mình là {bot} ⚽ Mình giúp được mấy việc này:\n\n🔎 Tìm kèo để đá:\n{mention}tìm kèo\n\n⚽ Tạo kèo:\n{mention}tối nay 19h–20h30 SSA sân 7 thiếu 3, 60k/người\n\n📋 Bảng điểm danh (ai chơi ngày nào):\n{mention}tạo bảng điểm danh T7, CN tuần này, chơi lúc 18h\nTrả lời bảng: {mention}T7 có, CN không\nThêm \"hằng tuần\" để mỗi tối Thứ 2 mình tự đăng bảng mới, thêm \"công khai\" để nhóm hiện trên trang chủ daghep.vn. Tắt: {mention}tắt bảng\nLink nhóm Zalo cho người được nhận vào nhóm: {mention}link nhóm: https://zalo.me/g/...\n\n📍 Thêm sân (gửi link Google Maps):\n{mention}thêm sân Lakeview bóng rổ https://maps.app.goo.gl/...\n\n⏰ Nhắc hẹn:\n{mention}nhắc mỗi thứ 5 lúc 20h: Cuối tuần này ai đá không?\nXem hoặc tắt: {mention}tắt nhắc\n\nSau khi mình tóm tắt, trả lời \"{mention}ok\" để lưu hoặc \"{mention}huỷ\".\nLần đầu dùng, nhắn riêng cho mình chữ \"liên kết\".",
+  "help": "Chào bạn! Mình là {bot} ⚽ Mình giúp được mấy việc này:\n\n🔎 Tìm kèo để đá:\n{mention}tìm kèo\n\n⚽ Tạo kèo:\n{mention}tối nay 19h–20h30 SSA sân 7 thiếu 3, 60k/người\n\n📋 Bảng điểm danh (ai chơi ngày nào):\n{mention}tạo bảng điểm danh T7, CN tuần này, chơi lúc 18h\nTrả lời bảng: {mention}T7 có, CN không\nThêm \"hằng tuần\" để mỗi tối Thứ 2 mình tự đăng bảng mới, thêm \"công khai\" để nhóm hiện trên trang chủ daghep.vn. Tắt: {mention}tắt bảng\nLink nhóm Zalo cho người được nhận vào nhóm: {mention}link nhóm: https://zalo.me/g/...\nCó người xin vào nhóm? Nhắn riêng cho mình \"nhận\" để xem và duyệt.\n\n📍 Thêm sân (gửi link Google Maps):\n{mention}thêm sân Lakeview bóng rổ https://maps.app.goo.gl/...\n\n⏰ Nhắc hẹn:\n{mention}nhắc mỗi thứ 5 lúc 20h: Cuối tuần này ai đá không?\nXem hoặc tắt: {mention}tắt nhắc\n\nSau khi mình tóm tắt, trả lời \"{mention}ok\" để lưu hoặc \"{mention}huỷ\".\nLần đầu dùng, nhắn riêng cho mình chữ \"liên kết\".",
   "linkInGroup": "Để bắt đầu, bạn nhắn riêng cho {bot} chữ \"liên kết\" nhé. Link liên kết chỉ gửi trong chat riêng để không ai dùng nhầm tài khoản của bạn.",
   "linkSentPrivately": "Mình vừa nhắn riêng cho bạn link liên kết 👆 Mở chat với {bot}, bấm link rồi đăng nhập Google (chỉ 1 lần) là đăng kèo được.\nNếu bạn chỉ muốn tìm kèo để đá thì gõ \"@{bot} tìm kèo\" nhé.",
   "linkPrivate": "Bấm link này để liên kết Zalo với tài khoản Đá Ghép (đăng nhập bằng Google). Link dùng một lần, hết hạn sau 15 phút, đừng gửi cho ai:\n{url}",
@@ -160,6 +160,11 @@
   "groupLinkSaved": "🔗 Đã lưu link nhóm Zalo. Người được nhận vào nhóm sẽ thấy link này.",
   "groupLinkMissing": "Gửi kèm link mời vào nhóm Zalo (Zalo → nhóm → Mời vào nhóm → Sao chép link), ví dụ:\n{mention}link nhóm: https://zalo.me/g/abc123",
   "groupLinkNoSeries": "Chỉ người tạo bảng hằng tuần ở nhóm này mới đặt được link nhóm.",
+  "joinWaitingList": "Yêu cầu vào nhóm đang chờ bạn:\n{items}\nTrả lời \"nhận N\" để nhận, hoặc \"không nhận N\".",
+  "joinWaitingItem": "{id}. {name}: \"{title}\"",
+  "joinNoneWaiting": "Không có yêu cầu vào nhóm nào đang chờ bạn.",
+  "joinDecidePrivately": "Bạn duyệt yêu cầu vào nhóm trong tin nhắn riêng với {bot} nhé, để tên người xin không hiện trong nhóm.",
+  "groupLinkInGroup": "Gửi lệnh này trong nhóm Zalo của bạn (có tag @{bot}) để mình biết link thuộc nhóm nào.",
   "commands": {
     "help": [
       "",
@@ -328,11 +333,20 @@
     "rejectJoin": [
       "không nhận",
       "khong nhan",
-      "ko nhận"
+      "ko nhận",
+      "ko nhan",
+      "k nhận",
+      "k nhan"
     ],
     "groupLink": [
       "link nhóm",
       "link nhom"
+    ],
+    "waitingJoins": [
+      "yêu cầu chờ duyệt",
+      "yeu cau cho duyet",
+      "người chờ duyệt",
+      "nguoi cho duyet"
     ]
   },
   "answerWords": {

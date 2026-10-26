@@ -21,6 +21,7 @@ describe("GroupJoin", () => {
 
     fireEvent.click(screen.getByRole("button", { name: t.ask }));
     await waitFor(() => expect(screen.getByText(t.pending)).toBeTruthy());
+    expect(screen.getByRole("status").textContent).toBe(t.sent);
     expect(join).toHaveBeenCalledWith(ID);
     expect(screen.queryByRole("button", { name: t.ask })).toBeNull();
   });
@@ -51,6 +52,14 @@ describe("GroupJoin", () => {
 
     expect(screen.getByText(t.declined.replace("{date}", "08/10"))).toBeTruthy();
     expect(screen.queryByRole("button", { name: t.ask })).toBeNull();
+  });
+
+  it("offers to sign in again when the session ended", async () => {
+    const join = vi.fn().mockResolvedValue({ ok: false, error: "signed_out" });
+    render(<GroupJoin groupId={ID} initial={{ status: "none" }} join={join} />);
+
+    fireEvent.click(screen.getByRole("button", { name: t.ask }));
+    await waitFor(() => expect(screen.getByRole("link", { name: messages.auth.signInWithGoogle })).toBeTruthy());
   });
 
   it("explains a refused request", async () => {

@@ -90,6 +90,8 @@ pub enum Command {
     },
     /// The group's Zalo invite link ("link nhóm: https://zalo.me/g/…").
     SetGroupLink(String),
+    /// An organiser asks which join requests wait ("nhận" alone).
+    WaitingJoins,
     /// A match described in the organiser's own words.
     Describe(String),
 }
@@ -149,10 +151,18 @@ pub fn parse_command(text: &str, kind: ChatKind, bot_name: &str) -> Option<Comma
         Command::DecideVenue { id, approve: true }
     } else if let Some(id) = reject_venue.as_deref().and_then(number) {
         Command::DecideVenue { id, approve: false }
-    } else if let Some(Some(id)) = reject_join.as_deref().and_then(only_number) {
-        Command::DecideJoin { id, approve: false }
-    } else if let Some(Some(id)) = accept_join.as_deref().and_then(only_number) {
-        Command::DecideJoin { id, approve: true }
+    } else if let Some(number) = reject_join.as_deref().and_then(only_number) {
+        number.map_or(Command::WaitingJoins, |id| Command::DecideJoin {
+            id,
+            approve: false,
+        })
+    } else if let Some(number) = accept_join.as_deref().and_then(only_number) {
+        number.map_or(Command::WaitingJoins, |id| Command::DecideJoin {
+            id,
+            approve: true,
+        })
+    } else if is(&commands.waiting_joins) {
+        Command::WaitingJoins
     } else if starts_with_words(&word, &commands.group_link) {
         Command::SetGroupLink(rest.to_owned())
     } else if is(&commands.pending_venues) {
@@ -542,6 +552,11 @@ pub struct BotCopy {
     pub group_link_saved: String,
     pub group_link_missing: String,
     pub group_link_no_series: String,
+    pub join_waiting_list: String,
+    pub join_waiting_item: String,
+    pub join_none_waiting: String,
+    pub join_decide_privately: String,
+    pub group_link_in_group: String,
     pub commands: Commands,
     pub answer_words: super::answers::AnswerWords,
 }
@@ -588,6 +603,8 @@ pub struct Commands {
     pub reject_join: Vec<String>,
     /// First words of setting the group's Zalo link ("link nhóm: https://zalo.me/g/…").
     pub group_link: Vec<String>,
+    /// An organiser asks which join requests wait ("yêu cầu chờ duyệt").
+    pub waiting_joins: Vec<String>,
 }
 
 const COPY_JSON: &str = include_str!("../../messages/vi.json");
@@ -665,7 +682,15 @@ mod tests {
             parse("nhận 2 suất tối nay"),
             Some(Command::DecideJoin { .. })
         ));
-        assert!(!matches!(parse("nhận"), Some(Command::DecideJoin { .. })));
+        assert_eq!(parse("nhận"), Some(Command::WaitingJoins));
+        assert_eq!(
+            parse("ko nhan 3"),
+            Some(Command::DecideJoin {
+                id: 3,
+                approve: false
+            })
+        );
+        assert_eq!(parse("yêu cầu chờ duyệt"), Some(Command::WaitingJoins));
         assert_eq!(
             parse_command(
                 "@Bot DaGhep link nhóm: https://zalo.me/g/abc",
