@@ -28,6 +28,14 @@ describe("GroupList", () => {
     expect(within(card).getByText("8 người điểm danh tuần này")).toBeTruthy();
   });
 
+  it("tells members how to answer in the Zalo group", () => {
+    render(<GroupList groups={[lakeview, { ...lakeview, weekdays: [1] }]} />);
+
+    const [weekend, monday] = screen.getAllByRole("listitem");
+    expect(within(weekend).getByText(/@Bot DaGhep T7 có, CN không/)).toBeTruthy();
+    expect(within(monday).getByText(/@Bot DaGhep T2 có/)).toBeTruthy();
+  });
+
   it("says the week's poll is coming when none is open, and works without a venue", () => {
     render(
       <GroupList

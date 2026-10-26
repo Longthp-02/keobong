@@ -11,6 +11,15 @@ function weekdaysText(weekdays: number[]): string {
     .join(", ");
 }
 
+/** How a member answers in the chat, from the group's first days: "T7 có, CN không". */
+function answerExample(weekdays: number[]): string {
+  return weekdaysText(weekdays)
+    .split(", ")
+    .slice(0, 2)
+    .map((day, index) => `${day} ${index === 0 ? t.yes : t.no}`)
+    .join(", ");
+}
+
 function headline(group: PublicGroup): string | null {
   const parts = [
     group.sport ? t.sports[group.sport] : null,
@@ -44,6 +53,11 @@ export function GroupList({ groups }: { groups: PublicGroup[] }) {
               <p className="group-card__players">
                 {group.week ? t.playersThisWeek.replace("{n}", String(group.week.players)) : t.noPollYet}
               </p>
+              {group.weekdays.length > 0 ? (
+                <p className="muted group-card__answer">
+                  {t.howToAnswer.replace("{example}", answerExample(group.weekdays))}
+                </p>
+              ) : null}
             </li>
           );
         })}

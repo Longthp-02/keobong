@@ -2220,3 +2220,20 @@ async fn a_day_in_two_open_polls_gets_the_links_only(pool: PgPool) {
     assert!(reply.contains(&format!("/p/{second}")), "{reply}");
     assert!(!reply.contains("ghi rõ ngày"), "{reply}");
 }
+
+#[sqlx::test]
+async fn a_link_message_zalo_cannot_show_as_text_gets_a_hint_once(pool: PgPool) {
+    let bot = bot(pool, tonight());
+    let mut body = update(GROUP, "GROUP", HOST, "unused", "m-link-1");
+    body["event_name"] = json!("message.unsupported.received");
+    body["message"].as_object_mut().unwrap().remove("text");
+    let reply = bot.deliver(&body).await.unwrap();
+    assert!(reply.contains("xem trước"), "{reply}");
+    assert_eq!(bot.deliver(&body).await, None, "a repeated delivery");
+
+    // When Zalo sends the text along, it is read as usual.
+    let mut body = update(GROUP, "GROUP", HOST, "@Bot DaGhep help", "m-link-2");
+    body["event_name"] = json!("message.unsupported.received");
+    let reply = bot.deliver(&body).await.unwrap();
+    assert!(reply.contains("tìm kèo"), "{reply}");
+}

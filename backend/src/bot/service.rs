@@ -87,6 +87,23 @@ where
     M: MatchRepository,
     P: PayoutRepository,
 {
+    // Zalo passes on a link with a preview without its text. In a group it only
+    // passes on messages that tag the bot, so this one was meant for it.
+    if message.text.trim().is_empty() {
+        let now = ctx.clock.now();
+        let outcome = ctx
+            .bot
+            .record_update(&message.message_id, &message.sender_id, now)
+            .await
+            .map_err(fail)?;
+        return Ok((outcome == UpdateOutcome::New).then(|| {
+            let mention = match message.chat_kind {
+                ChatKind::Group => format!("@{} ", ctx.bot_name),
+                ChatKind::Private => String::new(),
+            };
+            fill(&COPY.unsupported_message, &[("mention", &mention)])
+        }));
+    }
     let Some(command) = parse_command(&message.text, message.chat_kind, ctx.bot_name) else {
         return Ok(None);
     };
