@@ -10,7 +10,7 @@ use sha2::{Digest, Sha256};
 use super::domain::{
     BotDraft, BotRepository, COPY, ChatKind, ChatReply, Command, DEFAULT_LEVEL_MAX_TENTHS,
     DEFAULT_LEVEL_MIN_TENTHS, DEFAULT_MATCH_TYPE, DRAFT_MINUTES, Incoming, LINK_CODE_MINUTES,
-    MatchFinder, UpdateOutcome, entry, fill, parse_command,
+    MatchFinder, UpdateOutcome, entry, fill, mentions_find_phrase, parse_command,
 };
 use super::polls::{
     MAX_NAMES_IN_NUDGE, MAX_SERIES_LATE_HOURS, MEMBER_DAYS, PendingPoll, Poll, PollPlan,
@@ -267,14 +267,13 @@ where
     else {
         // Someone who is not an organiser asking for a match ("có kèo 19h không")
         // gets the open matches rather than the linking steps.
-        let lower = text.to_lowercase();
-        if COPY
-            .commands
-            .find_matches
-            .iter()
-            .any(|phrase| lower.contains(phrase.as_str()))
-        {
-            return Ok(find_matches(ctx).await);
+        if mentions_find_phrase(text) {
+            // It may be a new organiser's post too: say how to post matches.
+            return Ok(format!(
+                "{}\n{}",
+                find_matches(ctx).await,
+                fill(&COPY.organiser_hint, &[("bot", ctx.bot_name)])
+            ));
         }
         return unlinked(ctx, message, now).await;
     };
@@ -1288,7 +1287,7 @@ async fn find_matches<B, D, M, P>(ctx: &BotContext<'_, B, D, M, P>) -> String {
         Ok(found) => found,
         Err(error) => {
             tracing::warn!(error = %error, "bot could not list open matches");
-            return none;
+            return COPY.open_matches_unavailable.clone();
         }
     };
     if found.is_empty() {

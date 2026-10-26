@@ -134,6 +134,10 @@ impl Bot {
         );
         let replies: Vec<_> = new.iter().filter(|(chat, _)| chat == chat_id).collect();
         assert!(replies.len() <= 1, "at most one reply per message");
+        if chat_id != sender {
+            let private = new.iter().filter(|(chat, _)| chat == sender).count();
+            assert!(private <= 1, "at most one private message per message");
+        }
         replies.last().map(|(_, text)| text.clone())
     }
 
@@ -370,9 +374,20 @@ async fn players_asking_for_a_match_get_the_open_matches(pool: PgPool) {
         assert!(list.contains("còn 3 chỗ · 60.000đ/người"), "{list}");
         assert!(list.contains(&format!("{FRONTEND}/m/{share}")), "{list}");
     }
-    // An unlinked sender whose message has a time still gets the list.
+    // An unlinked sender whose message has a time still gets the list, and how
+    // to post matches in case they are an organiser.
     let with_time = bot.in_group(OTHER, "có kèo 19h không").await.unwrap();
     assert!(with_time.contains("Kèo đang tìm người"), "{with_time}");
+    assert!(
+        with_time.contains("Bạn là chủ kèo muốn đăng kèo?"),
+        "{with_time}"
+    );
+    // A linked organiser asking without times gets the list too.
+    let organiser = bot
+        .in_group(HOST, "tối nay có kèo nào không")
+        .await
+        .unwrap();
+    assert!(organiser.contains("Kèo đang tìm người"), "{organiser}");
     assert!(bot.reader.calls.lock().unwrap().len() == 1);
 }
 

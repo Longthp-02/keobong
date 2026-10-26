@@ -98,6 +98,8 @@
   "openMatches": "⚽ Kèo đang tìm người:\n{items}\nXem thêm và giữ chỗ ở daghep.vn",
   "openMatchLine": "• {day} {start}–{end} · {venue} · {format} · còn {places} chỗ · {price}\n  👉 {url}",
   "noOpenMatches": "Hiện chưa có kèo nào đang tìm người. Bạn ghé daghep.vn sau nhé, hoặc rủ chủ kèo trong nhóm đăng kèo qua {bot}.",
+  "openMatchesUnavailable": "Mình chưa xem được danh sách kèo lúc này. Bạn xem các kèo đang mở ở daghep.vn nhé.",
+  "organiserHint": "Bạn là chủ kèo muốn đăng kèo? Nhắn riêng cho {bot} chữ \"liên kết\" (chỉ 1 lần).",
   "pollMissingNames": "Chưa trả lời: {names}\n",
   "pollMoreNames": "{names} và {n} người khác",
   "playerName": "Người chơi",
