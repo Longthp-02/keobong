@@ -1376,3 +1376,37 @@ button.slot__button:focus-visible {
   font-size: 14px;
   font-weight: 600;
 }
+
+.group-card__open {
+  display: inline-block;
+  margin-top: 10px;
+  font-weight: 600;
+  color: var(--brand-text);
+}
+
+.group-page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.group-join {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.group-join p {
+  margin: 0;
+}
+
+.group-join__member {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.group-card__answer {
+  margin-top: 8px !important;
+  font-size: 14px;
+}

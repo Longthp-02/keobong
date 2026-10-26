@@ -220,6 +220,8 @@ pub struct PollGroup {
 /// A public group as the home page lists it. No member names.
 #[derive(Debug, Clone, PartialEq)]
 pub struct PublicGroup {
+    /// The id the home page links to (`/g/<id>`).
+    pub public_id: String,
     pub title: String,
     pub group: PollGroup,
     pub venue_name: Option<String>,
@@ -497,10 +499,12 @@ pub trait PollRepository: Send + Sync {
         public: bool,
     ) -> impl Future<Output = Result<bool, PollRepoError>> + Send;
 
-    /// Public series, newest first, with their venue and this week's counts.
+    /// Public series, newest first, with their venue and this week's counts;
+    /// with `only`, just the one with that public id.
     fn public_groups(
         &self,
         now: DateTime<Utc>,
+        only: Option<&str>,
     ) -> impl Future<Output = Result<Vec<PublicGroup>, PollRepoError>> + Send;
 
     /// The chat's weekly series, oldest first (their list numbers).

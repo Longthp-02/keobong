@@ -27,6 +27,26 @@ function headline(group: PublicGroup): string | null {
   return parts.length > 0 ? parts.join(" · ") : null;
 }
 
+/** A group's sport, venue, days, time, this week's count and how to answer. */
+export function GroupDetails({ group }: { group: PublicGroup }) {
+  const top = headline(group);
+  const when = [weekdayNames(group.weekdays).join(", "), group.playTime].filter(Boolean).join(" · ");
+  return (
+    <>
+      {top ? <p className="group-card__top">{top}</p> : null}
+      <p className="group-card__title">{group.title}</p>
+      {group.venue ? <p className="muted group-card__address">{group.venue.address}</p> : null}
+      <p className="group-card__when">{when}</p>
+      <p className="group-card__players">
+        {group.week ? t.playersThisWeek.replace("{n}", String(group.week.players)) : t.noPollYet}
+      </p>
+      {group.weekdays.length > 0 ? (
+        <p className="muted group-card__answer">{t.howToAnswer.replace("{example}", answerExample(group.weekdays))}</p>
+      ) : null}
+    </>
+  );
+}
+
 /** Weekly groups that chose to show on the home page. No member names. */
 export function GroupList({ groups }: { groups: PublicGroup[] }) {
   if (groups.length === 0) {
@@ -39,34 +59,13 @@ export function GroupList({ groups }: { groups: PublicGroup[] }) {
       </h2>
       <p className="muted groups__intro">{t.intro}</p>
       <ul className="groups__list">
-        {groups.map((group, index) => {
-          const top = headline(group);
-          const when = [weekdayNames(group.weekdays).join(", "), group.playTime]
-            .filter(Boolean)
-            .join(" · ");
+        {groups.map((group) => {
           return (
-            <li key={index} className="group-card">
-              {top ? <p className="group-card__top">{top}</p> : null}
-              <p className="group-card__title">{group.title}</p>
-              {group.venue ? (
-                <p className="muted group-card__address">
-                  {group.venue.address}
-                </p>
-              ) : null}
-              <p className="group-card__when">{when}</p>
-              <p className="group-card__players">
-                {group.week
-                  ? t.playersThisWeek.replace("{n}", String(group.week.players))
-                  : t.noPollYet}
-              </p>
-              {group.weekdays.length > 0 ? (
-                <p className="muted group-card__answer">
-                  {t.howToAnswer.replace(
-                    "{example}",
-                    answerExample(group.weekdays),
-                  )}
-                </p>
-              ) : null}
+            <li key={group.id} className="group-card">
+              <GroupDetails group={group} />
+              <a href={`/g/${group.id}`} className="group-card__open">
+                {t.open}
+              </a>
             </li>
           );
         })}

@@ -8,6 +8,8 @@
 pub mod answers;
 pub mod anthropic;
 pub mod domain;
+pub mod groups;
+mod groups_repo;
 mod http;
 pub mod maps;
 mod poll_repo;

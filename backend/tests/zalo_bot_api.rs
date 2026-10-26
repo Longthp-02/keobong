@@ -1907,7 +1907,10 @@ async fn a_public_weekly_group_shows_on_the_home_page_without_names(pool: PgPool
         response.headers().get("cache-control").unwrap(),
         "public, max-age=60"
     );
-    let groups = bot.groups().await;
+    let mut groups = bot.groups().await;
+    let id = groups[0]["id"].as_str().unwrap().to_owned();
+    assert_eq!(id.len(), 12, "{id}");
+    groups[0].as_object_mut().unwrap().remove("id");
     assert_eq!(
         groups,
         json!([{
@@ -2269,4 +2272,225 @@ async fn a_message_zalo_cannot_show_as_text_is_read_when_it_has_text(pool: PgPoo
     let mut untagged = unsupported(GROUP, "GROUP", HOST, "m-link-7");
     untagged["message"]["caption"] = json!("sân mới nè");
     assert_eq!(bot.deliver(&untagged).await, None);
+}
+
+impl Bot {
+    /// A public weekly Lakeview group by HOST; returns its public id and this
+    /// week's poll share id.
+    async fn public_group(&self) -> (String, String) {
+        self.link(HOST, "host").await;
+        self.add_lakeview().await;
+        let share_id = poll_share_id(&self.add_public_lakeview_group().await);
+        let id = self.groups().await[0]["id"].as_str().unwrap().to_owned();
+        (id, share_id)
+    }
+
+    async fn get_group(&self, id: &str, session: Option<&str>) -> (StatusCode, Value) {
+        let mut request = Request::get(format!("/api/groups/{id}"));
+        if let Some(session) = session {
+            request = request.header(COOKIE, format!("daghep_session={session}"));
+        }
+        let response = call(&self.app, request.body(Body::empty()).unwrap()).await;
+        let status = response.status();
+        assert_eq!(
+            response.headers().get("cache-control").unwrap(),
+            "private, no-store"
+        );
+        (status, json_body(response).await)
+    }
+
+    async fn join(&self, id: &str, session: Option<&str>) -> (StatusCode, Value) {
+        let mut request = Request::post(format!("/api/groups/{id}/join"));
+        if let Some(session) = session {
+            request = request.header(COOKIE, format!("daghep_session={session}"));
+        }
+        let response = call(&self.app, request.body(Body::empty()).unwrap()).await;
+        let status = response.status();
+        (status, json_body(response).await)
+    }
+
+    /// The request number in the organiser's latest notice ("nhận 7").
+    fn request_number(&self) -> i64 {
+        let sent = self.chat.sent.lock().unwrap();
+        let notice = &sent
+            .iter()
+            .rev()
+            .find(|(chat, text)| chat == HOST && text.contains("muốn vào nhóm"))
+            .expect("a join notice")
+            .1;
+        notice
+            .split("\"nhận ")
+            .nth(1)
+            .and_then(|rest| rest.split('"').next())
+            .and_then(|id| id.parse().ok())
+            .expect("a request number")
+    }
+}
+
+#[sqlx::test]
+async fn a_player_asks_to_join_and_the_organiser_approves_in_zalo(pool: PgPool) {
+    let bot = bot(pool, tonight());
+    let (id, share_id) = bot.public_group().await;
+
+    let (status, group) = bot.get_group(&id, None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(group["title"], "Ai chơi bóng rổ cuối tuần này?");
+    assert_eq!(group["membership"], Value::Null);
+    let (status, _) = bot.join(&id, None).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+
+    let kim = sign_in(&bot.app, "kim").await;
+    let (_, group) = bot.get_group(&id, Some(&kim)).await;
+    assert_eq!(group["membership"], json!({ "status": "none" }));
+    let before = bot.chat.sent.lock().unwrap().len();
+    let (status, body) = bot.join(&id, Some(&kim)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["membership"], json!({ "status": "pending" }));
+    let notice = bot.private_since(before, HOST).join("\n");
+    assert!(notice.contains("Player kim muốn vào nhóm"), "{notice}");
+    // Asking again changes nothing and does not notify twice.
+    let before = bot.chat.sent.lock().unwrap().len();
+    let (status, body) = bot.join(&id, Some(&kim)).await;
+    assert_eq!(
+        (status, &body["membership"]["status"]),
+        (StatusCode::OK, &json!("pending"))
+    );
+    assert!(bot.private_since(before, HOST).is_empty());
+
+    // Only the organiser decides.
+    let number = bot.request_number();
+    bot.link(OTHER, "nam").await;
+    let refused = bot
+        .say(OTHER, "PRIVATE", OTHER, &format!("nhận {number}"))
+        .await
+        .unwrap();
+    assert!(refused.contains("không thấy yêu cầu"), "{refused}");
+    let approved = bot
+        .say(HOST, "PRIVATE", HOST, &format!("nhận {number}"))
+        .await
+        .unwrap();
+    assert!(approved.contains("Đã nhận Player kim"), "{approved}");
+    assert!(
+        approved.contains("link nhóm: https://zalo.me/g/"),
+        "{approved}"
+    );
+
+    let (_, group) = bot.get_group(&id, Some(&kim)).await;
+    assert_eq!(
+        group["membership"],
+        json!({ "status": "member", "groupLink": null, "pollPath": format!("/p/{share_id}") })
+    );
+    let saved = bot
+        .in_group(HOST, "link nhóm: https://zalo.me/g/abc123")
+        .await
+        .unwrap();
+    assert!(saved.contains("Đã lưu link nhóm"), "{saved}");
+    let (_, group) = bot.get_group(&id, Some(&kim)).await;
+    assert_eq!(group["membership"]["groupLink"], "https://zalo.me/g/abc123");
+    // A second decision on the same request finds nothing.
+    let again = bot
+        .say(HOST, "PRIVATE", HOST, &format!("không nhận {number}"))
+        .await
+        .unwrap();
+    assert!(again.contains("không thấy yêu cầu"), "{again}");
+}
+
+#[sqlx::test]
+async fn people_seen_in_the_chat_and_the_organiser_are_members_already(pool: PgPool) {
+    let bot = bot(pool, tonight());
+    let (id, _) = bot.public_group().await;
+    let host = sign_in(&bot.app, "host").await;
+    let (_, group) = bot.get_group(&id, Some(&host)).await;
+    assert_eq!(group["membership"]["status"], "member");
+
+    let nam = bot.link(OTHER, "nam").await;
+    bot.in_group(OTHER, "CN có").await.unwrap();
+    let (_, group) = bot.get_group(&id, Some(&nam)).await;
+    assert_eq!(group["membership"]["status"], "member");
+    let (status, body) = bot.join(&id, Some(&nam)).await;
+    assert_eq!(
+        (status, &body["membership"]["status"]),
+        (StatusCode::OK, &json!("member"))
+    );
+}
+
+#[sqlx::test]
+async fn a_declined_player_may_ask_again_after_seven_days(pool: PgPool) {
+    let bot = bot(pool, tonight());
+    let (id, _) = bot.public_group().await;
+    let lan = sign_in(&bot.app, "lan").await;
+    bot.join(&id, Some(&lan)).await;
+    let number = bot.request_number();
+    let declined = bot
+        .say(HOST, "PRIVATE", HOST, &format!("không nhận {number}"))
+        .await
+        .unwrap();
+    assert!(declined.contains("chưa nhận Player lan"), "{declined}");
+
+    let (_, group) = bot.get_group(&id, Some(&lan)).await;
+    assert_eq!(group["membership"]["status"], "declined");
+    let (status, body) = bot.join(&id, Some(&lan)).await;
+    assert_eq!(
+        (status, body["error"].as_str()),
+        (StatusCode::CONFLICT, Some("too_soon"))
+    );
+    bot.clock.advance(Duration::days(7));
+    let (status, body) = bot.join(&id, Some(&lan)).await;
+    assert_eq!(
+        (status, &body["membership"]["status"]),
+        (StatusCode::OK, &json!("pending"))
+    );
+}
+
+#[sqlx::test]
+async fn join_requests_are_limited_per_player_and_only_for_public_groups(pool: PgPool) {
+    let bot = bot(pool.clone(), tonight());
+    let (id, _) = bot.public_group().await;
+    // Five more public groups by the same organiser in other chats.
+    for chat in ["zgr-a", "zgr-b", "zgr-c", "zgr-d", "zgr-e"] {
+        insert_series(&pool, chat, 1).await;
+    }
+    sqlx::query("UPDATE bot_poll_series SET public = true")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let ids: Vec<String> =
+        sqlx::query_scalar("SELECT public_id FROM bot_poll_series WHERE public_id <> $1")
+            .bind(&id)
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+    let kim = sign_in(&bot.app, "kim").await;
+    for other in &ids {
+        assert_eq!(bot.join(other, Some(&kim)).await.0, StatusCode::OK);
+    }
+    let (status, body) = bot.join(&id, Some(&kim)).await;
+    assert_eq!(
+        (status, body["error"].as_str()),
+        (StatusCode::TOO_MANY_REQUESTS, Some("too_many_requests"))
+    );
+
+    // Hidden groups and malformed ids are unknown.
+    bot.in_group(HOST, "ẩn bảng 1").await.unwrap();
+    assert_eq!(bot.get_group(&id, None).await.0, StatusCode::NOT_FOUND);
+    let lan = sign_in(&bot.app, "lan").await;
+    assert_eq!(bot.join(&id, Some(&lan)).await.0, StatusCode::NOT_FOUND);
+    assert_eq!(
+        bot.get_group("NOT-AN-ID", None).await.0,
+        StatusCode::NOT_FOUND
+    );
+}
+
+#[sqlx::test]
+async fn only_a_groups_organiser_sets_its_zalo_link(pool: PgPool) {
+    let bot = bot(pool, tonight());
+    bot.public_group().await;
+    bot.link(OTHER, "nam").await;
+    let refused = bot
+        .in_group(OTHER, "link nhóm: https://zalo.me/g/abc123")
+        .await
+        .unwrap();
+    assert!(refused.contains("Chỉ người tạo bảng"), "{refused}");
+    let missing = bot.in_group(HOST, "link nhóm").await.unwrap();
+    assert!(missing.contains("zalo.me/g/"), "{missing}");
 }
