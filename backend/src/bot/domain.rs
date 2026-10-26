@@ -500,7 +500,20 @@ pub struct BotCopy {
     pub every_day: String,
     pub on_weekdays: String,
     pub month_day: String,
+    pub answer_yes: String,
+    pub answer_no: String,
+    pub answer_day: String,
+    pub answer_saved: String,
+    pub answer_count: String,
+    pub answer_missing_days: String,
+    pub answer_not_in_poll: String,
+    pub answer_which_day: String,
+    pub answer_closed: String,
+    pub answer_link_sent: String,
+    pub answer_needs_link: String,
+    pub answer_hint: String,
     pub commands: Commands,
+    pub answer_words: super::answers::AnswerWords,
 }
 
 /// Words that mean a command (lower case, without trailing punctuation).

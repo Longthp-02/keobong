@@ -2037,3 +2037,126 @@ async fn a_second_group_proposing_the_same_venue_does_not_fail(pool: PgPool) {
         .unwrap();
     assert!(exists.contains("đã có rồi"), "{exists}");
 }
+
+#[sqlx::test]
+async fn players_answer_a_poll_in_the_chat_without_an_ai_read(pool: PgPool) {
+    let bot = bot(pool, tonight());
+    bot.link(HOST, "host").await;
+    let share_id = bot.add_weekend_poll().await;
+    bot.link(OTHER, "nam").await;
+    let reads = bot.reader.calls.lock().unwrap().len();
+
+    let reply = bot
+        .in_group(OTHER, "tui muốn đăng ký chơi bóng rổ chủ nhật")
+        .await
+        .unwrap();
+    assert!(reply.contains("Đã ghi Player nam"), "{reply}");
+    assert!(reply.contains("Chủ nhật 04/10 có"), "{reply}");
+    assert!(reply.contains("Chủ nhật 04/10: 1 người"), "{reply}");
+    assert!(reply.contains("chưa chọn Thứ 7 03/10"), "{reply}");
+    let (_, poll) = bot.get_poll(&share_id, None).await;
+    assert_eq!(
+        poll["players"],
+        json!([{ "name": "Player nam", "answers": { "2099-10-04": true } }])
+    );
+
+    // A later answer changes the days it names.
+    let reply = bot.in_group(OTHER, "T7 có, CN không").await.unwrap();
+    assert!(
+        reply.contains("Thứ 7 03/10 có, Chủ nhật 04/10 không"),
+        "{reply}"
+    );
+    assert!(!reply.contains("chưa chọn"), "{reply}");
+    let (_, poll) = bot.get_poll(&share_id, None).await;
+    assert_eq!(
+        poll["players"][0]["answers"],
+        json!({ "2099-10-03": true, "2099-10-04": false })
+    );
+    assert_eq!(bot.reader.calls.lock().unwrap().len(), reads, "no AI read");
+
+    let reply = bot.in_group(OTHER, "T6 có").await.unwrap();
+    assert!(
+        reply.contains("chỉ có Thứ 7 03/10, Chủ nhật 04/10"),
+        "{reply}"
+    );
+    let reply = bot.in_group(OTHER, "đăng ký nha").await.unwrap();
+    assert!(reply.contains("ngày nào"), "{reply}");
+    assert!(
+        reply.contains("@Bot DaGhep Thứ 7 có, Chủ nhật không"),
+        "{reply}"
+    );
+}
+
+#[sqlx::test]
+async fn an_unlinked_player_answering_in_the_chat_gets_the_link_privately(pool: PgPool) {
+    let bot = bot(pool, tonight());
+    bot.link(HOST, "host").await;
+    let share_id = bot.add_weekend_poll().await;
+    let before = bot.chat.sent.lock().unwrap().len();
+
+    let reply = bot.in_group(OTHER, "CN có").await.unwrap();
+    assert!(reply.contains("nhắn riêng"), "{reply}");
+    assert!(
+        reply.contains(&format!("{FRONTEND}/p/{share_id}")),
+        "{reply}"
+    );
+    let private = bot.private_since(before, OTHER);
+    assert_eq!(private.len(), 1);
+    assert!(private[0].contains("/bot/link?code="), "{}", private[0]);
+    let (_, poll) = bot.get_poll(&share_id, None).await;
+    assert_eq!(poll["players"], json!([]));
+
+    // Once linked, the same words are saved.
+    bot.link(OTHER, "nam").await;
+    let reply = bot.in_group(OTHER, "CN có").await.unwrap();
+    assert!(reply.contains("Đã ghi"), "{reply}");
+}
+
+#[sqlx::test]
+async fn without_an_open_poll_answer_words_are_read_as_usual(pool: PgPool) {
+    let bot = bot(pool, RawDraft::default());
+    bot.link(HOST, "host").await;
+    let reply = bot.in_group(HOST, "đăng ký chơi chủ nhật").await.unwrap();
+    assert!(reply.contains("chưa thấy thông tin kèo"), "{reply}");
+    assert!(reply.contains("@Bot DaGhep help"), "{reply}");
+    assert_eq!(bot.reader.calls.lock().unwrap().len(), 1);
+}
+
+#[sqlx::test]
+async fn chatter_next_to_an_open_poll_gets_how_to_answer_it(pool: PgPool) {
+    let bot = bot(pool, RawDraft::default());
+    bot.link(HOST, "host").await;
+    let share_id = bot.add_weekend_poll().await;
+    let reply = bot.in_group(HOST, "haizzz").await.unwrap();
+    assert!(
+        reply.contains("@Bot DaGhep Thứ 7 có, Chủ nhật không"),
+        "{reply}"
+    );
+    assert!(
+        reply.contains(&format!("{FRONTEND}/p/{share_id}")),
+        "{reply}"
+    );
+}
+
+#[sqlx::test]
+async fn posted_polls_and_nudges_show_how_to_answer_in_the_chat(pool: PgPool) {
+    let bot = bot(pool, tonight());
+    bot.link(HOST, "host").await;
+    bot.poll_answer(Some(weekend_poll()));
+    bot.in_group(HOST, "tạo bảng điểm danh bóng rổ T7, CN")
+        .await
+        .unwrap();
+    let posted = bot.in_group(HOST, "ok").await.unwrap();
+    assert!(
+        posted.contains("@Bot DaGhep Thứ 7 có, Chủ nhật không"),
+        "{posted}"
+    );
+    // 20:00 in Ho Chi Minh City, the default nudge time.
+    bot.clock.advance(Duration::hours(13));
+    assert_eq!(bot.run_nudges().await, 1);
+    let nudge = bot.chat.sent.lock().unwrap().last().unwrap().1.clone();
+    assert!(
+        nudge.contains("@Bot DaGhep Thứ 7 có, Chủ nhật không"),
+        "{nudge}"
+    );
+}

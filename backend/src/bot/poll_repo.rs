@@ -322,6 +322,24 @@ impl PollRepository for PgBotRepository {
         row.map(poll_from_row).transpose()
     }
 
+    async fn open_polls(
+        &self,
+        chat_id: &str,
+        now: DateTime<Utc>,
+    ) -> Result<Vec<Poll>, PollRepoError> {
+        let rows: Vec<PollRow> = sqlx::query_as(&format!(
+            "SELECT {POLL_COLUMNS} FROM bot_polls
+             WHERE chat_id = $1 AND closes_at > $2
+             ORDER BY created_at DESC, id DESC"
+        ))
+        .bind(chat_id)
+        .bind(now)
+        .fetch_all(self.pool())
+        .await
+        .map_err(poll_error)?;
+        rows.into_iter().map(poll_from_row).collect()
+    }
+
     async fn answers(&self, poll_id: i64) -> Result<Vec<PollAnswer>, PollRepoError> {
         let rows: Vec<(i64, Option<String>, NaiveDate, bool)> = sqlx::query_as(
             "SELECT a.user_id, u.display_name, a.day, a.attending

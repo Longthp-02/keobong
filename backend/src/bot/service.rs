@@ -7,6 +7,7 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use chrono::{DateTime, Datelike, Duration, Utc};
 use sha2::{Digest, Sha256};
 
+use super::answers::{AnswerIntent, ResolveError, read_answer};
 use super::domain::{
     BotDraft, BotRepository, COPY, ChatKind, ChatReply, Command, DEFAULT_LEVEL_MAX_TENTHS,
     DEFAULT_LEVEL_MIN_TENTHS, DEFAULT_MATCH_TYPE, DRAFT_MINUTES, Incoming, LINK_CODE_MINUTES,
@@ -14,8 +15,9 @@ use super::domain::{
 };
 use super::maps::{MapsLocator, find_maps_link};
 use super::polls::{
-    MAX_NAMES_IN_NUDGE, MAX_SERIES_LATE_HOURS, MEMBER_DAYS, PendingPoll, Poll, PollGroup, PollPlan,
-    PollReader, PollRepository, PollRequest, PollSeries, RawPoll, first_week, tally, weekday_bits,
+    AnswerOutcome, MAX_NAMES_IN_NUDGE, MAX_SERIES_LATE_HOURS, MEMBER_DAYS, PendingPoll, Poll,
+    PollAnswer, PollGroup, PollPlan, PollReader, PollRepository, PollRequest, PollSeries, RawPoll,
+    first_week, tally, weekday_bits,
 };
 use super::reminders::{
     EVERY_DAY, MAX_LATE_MINUTES, PendingReminder, ReminderReader, ReminderRequest, Repeat, Schedule,
@@ -270,11 +272,17 @@ async fn describe<B, D, M, P>(
     now: DateTime<Utc>,
 ) -> Result<String, BotError>
 where
-    B: BotRepository,
+    B: BotRepository + PollRepository,
     D: DraftRepository,
     M: MatchRepository,
     P: PayoutRepository,
 {
+    // A player answering the chat's poll ("T7 có, CN không"): no AI read.
+    if let Some(intent) = read_answer(text)
+        && let Some(reply) = answer_in_chat(ctx, message, &intent, mention, now).await?
+    {
+        return Ok(reply);
+    }
     let Some(user) = ctx
         .bot
         .linked_user(&message.sender_id)
@@ -313,6 +321,22 @@ where
         Err(ReadDraftError::Storage(error)) => return Err(BotError(error)),
     };
     if draft == MatchDraft::default() {
+        // Next to an open poll, chatter is most likely a player unsure how to answer.
+        let polls = ctx
+            .bot
+            .open_polls(&message.chat_id, now)
+            .await
+            .map_err(fail)?;
+        if let Some(poll) = polls.first() {
+            return Ok(fill(
+                &COPY.answer_hint,
+                &[
+                    ("mention", mention),
+                    ("example", &answer_example(&poll.plan)),
+                    ("url", &poll_url(ctx.frontend_origin, poll)),
+                ],
+            ));
+        }
         return Ok(fill(&COPY.not_a_match, &[("mention", mention)]));
     }
     let venues = matches::service::venues(ctx.matches).await.map_err(fail)?;
@@ -902,7 +926,7 @@ where
     else {
         return Ok(COPY.poll_limit.clone());
     };
-    let mut reply = posted_text(ctx.frontend_origin, &poll);
+    let mut reply = posted_text(ctx.frontend_origin, &poll, mention);
     if pending.weekly {
         let series = PollSeries {
             id: 0,
@@ -1369,12 +1393,14 @@ fn asks_weekly(text: &str) -> bool {
         .any(|words| text.contains(words.as_str()))
 }
 
-fn posted_text(frontend_origin: &str, poll: &Poll) -> String {
+fn posted_text(frontend_origin: &str, poll: &Poll, mention: &str) -> String {
     fill(
         &COPY.poll_posted,
         &[
             ("title", &poll.plan.title),
             ("days", &days_line(&poll.plan)),
+            ("mention", mention),
+            ("example", &answer_example(&poll.plan)),
             ("url", &poll_url(frontend_origin, poll)),
         ],
     )
@@ -1461,6 +1487,7 @@ pub async fn run_due_series<B: PollRepository>(
     clock: &dyn Clock,
     chat: &dyn ChatReply,
     frontend_origin: &str,
+    bot_name: &str,
 ) -> Result<usize, BotError> {
     let now = clock.now();
     let due = bot.claim_due_series(now).await.map_err(fail)?;
@@ -1503,7 +1530,10 @@ pub async fn run_due_series<B: PollRepository>(
             }
         };
         let delivered = match chat
-            .send(&poll.chat_id, &posted_text(frontend_origin, &poll))
+            .send(
+                &poll.chat_id,
+                &posted_text(frontend_origin, &poll, &format!("@{bot_name} ")),
+            )
             .await
         {
             Ok(()) => true,
@@ -1540,6 +1570,174 @@ where
         }
         Err(error) => Err(fail(error)),
     }
+}
+
+/// How to answer a poll in the chat, from its first days ("Thứ 7 có, Chủ nhật không").
+fn answer_example(plan: &PollPlan) -> String {
+    plan.days
+        .iter()
+        .take(2)
+        .zip([&COPY.answer_yes, &COPY.answer_no])
+        .map(|(day, answer)| {
+            let weekday = COPY
+                .weekdays
+                .get(day.weekday().num_days_from_sunday() as usize)
+                .map_or("", String::as_str);
+            format!("{weekday} {answer}")
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// Saves a poll answer typed in the chat. `None` when the chat has no open poll,
+/// so the message is read as usual.
+async fn answer_in_chat<B, D, M, P>(
+    ctx: &BotContext<'_, B, D, M, P>,
+    message: &Incoming,
+    intent: &AnswerIntent,
+    mention: &str,
+    now: DateTime<Utc>,
+) -> Result<Option<String>, BotError>
+where
+    B: BotRepository + PollRepository,
+{
+    let polls = ctx
+        .bot
+        .open_polls(&message.chat_id, now)
+        .await
+        .map_err(fail)?;
+    let today = local_date(now);
+    // The newest poll the answer fits; otherwise explain with the newest poll.
+    let mut refusal: Option<(&Poll, ResolveError)> = None;
+    let found = polls
+        .iter()
+        .find_map(|poll| match intent.resolve(&poll.plan.days, today) {
+            Ok(answers) => Some((poll, answers)),
+            Err(error) => {
+                refusal.get_or_insert((poll, error));
+                None
+            }
+        });
+    let Some((poll, answers)) = found else {
+        let Some((poll, error)) = refusal else {
+            return Ok(None);
+        };
+        let example = answer_example(&poll.plan);
+        return Ok(Some(match error {
+            ResolveError::NotInPoll => not_in_poll(poll, mention),
+            ResolveError::WhichDay => fill(
+                &COPY.answer_which_day,
+                &[("mention", mention), ("example", &example)],
+            ),
+        }));
+    };
+    let url = poll_url(ctx.frontend_origin, poll);
+    let Some(user) = ctx
+        .bot
+        .linked_user(&message.sender_id)
+        .await
+        .map_err(fail)?
+    else {
+        if message.chat_kind == ChatKind::Group && send_link_privately(ctx, message, now).await? {
+            return Ok(Some(fill(&COPY.answer_link_sent, &[("url", &url)])));
+        }
+        return Ok(Some(fill(
+            &COPY.answer_needs_link,
+            &[("bot", ctx.bot_name), ("url", &url)],
+        )));
+    };
+    match ctx
+        .bot
+        .answer(&poll.share_id, user, &answers, now)
+        .await
+        .map_err(fail)?
+    {
+        AnswerOutcome::Saved => {}
+        AnswerOutcome::UnknownPoll | AnswerOutcome::Closed => {
+            return Ok(Some(COPY.answer_closed.clone()));
+        }
+        AnswerOutcome::UnknownDay => return Ok(Some(not_in_poll(poll, mention))),
+    }
+    let all = ctx.bot.answers(poll.id).await.map_err(fail)?;
+    let mine: Vec<&PollAnswer> = all.iter().filter(|answer| answer.user == user).collect();
+    let name = mine
+        .iter()
+        .find_map(|answer| answer.name.as_deref())
+        .unwrap_or(&COPY.player_name);
+    let said = answers
+        .iter()
+        .map(|(day, attending)| {
+            let answer = if *attending {
+                &COPY.answer_yes
+            } else {
+                &COPY.answer_no
+            };
+            fill(
+                &COPY.answer_day,
+                &[("day", &day_label(*day)), ("answer", answer)],
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    let counts = poll
+        .plan
+        .days
+        .iter()
+        .map(|day| {
+            let yes = all
+                .iter()
+                .filter(|answer| answer.day == *day && answer.attending)
+                .count();
+            fill(
+                &COPY.answer_count,
+                &[("day", &day_label(*day)), ("n", &yes.to_string())],
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(" · ");
+    let unanswered: Vec<String> = poll
+        .plan
+        .days
+        .iter()
+        .filter(|day| !mine.iter().any(|answer| answer.day == **day))
+        .map(|day| day_label(*day))
+        .collect();
+    let missing = if unanswered.is_empty() {
+        String::new()
+    } else {
+        fill(
+            &COPY.answer_missing_days,
+            &[("days", &unanswered.join(", "))],
+        )
+    };
+    Ok(Some(fill(
+        &COPY.answer_saved,
+        &[
+            ("name", name),
+            ("answers", &said),
+            ("counts", &counts),
+            ("missing", &missing),
+        ],
+    )))
+}
+
+fn not_in_poll(poll: &Poll, mention: &str) -> String {
+    let days = poll
+        .plan
+        .days
+        .iter()
+        .map(|day| day_label(*day))
+        .collect::<Vec<_>>()
+        .join(", ");
+    fill(
+        &COPY.answer_not_in_poll,
+        &[
+            ("title", &poll.plan.title),
+            ("days", &days),
+            ("mention", mention),
+            ("example", &answer_example(&poll.plan)),
+        ],
+    )
 }
 
 fn poll_url(frontend_origin: &str, poll: &Poll) -> String {
@@ -1579,6 +1777,7 @@ pub async fn run_due_polls<B: PollRepository>(
     clock: &dyn Clock,
     chat: &dyn ChatReply,
     frontend_origin: &str,
+    bot_name: &str,
 ) -> Result<usize, BotError> {
     let now = clock.now();
     let due = bot.claim_due_nudges(now).await.map_err(fail)?;
@@ -1588,7 +1787,7 @@ pub async fn run_due_polls<B: PollRepository>(
             tracing::info!(poll = poll.id, "skipping a poll nudge that is too late");
             continue;
         }
-        let text = match nudge_text(bot, &poll, frontend_origin, now).await {
+        let text = match nudge_text(bot, &poll, frontend_origin, bot_name, now).await {
             Ok(text) => text,
             Err(error) => {
                 tracing::error!(error = %error, poll = poll.id, "could not build a poll nudge");
@@ -1609,6 +1808,7 @@ async fn nudge_text<B: PollRepository>(
     bot: &B,
     poll: &Poll,
     frontend_origin: &str,
+    bot_name: &str,
     now: DateTime<Utc>,
 ) -> Result<String, BotError> {
     let answers = bot.answers(poll.id).await.map_err(fail)?;
@@ -1666,6 +1866,8 @@ async fn nudge_text<B: PollRepository>(
             ("play", &play),
             ("counts", &counts),
             ("missing", &missing),
+            ("mention", &format!("@{bot_name} ")),
+            ("example", &answer_example(&poll.plan)),
             ("url", &poll_url(frontend_origin, poll)),
         ],
     ))
