@@ -1656,10 +1656,11 @@ where
                 })
                 .collect::<Vec<_>>()
                 .join("\n");
-            // Days already named: only the links help.
-            let template = match intent {
-                AnswerIntent::Days(_) => &COPY.answer_which_poll_links,
-                AnswerIntent::NoDay(_) => &COPY.answer_which_poll,
+            // The named day is in several polls: only the links help.
+            let template = if fits.len() > 1 {
+                &COPY.answer_which_poll_links
+            } else {
+                &COPY.answer_which_poll
             };
             return Ok(Some(fill(
                 template,

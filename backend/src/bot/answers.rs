@@ -27,7 +27,7 @@ pub struct AnswerWords {
     /// A part ending in one of these after a yes word is a question
     /// ("T7 chơi không").
     pub question_end: Vec<String>,
-    /// Playing words ("đá", "đánh"): no answer by themselves.
+    /// Playing words ("đá", "đánh"): a yes, except in a question ("T7 đá không").
     pub play: Vec<String>,
     /// Words an answer may also hold ("tui", "nha"). Any other word means the
     /// message is not an answer: a match post, a question or chatter.
@@ -70,7 +70,7 @@ enum Item {
     Yes,
     No,
     Break,
-    /// "đá", "đánh": no answer by itself, but "T7 đá không" is a question.
+    /// "đá", "đánh": a yes ("CN đá"), but "T7 đá không" is a question.
     Play,
     Filler,
 }
@@ -129,13 +129,15 @@ pub fn read_answer(text: &str) -> Option<AnswerIntent> {
                 .iter()
                 .filter(|(item, _)| *item != Item::Filler)
                 .collect();
-            // "T7 có CN không": a new day after a yes or no starts a new part.
+            // "T7 có CN không": a new day after a yes, no or play word starts a new part.
             let mut pieces: Vec<Vec<&(Item, &[String])>> = vec![Vec::new()];
             for entry in meaningful {
-                let current = pieces.last_mut().expect("never empty");
+                let Some(current) = pieces.last_mut() else {
+                    continue;
+                };
                 let answered = current
                     .iter()
-                    .any(|(item, _)| matches!(item, Item::Yes | Item::No));
+                    .any(|(item, _)| matches!(item, Item::Yes | Item::No | Item::Play));
                 if matches!(entry.0, Item::Day(_)) && answered {
                     pieces.push(vec![entry]);
                 } else {
@@ -201,15 +203,17 @@ fn read_part(items: &[&(Item, &[String])], words: &AnswerWords, segment: usize) 
         .collect();
     let answer = if items.iter().any(|(item, _)| *item == Item::No) {
         Some(false)
-    } else if items.iter().any(|(item, _)| *item == Item::Yes) {
+    } else if items
+        .iter()
+        .any(|(item, _)| matches!(item, Item::Yes | Item::Play))
+    {
+        // "CN đá": playing is a yes.
         Some(true)
     } else {
         None
     };
     Some(Part {
-        only_days: items
-            .iter()
-            .all(|(item, _)| matches!(item, Item::Day(_) | Item::Play)),
+        only_days: items.iter().all(|(item, _)| matches!(item, Item::Day(_))),
         days,
         answer,
         segment,
@@ -414,6 +418,25 @@ mod tests {
         assert_eq!(weekend("CN ko đi dc"), Ok(vec![(date(11, 1), false)]));
         assert_eq!(weekend("dạ ae T7 có"), Ok(vec![(date(10, 31), true)]));
         assert_eq!(read_answer("anh Huy T7 có"), None, "a name, not huỷ");
+    }
+
+    #[test]
+    fn a_day_with_a_play_word_is_a_yes() {
+        let sat_no_sun_yes = Ok(vec![(date(10, 31), false), (date(11, 1), true)]);
+        for text in [
+            "T7 nghỉ CN đá",
+            "T7 bận, CN đá",
+            "nghỉ T7, CN đá",
+            "T7 không đá, CN đá",
+            "T7 k, CN đá nhé",
+        ] {
+            assert_eq!(weekend(text), sat_no_sun_yes, "{text}");
+        }
+        assert_eq!(
+            weekend("T7 đá CN nghỉ"),
+            Ok(vec![(date(10, 31), true), (date(11, 1), false)])
+        );
+        assert_eq!(weekend("T7 đá"), Ok(vec![(date(10, 31), true)]));
     }
 
     #[test]
