@@ -28,6 +28,8 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal"] }
 tower-http = { version = "0.6", features = ["cors", "trace"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+# Chat answers: some keyboards send Vietnamese tone marks as separate characters.
+unicode-normalization = "0.1"
 
 [dev-dependencies]
 http-body-util = "0.1"

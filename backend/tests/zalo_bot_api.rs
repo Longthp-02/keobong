@@ -2160,3 +2160,50 @@ async fn posted_polls_and_nudges_show_how_to_answer_in_the_chat(pool: PgPool) {
         "{nudge}"
     );
 }
+
+#[sqlx::test]
+async fn a_match_post_next_to_an_open_poll_is_still_read_as_a_match(pool: PgPool) {
+    let bot = bot(pool, tonight());
+    bot.link(HOST, "host").await;
+    bot.add_weekend_poll().await;
+    let reads = bot.reader.calls.lock().unwrap().len();
+    let reply = bot
+        .in_group(
+            HOST,
+            "CN này chơi sân Lakeview 7 giờ tối, 5 người, 50 nghìn",
+        )
+        .await
+        .unwrap();
+    assert!(!reply.contains("Đã ghi"), "{reply}");
+    assert_eq!(bot.reader.calls.lock().unwrap().len(), reads + 1);
+}
+
+#[sqlx::test]
+async fn with_two_open_polls_an_answer_goes_only_where_it_clearly_fits(pool: PgPool) {
+    let bot = bot(pool, tonight());
+    bot.link(HOST, "host").await;
+    let weekend = bot.add_weekend_poll().await;
+    bot.poll_answer(Some(RawPoll {
+        title: Some("Thứ 4 đá không?".to_owned()),
+        days: vec!["2099-10-07".to_owned()],
+        ..weekend_poll()
+    }));
+    bot.in_group(HOST, "tạo bảng điểm danh thứ 4")
+        .await
+        .unwrap();
+    let wednesday = poll_share_id(&bot.in_group(HOST, "ok").await.unwrap());
+    bot.link(OTHER, "nam").await;
+
+    // No day named: the newest poll has one day, but there are two polls.
+    let reply = bot.in_group(OTHER, "đăng ký").await.unwrap();
+    assert!(reply.contains(&format!("/p/{weekend}")), "{reply}");
+    assert!(reply.contains(&format!("/p/{wednesday}")), "{reply}");
+    let (_, poll) = bot.get_poll(&wednesday, None).await;
+    assert_eq!(poll["players"], json!([]));
+
+    // Saturday is only in the weekend poll.
+    let reply = bot.in_group(OTHER, "T7 có").await.unwrap();
+    assert!(reply.contains("Đã ghi"), "{reply}");
+    let (_, poll) = bot.get_poll(&weekend, None).await;
+    assert_eq!(poll["players"][0]["answers"], json!({ "2099-10-03": true }));
+}

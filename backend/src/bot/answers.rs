@@ -24,8 +24,12 @@ pub struct AnswerWords {
     pub strong: Vec<String>,
     /// Words that start a new part of the answer ("T7 có còn CN không").
     pub breaks: Vec<String>,
-    /// Phrases of a question or a match post, not an answer ("ai", "kèo").
-    pub not_answer: Vec<String>,
+    /// A part ending in one of these after a yes word is a question
+    /// ("T7 chơi không").
+    pub question_end: Vec<String>,
+    /// Words an answer may also hold ("tui", "nha"). Any other word means the
+    /// message is not an answer: a match post, a question or chatter.
+    pub filler: Vec<String>,
 }
 
 /// A day a player named.
@@ -57,61 +61,168 @@ pub enum ResolveError {
     WhichDay,
 }
 
+/// What one known phrase in an answer is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Item {
+    Day(DayRef),
+    Yes,
+    No,
+    Break,
+    Filler,
+}
+
+/// One part of an answer: the days it names and what it says about them.
+struct Part {
+    days: Vec<DayRef>,
+    answer: Option<bool>,
+    /// Only days (and filler): a list like "T7, CN" that shares a neighbour's answer.
+    only_days: bool,
+    /// Parts after a break word ("còn") never share an answer with earlier ones.
+    segment: usize,
+}
+
 /// Reads a chat message as a poll answer; `None` when it is not one.
 ///
-/// The message is cut into parts at commas and break words; each part may name
-/// days and say yes or no ("không" wins over "có"). A part naming days without
-/// a yes or no takes the one before it ("đăng ký T7, CN"), or else the one after
-/// it ("T7, CN mình nghỉ").
+/// Every word must be a day, a yes or no word, a break word or filler, so match
+/// posts, questions and chatter are not taken for answers. The message is cut
+/// into parts at commas and break words; "không" wins over "có" in a part. A
+/// part that only names days takes the answer of the part before it ("đăng ký
+/// T7, CN"), or else after it ("T7, CN mình nghỉ"), but not across a break word.
 pub fn read_answer(text: &str) -> Option<AnswerIntent> {
+    use unicode_normalization::UnicodeNormalization;
     let words = &COPY.answer_words;
-    let text = text.to_lowercase();
+    let text: String = text.nfc().collect::<String>().to_lowercase();
     if text.contains('?') {
         return None;
     }
-    let all = tokens(&text);
-    // "19h", "60k", "19:00": a match post or a question about times.
-    let timeish = |token: &&str| {
-        token.starts_with(|c: char| c.is_ascii_digit())
-            && token.chars().any(|c| c.is_alphabetic() || c == ':')
-    };
-    if all.iter().any(timeish) || has_phrase(&all, &words.not_answer) {
-        return None;
-    }
-    let mut parts: Vec<(Vec<DayRef>, Option<bool>)> = Vec::new();
+    let table = phrase_table(words);
+    let mut parts: Vec<Part> = Vec::new();
+    let mut segment = 0;
     for piece in text.split([',', ';', '\n', '.', '!']) {
-        let piece = tokens(piece);
-        for part in piece.split(|token| words.breaks.iter().any(|word| word == token)) {
-            if part.is_empty() {
+        let tokens = tokens(piece);
+        let mut items: Vec<(Item, &[String])> = Vec::new();
+        let mut index = 0;
+        while index < tokens.len() {
+            let found = table.iter().find(|(phrase, _)| {
+                tokens[index..].len() >= phrase.len()
+                    && phrase.iter().zip(&tokens[index..]).all(|(a, b)| a == b)
+            });
+            if let Some((phrase, item)) = found {
+                items.push((*item, phrase.as_slice()));
+                index += phrase.len();
+            } else {
+                // Any other word: not an answer.
+                let day = date_of(tokens[index])?;
+                items.push((Item::Day(day), &[]));
+                index += 1;
+            }
+        }
+        for (position, chunk) in items.split(|(item, _)| *item == Item::Break).enumerate() {
+            if position > 0 {
+                segment += 1;
+            }
+            let meaningful: Vec<&(Item, &[String])> = chunk
+                .iter()
+                .filter(|(item, _)| *item != Item::Filler)
+                .collect();
+            if meaningful.is_empty() {
                 continue;
             }
-            let answer = if has_phrase(part, &words.no) {
+            // "T7 chơi không": a yes word, then a question word at the end.
+            let question = matches!(meaningful.last(), Some((Item::No, phrase))
+                if words.question_end.iter().any(|end| phrase.len() == 1 && phrase[0] == *end))
+                && meaningful.iter().any(|(item, _)| *item == Item::Yes);
+            if question {
+                return None;
+            }
+            let days: Vec<DayRef> = meaningful
+                .iter()
+                .filter_map(|(item, _)| match item {
+                    Item::Day(day) => Some(*day),
+                    _ => None,
+                })
+                .collect();
+            let answer = if meaningful.iter().any(|(item, _)| *item == Item::No) {
                 Some(false)
-            } else if has_phrase(part, &words.yes) {
+            } else if meaningful.iter().any(|(item, _)| *item == Item::Yes) {
                 Some(true)
             } else {
                 None
             };
-            parts.push((days_in(part, words), answer));
+            parts.push(Part {
+                only_days: days.len() == meaningful.len(),
+                days,
+                answer,
+                segment,
+            });
         }
     }
-    if parts.iter().all(|(days, _)| days.is_empty()) {
-        let mut answers = parts.iter().filter_map(|(_, answer)| *answer);
+    if parts.iter().all(|part| part.days.is_empty()) {
+        let mut answers = parts.iter().filter_map(|part| part.answer);
         let first = answers.next()?;
         let agreed = answers.all(|answer| answer == first);
-        return (agreed && has_phrase(&all, &words.strong)).then_some(AnswerIntent::NoDay(first));
+        return (agreed && has_phrase(&tokens(&text), &words.strong))
+            .then_some(AnswerIntent::NoDay(first));
     }
     let mut result = Vec::new();
-    for (index, (days, answer)) in parts.iter().enumerate() {
-        if days.is_empty() {
+    for (index, part) in parts.iter().enumerate() {
+        if part.days.is_empty() {
             continue;
         }
-        let answer = answer
-            .or_else(|| parts[..index].iter().rev().find_map(|(_, answer)| *answer))
-            .or_else(|| parts[index + 1..].iter().find_map(|(_, answer)| *answer))?;
-        result.extend(days.iter().map(|day| (*day, answer)));
+        let shared = |other: &Part| (other.segment == part.segment).then_some(other.answer)?;
+        let answer = part.answer.or_else(|| {
+            part.only_days
+                .then(|| {
+                    parts[..index]
+                        .iter()
+                        .rev()
+                        .find_map(shared)
+                        .or_else(|| parts[index + 1..].iter().find_map(shared))
+                })
+                .flatten()
+        })?;
+        result.extend(part.days.iter().map(|day| (*day, answer)));
     }
     Some(AnswerIntent::Days(result))
+}
+
+/// Every known phrase as words, longest first; at equal length a no word wins
+/// over a yes word, which wins over a day.
+fn phrase_table(words: &AnswerWords) -> Vec<(Vec<String>, Item)> {
+    const WEEKDAYS: [Weekday; 7] = [
+        Weekday::Mon,
+        Weekday::Tue,
+        Weekday::Wed,
+        Weekday::Thu,
+        Weekday::Fri,
+        Weekday::Sat,
+        Weekday::Sun,
+    ];
+    let mut groups: Vec<(&Vec<String>, Item)> = vec![
+        (&words.no, Item::No),
+        (&words.yes, Item::Yes),
+        (&words.all_days, Item::Day(DayRef::All)),
+        (&words.today, Item::Day(DayRef::Today)),
+        (&words.tomorrow, Item::Day(DayRef::Tomorrow)),
+    ];
+    for (names, weekday) in words.weekdays.iter().zip(WEEKDAYS) {
+        groups.push((names, Item::Day(DayRef::Weekday(weekday))));
+    }
+    groups.push((&words.breaks, Item::Break));
+    groups.push((&words.filler, Item::Filler));
+    let mut table: Vec<(Vec<String>, Item)> = groups
+        .into_iter()
+        .flat_map(|(phrases, item)| {
+            phrases.iter().map(move |phrase| {
+                let words: Vec<String> = phrase.split_whitespace().map(str::to_owned).collect();
+                (words, item)
+            })
+        })
+        .filter(|(words, _)| !words.is_empty())
+        .collect();
+    // Stable: equal lengths keep the order above.
+    table.sort_by_key(|(words, _)| std::cmp::Reverse(words.len()));
+    table
 }
 
 /// Lower-case words, without punctuation around them; "+1" and "31/10" stay whole.
@@ -131,56 +242,6 @@ fn has_phrase(tokens: &[&str], phrases: &[String]) -> bool {
                 .windows(phrase.len())
                 .any(|window| window == phrase.as_slice())
     })
-}
-
-/// The days a part names, longest phrase first at each word.
-fn days_in(tokens: &[&str], words: &AnswerWords) -> Vec<DayRef> {
-    const WEEKDAYS: [Weekday; 7] = [
-        Weekday::Mon,
-        Weekday::Tue,
-        Weekday::Wed,
-        Weekday::Thu,
-        Weekday::Fri,
-        Weekday::Sat,
-        Weekday::Sun,
-    ];
-    let mut names: Vec<(Vec<&str>, DayRef)> = Vec::new();
-    for (names_of_day, weekday) in words.weekdays.iter().zip(WEEKDAYS) {
-        names.extend(
-            names_of_day
-                .iter()
-                .map(|name| (name.split_whitespace().collect(), DayRef::Weekday(weekday))),
-        );
-    }
-    for (list, day) in [
-        (&words.all_days, DayRef::All),
-        (&words.today, DayRef::Today),
-        (&words.tomorrow, DayRef::Tomorrow),
-    ] {
-        names.extend(
-            list.iter()
-                .map(|name| (name.split_whitespace().collect(), day)),
-        );
-    }
-    names.retain(|(name, _)| !name.is_empty());
-    names.sort_by_key(|(name, _)| std::cmp::Reverse(name.len()));
-    let mut days = Vec::new();
-    let mut index = 0;
-    while index < tokens.len() {
-        if let Some((name, day)) = names
-            .iter()
-            .find(|(name, _)| tokens[index..].starts_with(name))
-        {
-            days.push(*day);
-            index += name.len();
-            continue;
-        }
-        if let Some(day) = date_of(tokens[index]) {
-            days.push(day);
-        }
-        index += 1;
-    }
-    days
 }
 
 /// "31/10" as a day and month.
@@ -208,7 +269,7 @@ impl AnswerIntent {
         let mut result: Vec<(NaiveDate, bool)> = Vec::new();
         for (day, answer) in parts {
             let matched: Vec<NaiveDate> = match day {
-                DayRef::All => days.to_vec(),
+                DayRef::All => days.iter().copied().filter(|day| *day >= today).collect(),
                 DayRef::Today => days.iter().copied().filter(|day| *day == today).collect(),
                 DayRef::Tomorrow => {
                     let tomorrow = today + Duration::days(1);
@@ -220,7 +281,7 @@ impl AnswerIntent {
                 DayRef::Date(date, month) => days
                     .iter()
                     .copied()
-                    .filter(|day| day.day() == *date && day.month() == *month)
+                    .filter(|day| day.day() == *date && day.month() == *month && *day >= today)
                     .collect(),
                 // The first coming one, when a poll spans two weeks.
                 DayRef::Weekday(weekday) => days
@@ -299,9 +360,38 @@ mod tests {
     }
 
     #[test]
+    fn cancelling_is_a_no_and_this_week_is_not_today() {
+        assert_eq!(weekend("huỷ đăng ký CN"), Ok(vec![(date(11, 1), false)]));
+        assert_eq!(weekend("hủy đăng ký CN"), Ok(vec![(date(11, 1), false)]));
+        assert_eq!(weekend("tuan nay T7 co"), Ok(vec![(date(10, 31), true)]));
+        assert_eq!(weekend("tuần này T7 có"), Ok(vec![(date(10, 31), true)]));
+    }
+
+    #[test]
+    fn decomposed_accents_read_like_composed_ones() {
+        // "không" typed with separate tone marks, as some keyboards send it.
+        let decomposed = "T7 kho\u{302}ng";
+        assert_eq!(weekend(decomposed), Ok(vec![(date(10, 31), false)]));
+    }
+
+    #[test]
+    fn days_already_past_are_not_answered() {
+        let intent = read_answer("cả 2 ngày có").unwrap();
+        assert_eq!(
+            intent.resolve(&[date(10, 31), date(11, 1)], date(11, 1)),
+            Ok(vec![(date(11, 1), true)])
+        );
+        let intent = read_answer("31/10 có").unwrap();
+        assert_eq!(
+            intent.resolve(&[date(10, 31), date(11, 1)], date(11, 1)),
+            Err(ResolveError::NotInPoll)
+        );
+    }
+
+    #[test]
     fn days_outside_the_poll_are_refused() {
         assert_eq!(weekend("T6 có"), Err(ResolveError::NotInPoll));
-        assert_eq!(weekend("nay có"), Err(ResolveError::NotInPoll));
+        assert_eq!(weekend("hôm nay có"), Err(ResolveError::NotInPoll));
     }
 
     #[test]
@@ -347,6 +437,19 @@ mod tests {
             "",
             "tìm kèo",
             "T7",
+            // Review 2026-10-26: posts, questions and unsure replies.
+            "CN này chơi sân Lakeview 7 giờ tối, 5 người, 50 nghìn",
+            "T7 chơi không",
+            "T7 có chơi không",
+            "CN đi không",
+            "T7 có, CN chưa biết",
+            "T7 có còn CN để xem",
+            "T7 chưa được",
+            "T7 có thể",
+            "chủ nhật đi đá ở đâu",
+            "T7 mấy giờ vào",
+            "CN cho mình +1 bạn nữa",
+            "T7 60 k",
         ] {
             assert_eq!(read_answer(text), None, "{text}");
         }

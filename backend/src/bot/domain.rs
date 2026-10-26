@@ -512,6 +512,8 @@ pub struct BotCopy {
     pub answer_link_sent: String,
     pub answer_needs_link: String,
     pub answer_hint: String,
+    pub answer_which_poll: String,
+    pub answer_poll_link: String,
     pub commands: Commands,
     pub answer_words: super::answers::AnswerWords,
 }

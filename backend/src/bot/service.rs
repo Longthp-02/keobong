@@ -1606,30 +1606,61 @@ where
         .open_polls(&message.chat_id, now)
         .await
         .map_err(fail)?;
+    let Some(newest) = polls.first() else {
+        return Ok(None);
+    };
     let today = local_date(now);
-    // The newest poll the answer fits; otherwise explain with the newest poll.
-    let mut refusal: Option<(&Poll, ResolveError)> = None;
-    let found = polls
-        .iter()
-        .find_map(|poll| match intent.resolve(&poll.plan.days, today) {
-            Ok(answers) => Some((poll, answers)),
-            Err(error) => {
-                refusal.get_or_insert((poll, error));
-                None
-            }
-        });
-    let Some((poll, answers)) = found else {
-        let Some((poll, error)) = refusal else {
-            return Ok(None);
-        };
-        let example = answer_example(&poll.plan);
-        return Ok(Some(match error {
-            ResolveError::NotInPoll => not_in_poll(poll, mention),
-            ResolveError::WhichDay => fill(
-                &COPY.answer_which_day,
-                &[("mention", mention), ("example", &example)],
-            ),
-        }));
+    // An answer goes to a poll only when it clearly fits one: with no day named,
+    // only when the chat has one poll; with days, only the one poll they fit.
+    let fits: Vec<(&Poll, Vec<(chrono::NaiveDate, bool)>)> = match intent {
+        AnswerIntent::NoDay(_) if polls.len() > 1 => Vec::new(),
+        _ => polls
+            .iter()
+            .filter_map(|poll| {
+                intent
+                    .resolve(&poll.plan.days, today)
+                    .ok()
+                    .map(|answers| (poll, answers))
+            })
+            .collect(),
+    };
+    let (poll, answers) = match fits.as_slice() {
+        [(poll, answers)] => (*poll, answers.clone()),
+        [] if polls.len() == 1 => {
+            let error = intent
+                .resolve(&newest.plan.days, today)
+                .err()
+                .unwrap_or(ResolveError::WhichDay);
+            return Ok(Some(match error {
+                ResolveError::NotInPoll => not_in_poll(newest, mention),
+                ResolveError::WhichDay => fill(
+                    &COPY.answer_which_day,
+                    &[
+                        ("mention", mention),
+                        ("example", &answer_example(&newest.plan)),
+                    ],
+                ),
+            }));
+        }
+        _ => {
+            let links = polls
+                .iter()
+                .map(|poll| {
+                    fill(
+                        &COPY.answer_poll_link,
+                        &[
+                            ("title", &poll.plan.title),
+                            ("url", &poll_url(ctx.frontend_origin, poll)),
+                        ],
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            return Ok(Some(fill(
+                &COPY.answer_which_poll,
+                &[("n", &polls.len().to_string()), ("links", &links)],
+            )));
+        }
     };
     let url = poll_url(ctx.frontend_origin, poll);
     let Some(user) = ctx
