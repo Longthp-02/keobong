@@ -186,7 +186,12 @@
       "huỷ",
       "hủy",
       "huy",
-      "cancel"
+      "cancel",
+      "huỷ nha",
+      "hủy nha",
+      "huỷ nhé",
+      "hủy nhé",
+      "huy nha"
     ],
     "remind": [
       "nhắc",
@@ -408,7 +413,6 @@
       "no",
       "huỷ",
       "hủy",
-      "huy",
       "rút tên"
     ],
     "yes": [
@@ -434,7 +438,9 @@
       "duoc",
       "+1",
       "yes",
-      "vào"
+      "vào",
+      "đc",
+      "dc"
     ],
     "strong": [
       "đăng ký",
@@ -453,10 +459,7 @@
       "nghỉ",
       "vắng",
       "bận",
-      "rút",
-      "huỷ",
-      "hủy",
-      "huy"
+      "rút"
     ],
     "breaks": [
       "còn",
@@ -470,6 +473,12 @@
       "k",
       "hông",
       "hong"
+    ],
+    "play": [
+      "đá",
+      "da",
+      "đánh",
+      "danh"
     ],
     "filler": [
       "tui",
@@ -518,10 +527,6 @@
       "bong",
       "rổ",
       "ro",
-      "đá",
-      "da",
-      "đánh",
-      "danh",
       "ngày",
       "ngay",
       "buổi",
@@ -533,7 +538,11 @@
       "chieu",
       "tuần này",
       "tuan nay",
-      "này"
+      "này",
+      "ae",
+      "anh em",
+      "dạ"
     ]
-  }
+  },
+  "answerWhichPollLinks": "Nhóm đang có {n} bảng điểm danh cùng ngày đó. Bạn bấm vào bảng muốn trả lời nhé:\n{links}"
 }

@@ -2207,3 +2207,16 @@ async fn with_two_open_polls_an_answer_goes_only_where_it_clearly_fits(pool: PgP
     let (_, poll) = bot.get_poll(&weekend, None).await;
     assert_eq!(poll["players"][0]["answers"], json!({ "2099-10-03": true }));
 }
+
+#[sqlx::test]
+async fn a_day_in_two_open_polls_gets_the_links_only(pool: PgPool) {
+    let bot = bot(pool, tonight());
+    bot.link(HOST, "host").await;
+    let first = bot.add_weekend_poll().await;
+    let second = bot.add_weekend_poll().await;
+    bot.link(OTHER, "nam").await;
+    let reply = bot.in_group(OTHER, "CN có").await.unwrap();
+    assert!(reply.contains(&format!("/p/{first}")), "{reply}");
+    assert!(reply.contains(&format!("/p/{second}")), "{reply}");
+    assert!(!reply.contains("ghi rõ ngày"), "{reply}");
+}

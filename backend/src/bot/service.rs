@@ -1656,8 +1656,13 @@ where
                 })
                 .collect::<Vec<_>>()
                 .join("\n");
+            // Days already named: only the links help.
+            let template = match intent {
+                AnswerIntent::Days(_) => &COPY.answer_which_poll_links,
+                AnswerIntent::NoDay(_) => &COPY.answer_which_poll,
+            };
             return Ok(Some(fill(
-                &COPY.answer_which_poll,
+                template,
                 &[("n", &polls.len().to_string()), ("links", &links)],
             )));
         }

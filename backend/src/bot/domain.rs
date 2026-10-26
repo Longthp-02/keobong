@@ -513,6 +513,7 @@ pub struct BotCopy {
     pub answer_needs_link: String,
     pub answer_hint: String,
     pub answer_which_poll: String,
+    pub answer_which_poll_links: String,
     pub answer_poll_link: String,
     pub commands: Commands,
     pub answer_words: super::answers::AnswerWords,
@@ -601,6 +602,17 @@ mod tests {
             parse_command("@bot daghep OK", ChatKind::Group, BOT),
             Some(Command::Confirm)
         );
+    }
+
+    #[test]
+    fn cancel_may_end_with_a_friendly_word() {
+        for text in ["@Bot DaGhep huỷ nha", "@Bot DaGhep hủy nhé"] {
+            assert_eq!(
+                parse_command(text, ChatKind::Group, BOT),
+                Some(Command::Cancel),
+                "{text}"
+            );
+        }
     }
 
     #[test]
