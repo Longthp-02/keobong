@@ -1676,8 +1676,8 @@ fn answer_example(plan: &PollPlan) -> String {
         .join(", ")
 }
 
-/// Saves a poll answer typed in the chat. `None` when the chat has no open poll,
-/// so the message is read as usual.
+/// Saves a poll answer typed in the chat. Without an open poll: when the weekly
+/// poll comes, or `None` so the message is read as usual.
 async fn answer_in_chat<B, D, M, P>(
     ctx: &BotContext<'_, B, D, M, P>,
     message: &Incoming,
@@ -1694,7 +1694,7 @@ where
         .await
         .map_err(fail)?;
     let Some(newest) = polls.first() else {
-        return Ok(None);
+        return poll_not_yet(ctx.bot, &message.chat_id, now).await;
     };
     let today = local_date(now);
     // An answer goes to a poll only when it clearly fits one: with no day named,
@@ -1921,7 +1921,35 @@ fn yes_names(answers: &[PollAnswer], day: chrono::NaiveDate) -> (usize, String) 
     (names.len(), text)
 }
 
-/// Answers questions about the chat's newest open poll; `None` without one.
+/// When the chat has a weekly poll but no open one (between Sunday night and
+/// the Monday post): when the next poll comes. `None` without a weekly poll.
+async fn poll_not_yet<B: PollRepository>(
+    bot: &B,
+    chat_id: &str,
+    now: DateTime<Utc>,
+) -> Result<Option<String>, BotError> {
+    let series = bot.series(chat_id).await.map_err(fail)?;
+    Ok(series
+        .iter()
+        .map(|series| series.next_post_at)
+        .min()
+        .map(|next| {
+            // A post that is due but not out yet (the scheduler is behind).
+            if next <= now {
+                return COPY.poll_soon.clone();
+            }
+            let local = local_time(next);
+            let when = format!(
+                "{} {}",
+                local.format("%H:%M"),
+                day_label(local.date_naive())
+            );
+            fill(&COPY.poll_not_yet, &[("when", &when)])
+        }))
+}
+
+/// Answers questions about the chat's newest open poll; without one, says when
+/// the weekly poll comes, or `None`.
 async fn answer_poll_questions<B, D, M, P>(
     ctx: &BotContext<'_, B, D, M, P>,
     message: &Incoming,
@@ -1937,7 +1965,7 @@ where
         .await
         .map_err(fail)?;
     let Some(poll) = polls.first() else {
-        return Ok(None);
+        return poll_not_yet(ctx.bot, &message.chat_id, now).await;
     };
     let mut parts = Vec::new();
     for question in questions {
@@ -2053,7 +2081,7 @@ pub async fn run_due_polls<B: PollRepository>(
             continue;
         }
         let text = match poll.plan.game_call_day(due_at) {
-            Some(day) => game_call_text(bot, &poll, day, frontend_origin, bot_name).await,
+            Some(day) => game_call_text(bot, &poll, day, frontend_origin, bot_name, now).await,
             None => nudge_text(bot, &poll, frontend_origin, bot_name, now).await,
         };
         let text = match text {
@@ -2080,6 +2108,7 @@ async fn game_call_text<B: PollRepository>(
     day: chrono::NaiveDate,
     frontend_origin: &str,
     bot_name: &str,
+    now: DateTime<Utc>,
 ) -> Result<String, BotError> {
     let answers = bot.answers(poll.id).await.map_err(fail)?;
     let (count, names) = yes_names(&answers, day);
@@ -2090,6 +2119,42 @@ async fn game_call_text<B: PollRepository>(
             &COPY.poll_game_call_who,
             &[("n", &count.to_string()), ("names", &names)],
         )
+    };
+    // Known members (seen in the chat) who have not answered for this day.
+    let members = bot
+        .members(&poll.chat_id, now - Duration::days(MEMBER_DAYS))
+        .await
+        .map_err(fail)?;
+    let silent: Vec<&str> = members
+        .iter()
+        .filter(|member| {
+            !answers
+                .iter()
+                .any(|answer| answer.user == member.user && answer.day == day)
+        })
+        .map(|member| member.name.as_deref().unwrap_or(&COPY.player_name))
+        .collect();
+    let missing = if silent.is_empty() {
+        String::new()
+    } else {
+        let shown = silent
+            .iter()
+            .take(MAX_NAMES_IN_NUDGE)
+            .copied()
+            .collect::<Vec<_>>()
+            .join(", ");
+        let names = if silent.len() > MAX_NAMES_IN_NUDGE {
+            fill(
+                &COPY.poll_more_names,
+                &[
+                    ("names", &shown),
+                    ("n", &(silent.len() - MAX_NAMES_IN_NUDGE).to_string()),
+                ],
+            )
+        } else {
+            shown
+        };
+        fill(&COPY.poll_missing_names, &[("names", &names)])
     };
     let venue = bot
         .poll_venue(poll.id)
@@ -2115,6 +2180,7 @@ async fn game_call_text<B: PollRepository>(
             ("venue", &venue),
             ("title", &poll.plan.title),
             ("who", &who),
+            ("missing", &missing),
             ("mention", &format!("@{bot_name} ")),
             ("day", weekday),
             ("url", &poll_url(frontend_origin, poll)),
