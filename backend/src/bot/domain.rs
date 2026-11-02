@@ -570,6 +570,7 @@ pub struct BotCopy {
     pub poll_game_call_who: String,
     pub poll_game_call_no_one: String,
     pub poll_not_yet: String,
+    pub poll_soon: String,
     pub commands: Commands,
     pub answer_words: super::answers::AnswerWords,
 }

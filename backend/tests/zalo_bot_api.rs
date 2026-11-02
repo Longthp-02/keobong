@@ -2803,6 +2803,18 @@ async fn before_the_weekly_poll_is_posted_players_are_told_when_it_comes(pool: P
         assert!(reply.contains("20:00 Thứ 2 05/10"), "{text}: {reply}");
     }
     assert_eq!(bot.reader.calls.lock().unwrap().len(), reads, "no AI read");
+    // Past 20:00 with the scheduler behind: no time that has already passed.
+    bot.clock.advance(Duration::hours(3));
+    let late = bot.in_group(HOST, "CN ai đi").await.unwrap();
+    assert!(late.contains("sớm thôi"), "{late}");
+}
+
+#[sqlx::test]
+async fn without_a_weekly_poll_a_question_is_read_as_usual(pool: PgPool) {
+    let bot = bot(pool, RawDraft::default());
+    bot.link(HOST, "host").await;
+    let reply = bot.in_group(HOST, "sân nào?").await.unwrap();
+    assert!(reply.contains("chưa thấy thông tin kèo"), "{reply}");
 }
 
 #[sqlx::test]

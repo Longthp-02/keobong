@@ -178,6 +178,7 @@
   "pollGameCallWho": "Đã có {n} người: {names}",
   "pollGameCallNoOne": "Chưa có ai điểm danh.",
   "pollNotYet": "📋 Bảng điểm danh tuần này của nhóm chưa được đăng. Mình sẽ đăng lúc {when}, lúc đó bạn điểm danh hoặc hỏi lại nhé.",
+  "pollSoon": "📋 Bảng điểm danh tuần này của nhóm chưa được đăng, mình sẽ đăng sớm thôi. Lúc đó bạn điểm danh hoặc hỏi lại nhé.",
   "commands": {
     "help": [
       "",

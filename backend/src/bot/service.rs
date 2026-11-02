@@ -1676,8 +1676,8 @@ fn answer_example(plan: &PollPlan) -> String {
         .join(", ")
 }
 
-/// Saves a poll answer typed in the chat. `None` when the chat has no open poll,
-/// so the message is read as usual.
+/// Saves a poll answer typed in the chat. Without an open poll: when the weekly
+/// poll comes, or `None` so the message is read as usual.
 async fn answer_in_chat<B, D, M, P>(
     ctx: &BotContext<'_, B, D, M, P>,
     message: &Incoming,
@@ -1694,7 +1694,7 @@ where
         .await
         .map_err(fail)?;
     let Some(newest) = polls.first() else {
-        return poll_not_yet(ctx.bot, &message.chat_id).await;
+        return poll_not_yet(ctx.bot, &message.chat_id, now).await;
     };
     let today = local_date(now);
     // An answer goes to a poll only when it clearly fits one: with no day named,
@@ -1926,6 +1926,7 @@ fn yes_names(answers: &[PollAnswer], day: chrono::NaiveDate) -> (usize, String) 
 async fn poll_not_yet<B: PollRepository>(
     bot: &B,
     chat_id: &str,
+    now: DateTime<Utc>,
 ) -> Result<Option<String>, BotError> {
     let series = bot.series(chat_id).await.map_err(fail)?;
     Ok(series
@@ -1933,6 +1934,10 @@ async fn poll_not_yet<B: PollRepository>(
         .map(|series| series.next_post_at)
         .min()
         .map(|next| {
+            // A post that is due but not out yet (the scheduler is behind).
+            if next <= now {
+                return COPY.poll_soon.clone();
+            }
             let local = local_time(next);
             let when = format!(
                 "{} {}",
@@ -1960,7 +1965,7 @@ where
         .await
         .map_err(fail)?;
     let Some(poll) = polls.first() else {
-        return poll_not_yet(ctx.bot, &message.chat_id).await;
+        return poll_not_yet(ctx.bot, &message.chat_id, now).await;
     };
     let mut parts = Vec::new();
     for question in questions {
