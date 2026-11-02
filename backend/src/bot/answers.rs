@@ -518,6 +518,8 @@ mod tests {
         // Match posts are not questions about the poll.
         assert!(poll_questions("tối nay 19h SSA sân 7 thiếu 3, ai đá không").is_empty());
         assert!(poll_questions("CN còn thiếu 2, ai đi không").is_empty());
+        assert!(poll_questions("tối nay SSA còn 2 chỗ, ai đá không").is_empty());
+        assert!(poll_questions("cần 2 người, ai chơi không").is_empty());
         // Separate tone marks, as some keyboards send them.
         assert_eq!(
             poll_questions("sa\u{302}n na\u{300}o"),
