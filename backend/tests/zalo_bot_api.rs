@@ -2788,3 +2788,39 @@ async fn a_match_post_asking_who_plays_next_to_an_open_poll_is_read_as_a_match(p
     assert_eq!(bot.reader.calls.lock().unwrap().len(), reads + 1);
     assert!(!reply.contains("chưa có ai"), "{reply}");
 }
+
+#[sqlx::test]
+async fn before_the_weekly_poll_is_posted_players_are_told_when_it_comes(pool: PgPool) {
+    let bot = bot(pool, tonight());
+    bot.link(HOST, "host").await;
+    bot.add_weekly_poll().await;
+    // Monday 18:00 local: last week's poll has closed, this week's comes at 20:00.
+    bot.clock.advance(Duration::days(4) + Duration::hours(11));
+    let reads = bot.reader.calls.lock().unwrap().len();
+    for text in ["CN ai đi", "sân nào?", "CN có"] {
+        let reply = bot.in_group(HOST, text).await.unwrap();
+        assert!(reply.contains("chưa được đăng"), "{text}: {reply}");
+        assert!(reply.contains("20:00 Thứ 2 05/10"), "{text}: {reply}");
+    }
+    assert_eq!(bot.reader.calls.lock().unwrap().len(), reads, "no AI read");
+}
+
+#[sqlx::test]
+async fn the_game_day_call_names_who_has_not_answered(pool: PgPool) {
+    let bot = bot(pool, tonight());
+    bot.link(HOST, "host").await;
+    bot.add_weekend_poll().await;
+    bot.link(OTHER, "nam").await;
+    bot.in_group(OTHER, "T7 có").await.unwrap();
+    // Thursday and Friday evenings, then Saturday 15:00 local.
+    bot.clock.advance(Duration::hours(13));
+    bot.run_nudges().await;
+    bot.clock.advance(Duration::hours(24));
+    bot.run_nudges().await;
+    bot.clock.advance(Duration::hours(19));
+    assert_eq!(bot.run_nudges().await, 1);
+    let call = bot.chat.sent.lock().unwrap().last().unwrap().1.clone();
+    // The host tagged the bot in the group but has not answered Saturday.
+    assert!(call.contains("Chưa trả lời: Player host"), "{call}");
+    assert!(!call.contains("Chưa trả lời: Player nam"), "{call}");
+}

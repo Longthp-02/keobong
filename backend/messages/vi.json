@@ -173,10 +173,11 @@
   "pollNoVenue": "Bảng \"{title}\" chưa ghi sân. Bạn hỏi chủ nhóm nhé.",
   "pollWhen": "⏰ {title}\n{days}",
   "pollCountNames": " – {names}",
-  "pollGameCall": "📣 Hôm nay chơi lúc {time}{venue}: {title}\n{who}\nAi đến mà chưa điểm danh thì gõ {mention}{day} có, không đến được thì gõ {mention}{day} không (lần đầu cần liên kết tài khoản 1 lần).\n👉 {url}",
+  "pollGameCall": "📣 Hôm nay chơi lúc {time}{venue}: {title}\n{who}\n{missing}Ai đến mà chưa điểm danh thì gõ {mention}{day} có, không đến được thì gõ {mention}{day} không (lần đầu cần liên kết tài khoản 1 lần).\n👉 {url}",
   "pollGameCallVenue": " ở {venue}",
   "pollGameCallWho": "Đã có {n} người: {names}",
   "pollGameCallNoOne": "Chưa có ai điểm danh.",
+  "pollNotYet": "📋 Bảng điểm danh tuần này của nhóm chưa được đăng. Mình sẽ đăng lúc {when}, lúc đó bạn điểm danh hoặc hỏi lại nhé.",
   "commands": {
     "help": [
       "",
