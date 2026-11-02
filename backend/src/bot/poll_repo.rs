@@ -5,7 +5,7 @@ use chrono::{DateTime, NaiveDate, NaiveTime, Utc};
 use super::polls::{
     AnswerOutcome, MAX_OPEN_POLLS_PER_CHAT, MAX_SERIES_FAILURES, MAX_SERIES_PER_CHAT, Member,
     PendingPoll, Poll, PollAnswer, PollGroup, PollPlan, PollRepoError, PollRepository, PollSeries,
-    PublicGroup, post_at, week_posted_at,
+    PollVenue, PublicGroup, post_at, week_posted_at,
 };
 use super::repo::PgBotRepository;
 use crate::auth::UserId;
@@ -321,6 +321,25 @@ impl PollRepository for PgBotRepository {
         .await
         .map_err(poll_error)?;
         row.map(poll_from_row).transpose()
+    }
+
+    async fn poll_venue(&self, poll_id: i64) -> Result<Option<PollVenue>, PollRepoError> {
+        let row: Option<(String, String, Option<String>)> = sqlx::query_as(
+            "SELECT v.name, v.address, v.maps_url
+             FROM bot_polls p
+             JOIN bot_poll_series s ON s.id = p.series_id
+             JOIN venues v ON v.id = s.venue_id AND v.status = 'approved'
+             WHERE p.id = $1",
+        )
+        .bind(poll_id)
+        .fetch_optional(self.pool())
+        .await
+        .map_err(poll_error)?;
+        Ok(row.map(|(name, address, maps_url)| PollVenue {
+            name,
+            address,
+            maps_url,
+        }))
     }
 
     async fn open_polls(
