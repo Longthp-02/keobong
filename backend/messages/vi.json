@@ -169,11 +169,11 @@
   "pollWho": "📋 {title}\n{lines}",
   "pollWhoLine": "{day} ({n}): {names}",
   "pollWhoNone": "{day}: chưa có ai",
-  "pollWhere": "📍 {venue}\n{address}{maps}",
+  "pollWhere": "📍 {venue}{address}{maps}",
   "pollNoVenue": "Bảng \"{title}\" chưa ghi sân. Bạn hỏi chủ nhóm nhé.",
   "pollWhen": "⏰ {title}\n{days}",
   "pollCountNames": " – {names}",
-  "pollGameCall": "🏀 Hôm nay {time}{venue}: {title}\n{who}\nAi đến mà chưa điểm danh thì gõ {mention}{day} có, không đến được thì gõ {mention}{day} không.\n👉 {url}",
+  "pollGameCall": "📣 Hôm nay chơi lúc {time}{venue}: {title}\n{who}\nAi đến mà chưa điểm danh thì gõ {mention}{day} có, không đến được thì gõ {mention}{day} không (lần đầu cần liên kết tài khoản 1 lần).\n👉 {url}",
   "pollGameCallVenue": " ở {venue}",
   "pollGameCallWho": "Đã có {n} người: {names}",
   "pollGameCallNoOne": "Chưa có ai điểm danh.",
@@ -600,8 +600,11 @@
       "dạ"
     ],
     "who": [
-      "ai",
       "là ai",
+      "ai đi",
+      "ai chơi",
+      "ai đá",
+      "ai đăng ký",
       "những ai",
       "liệt kê",
       "danh sách",
@@ -613,15 +616,21 @@
       "sân nào",
       "sân gì",
       "ở đâu",
-      "chỗ nào",
-      "địa chỉ",
-      "sân ở"
+      "địa chỉ"
     ],
     "when": [
       "mấy giờ",
       "mấy h",
       "giờ nào",
       "mấy giờ chơi"
+    ],
+    "matchWords": [
+      "thiếu",
+      "kèo",
+      "keo",
+      "tuyển",
+      "người/",
+      "k/người"
     ]
   },
   "answerWhichPollLinks": "Nhóm đang có {n} bảng điểm danh cùng ngày đó. Bạn bấm vào bảng muốn trả lời nhé:\n{links}"

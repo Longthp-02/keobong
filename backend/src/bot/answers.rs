@@ -33,6 +33,8 @@ pub struct AnswerWords {
     pub who: Vec<String>,
     pub r#where: Vec<String>,
     pub when: Vec<String>,
+    /// Words of a match post; a message with one is not a poll question.
+    pub match_words: Vec<String>,
     /// Words an answer may also hold ("tui", "nha"). Any other word means the
     /// message is not an answer: a match post, a question or chatter.
     pub filler: Vec<String>,
@@ -100,9 +102,19 @@ pub enum PollQuestion {
 /// The questions a message asks about the chat's poll ("chủ nhật mấy người là
 /// ai", "sân nào vậy"), in that order; empty when it asks none.
 pub fn poll_questions(text: &str) -> Vec<PollQuestion> {
+    use unicode_normalization::UnicodeNormalization;
     let words = &COPY.answer_words;
-    let text = text.to_lowercase();
+    let text: String = text.nfc().collect::<String>().to_lowercase();
     let tokens = tokens(&text);
+    // A match post ("19h SSA sân 7 thiếu 3, ai đá không") has times, prices or
+    // match words: it is read as a match, not as a question about the poll.
+    let timeish = |token: &&str| {
+        token.starts_with(|c: char| c.is_ascii_digit())
+            && token.chars().any(|c| c.is_alphabetic() || c == ':')
+    };
+    if tokens.iter().any(timeish) || has_phrase(&tokens, &words.match_words) {
+        return Vec::new();
+    }
     [
         (&words.who, PollQuestion::Who),
         (&words.r#where, PollQuestion::Where),
@@ -503,6 +515,14 @@ mod tests {
         );
         assert!(poll_questions("T7 có, CN không").is_empty());
         assert!(poll_questions("haizzz").is_empty());
+        // Match posts are not questions about the poll.
+        assert!(poll_questions("tối nay 19h SSA sân 7 thiếu 3, ai đá không").is_empty());
+        assert!(poll_questions("CN còn thiếu 2, ai đi không").is_empty());
+        // Separate tone marks, as some keyboards send them.
+        assert_eq!(
+            poll_questions("sa\u{302}n na\u{300}o"),
+            vec![PollQuestion::Where]
+        );
         // "hổng" is a no.
         assert_eq!(
             weekend("thứ 7 hổng, chủ nhật có"),

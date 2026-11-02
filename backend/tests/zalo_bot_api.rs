@@ -2758,7 +2758,7 @@ async fn game_days_get_a_call_three_hours_before_and_nudges_name_who_comes(pool:
     bot.clock.advance(Duration::hours(19));
     assert_eq!(bot.run_nudges().await, 1);
     let call = bot.chat.sent.lock().unwrap().last().unwrap().1.clone();
-    assert!(call.contains("Hôm nay 18:00"), "{call}");
+    assert!(call.contains("Hôm nay chơi lúc 18:00"), "{call}");
     assert!(call.contains("Đã có 1 người: Player nam"), "{call}");
     assert!(call.contains("@Bot DaGhep Thứ 7 có"), "{call}");
 
@@ -2770,4 +2770,21 @@ async fn game_days_get_a_call_three_hours_before_and_nudges_name_who_comes(pool:
     assert_eq!(bot.run_nudges().await, 1);
     bot.clock.advance(Duration::hours(5));
     assert_eq!(bot.run_nudges().await, 0);
+}
+
+#[sqlx::test]
+async fn a_match_post_asking_who_plays_next_to_an_open_poll_is_read_as_a_match(pool: PgPool) {
+    let bot = bot(pool, tonight());
+    bot.link(HOST, "host").await;
+    bot.add_weekend_poll().await;
+    let reads = bot.reader.calls.lock().unwrap().len();
+    let reply = bot
+        .in_group(
+            HOST,
+            "tối nay 19h SSA sân 7 thiếu 3, 60k/người, ai đá không",
+        )
+        .await
+        .unwrap();
+    assert_eq!(bot.reader.calls.lock().unwrap().len(), reads + 1);
+    assert!(!reply.contains("chưa có ai"), "{reply}");
 }

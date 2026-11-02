@@ -1893,13 +1893,32 @@ where
 }
 
 /// Names of the players who said yes for `day`, in answer order.
-fn yes_names(answers: &[PollAnswer], day: chrono::NaiveDate) -> Vec<&str> {
-    answers
+/// How many said yes for `day`, and their names, the first
+/// `MAX_NAMES_IN_NUDGE` of them ("A, B và 3 người khác").
+fn yes_names(answers: &[PollAnswer], day: chrono::NaiveDate) -> (usize, String) {
+    let names: Vec<&str> = answers
         .iter()
         .filter(|answer| answer.day == day && answer.attending)
         .map(|answer| answer.name.as_deref().unwrap_or(&COPY.player_name))
+        .collect();
+    let shown = names
+        .iter()
         .take(MAX_NAMES_IN_NUDGE)
-        .collect()
+        .copied()
+        .collect::<Vec<_>>()
+        .join(", ");
+    let text = if names.len() > MAX_NAMES_IN_NUDGE {
+        fill(
+            &COPY.poll_more_names,
+            &[
+                ("names", &shown),
+                ("n", &(names.len() - MAX_NAMES_IN_NUDGE).to_string()),
+            ],
+        )
+    } else {
+        shown
+    };
+    (names.len(), text)
 }
 
 /// Answers questions about the chat's newest open poll; `None` without one.
@@ -1930,16 +1949,16 @@ where
                     .days
                     .iter()
                     .map(|day| {
-                        let names = yes_names(&answers, *day);
-                        if names.is_empty() {
+                        let (count, names) = yes_names(&answers, *day);
+                        if count == 0 {
                             fill(&COPY.poll_who_none, &[("day", &day_label(*day))])
                         } else {
                             fill(
                                 &COPY.poll_who_line,
                                 &[
                                     ("day", &day_label(*day)),
-                                    ("n", &names.len().to_string()),
-                                    ("names", &names.join(", ")),
+                                    ("n", &count.to_string()),
+                                    ("names", &names),
                                 ],
                             )
                         }
@@ -1956,7 +1975,14 @@ where
                     &COPY.poll_where,
                     &[
                         ("venue", &venue.name),
-                        ("address", &venue.address),
+                        (
+                            "address",
+                            &if venue.address.trim().is_empty() {
+                                String::new()
+                            } else {
+                                format!("\n{}", venue.address)
+                            },
+                        ),
                         (
                             "maps",
                             &venue
@@ -2056,16 +2082,13 @@ async fn game_call_text<B: PollRepository>(
     bot_name: &str,
 ) -> Result<String, BotError> {
     let answers = bot.answers(poll.id).await.map_err(fail)?;
-    let names = yes_names(&answers, day);
-    let who = if names.is_empty() {
+    let (count, names) = yes_names(&answers, day);
+    let who = if count == 0 {
         COPY.poll_game_call_no_one.clone()
     } else {
         fill(
             &COPY.poll_game_call_who,
-            &[
-                ("n", &names.len().to_string()),
-                ("names", &names.join(", ")),
-            ],
+            &[("n", &count.to_string()), ("names", &names)],
         )
     };
     let venue = bot
@@ -2114,15 +2137,15 @@ async fn nudge_text<B: PollRepository>(
         .yes_per_day
         .iter()
         .map(|(day, yes)| {
-            let names = yes_names(&answers, *day);
+            let (named, names) = yes_names(&answers, *day);
             let count = fill(
                 &COPY.poll_count,
                 &[("day", &day_label(*day)), ("n", &yes.to_string())],
             );
-            if names.is_empty() {
+            if named == 0 {
                 count
             } else {
-                count + &fill(&COPY.poll_count_names, &[("names", &names.join(", "))])
+                count + &fill(&COPY.poll_count_names, &[("names", &names)])
             }
         })
         .collect::<Vec<_>>()
