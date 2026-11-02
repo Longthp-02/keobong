@@ -29,6 +29,8 @@ pub const DEFAULT_NUDGE_TIME: NaiveTime = match NaiveTime::from_hms_opt(20, 0, 0
     Some(time) => time,
     None => panic!("20:00 is a valid time"),
 };
+/// Hours before the play time that the game-day call is posted (Long, 2026-11-02).
+pub const GAME_CALL_HOURS: i64 = 3;
 /// Names listed in a nudge; the rest are counted ("và 4 người khác").
 pub const MAX_NAMES_IN_NUDGE: usize = 15;
 
@@ -144,15 +146,45 @@ impl PollPlan {
         local_instant(last + Duration::days(1), NaiveTime::MIN)
     }
 
-    /// The first daily nudge strictly after `after`, or `None` once the poll
-    /// closes before it.
+    /// When the game-day call for `day` is posted: `GAME_CALL_HOURS` before
+    /// the play time, or that day's midnight for an earlier game.
+    fn game_call_at(&self, day: NaiveDate) -> Option<DateTime<Utc>> {
+        let play = self.play_time?;
+        let call = play
+            .overflowing_sub_signed(Duration::hours(GAME_CALL_HOURS))
+            .0;
+        let call = if call > play { NaiveTime::MIN } else { call };
+        Some(local_instant(day, call))
+    }
+
+    /// The poll day whose game-day call is at `at`, if it is one.
+    pub fn game_call_day(&self, at: DateTime<Utc>) -> Option<NaiveDate> {
+        self.days
+            .iter()
+            .copied()
+            .find(|day| self.game_call_at(*day) == Some(at))
+    }
+
+    /// The next nudge strictly after `after`: an evening nudge at the nudge
+    /// time each day, or a game-day call (Long, 2026-11-02). Nothing is posted
+    /// once the last game has started, or the poll has closed.
     pub fn next_nudge(&self, after: DateTime<Utc>) -> Option<DateTime<Utc>> {
+        let last = self.days.last().copied().unwrap_or_default();
+        let end = self
+            .play_time
+            .map_or_else(|| self.closes_at(), |play| local_instant(last, play));
         let today = local_date(after);
         [today, today + Duration::days(1)]
             .into_iter()
-            .map(|day| local_instant(day, self.nudge_time))
-            .find(|at| *at > after)
-            .filter(|at| *at < self.closes_at())
+            .flat_map(|day| {
+                [
+                    Some(local_instant(day, self.nudge_time)),
+                    self.game_call_at(day).filter(|_| self.days.contains(&day)),
+                ]
+            })
+            .flatten()
+            .filter(|at| *at > after && *at < end)
+            .min()
     }
 }
 
@@ -346,6 +378,14 @@ pub struct Poll {
     pub closes_at: DateTime<Utc>,
 }
 
+/// Where a poll's games are played: its weekly group's approved venue.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PollVenue {
+    pub name: String,
+    pub address: String,
+    pub maps_url: Option<String>,
+}
+
 /// One player's answer for one day.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PollAnswer {
@@ -445,6 +485,12 @@ pub trait PollRepository: Send + Sync {
         &self,
         share_id: &ShareId,
     ) -> impl Future<Output = Result<Option<Poll>, PollRepoError>> + Send;
+
+    /// The approved venue of the weekly group a poll belongs to, if any.
+    fn poll_venue(
+        &self,
+        poll_id: i64,
+    ) -> impl Future<Output = Result<Option<PollVenue>, PollRepoError>> + Send;
 
     /// The chat's polls still open at `now`, newest first.
     fn open_polls(
@@ -717,26 +763,55 @@ mod tests {
     }
 
     #[test]
-    fn nudges_daily_until_the_poll_closes() {
+    fn nudges_each_evening_and_calls_three_hours_before_each_game() {
         let plan = raw().checked(today()).unwrap();
         // Closes at Monday 00:00 local = Sunday 17:00 UTC.
         assert_eq!(plan.closes_at(), at("2099-10-04T17:00:00Z"));
-        // Thursday 07:00 local → Thursday 20:00 local = 13:00 UTC.
+        let mut at_time = at("2099-10-01T00:00:00Z");
+        let mut seen = Vec::new();
+        while let Some(next) = plan.next_nudge(at_time) {
+            seen.push((next, plan.game_call_day(next)));
+            at_time = next;
+        }
+        // Evenings at 20:00 local (13:00 UTC); game days at 15:00 local (08:00
+        // UTC) for 18:00 games; nothing after Sunday's game has started.
         assert_eq!(
-            plan.next_nudge(at("2099-10-01T00:00:00Z")),
-            Some(at("2099-10-01T13:00:00Z"))
+            seen,
+            vec![
+                (at("2099-10-01T13:00:00Z"), None),
+                (at("2099-10-02T13:00:00Z"), None),
+                (at("2099-10-03T08:00:00Z"), Some(day("2099-10-03"))),
+                (at("2099-10-03T13:00:00Z"), None),
+                (at("2099-10-04T08:00:00Z"), Some(day("2099-10-04"))),
+            ]
         );
-        // Right at a nudge → the next day's.
-        assert_eq!(
-            plan.next_nudge(at("2099-10-01T13:00:00Z")),
-            Some(at("2099-10-02T13:00:00Z"))
-        );
-        // Sunday's nudge is the last one.
+    }
+
+    #[test]
+    fn without_a_play_time_it_nudges_each_evening_until_the_poll_closes() {
+        let plan = PollPlan {
+            play_time: None,
+            ..raw().checked(today()).unwrap()
+        };
         assert_eq!(
             plan.next_nudge(at("2099-10-03T13:00:00Z")),
             Some(at("2099-10-04T13:00:00Z"))
         );
         assert_eq!(plan.next_nudge(at("2099-10-04T13:00:00Z")), None);
+        assert_eq!(plan.game_call_day(at("2099-10-04T08:00:00Z")), None);
+    }
+
+    #[test]
+    fn an_early_game_is_called_from_midnight() {
+        let plan = PollPlan {
+            play_time: NaiveTime::from_hms_opt(2, 0, 0),
+            ..raw().checked(today()).unwrap()
+        };
+        // Saturday 00:00 local = Friday 17:00 UTC.
+        assert_eq!(
+            plan.game_call_day(at("2099-10-02T17:00:00Z")),
+            Some(day("2099-10-03"))
+        );
     }
 
     #[test]

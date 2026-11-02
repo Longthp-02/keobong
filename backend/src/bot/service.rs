@@ -7,7 +7,7 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use chrono::{DateTime, Datelike, Duration, Utc};
 use sha2::{Digest, Sha256};
 
-use super::answers::{AnswerIntent, ResolveError, read_answer};
+use super::answers::{AnswerIntent, PollQuestion, ResolveError, poll_questions, read_answer};
 use super::domain::{
     BotDraft, BotRepository, COPY, ChatKind, ChatReply, Command, DEFAULT_LEVEL_MAX_TENTHS,
     DEFAULT_LEVEL_MIN_TENTHS, DEFAULT_MATCH_TYPE, DRAFT_MINUTES, Incoming, LINK_CODE_MINUTES,
@@ -332,6 +332,13 @@ where
     {
         return Ok(reply);
     }
+    // A question about the chat's poll ("chủ nhật ai đi", "sân nào"): no AI read.
+    let questions = poll_questions(text);
+    if !questions.is_empty()
+        && let Some(reply) = answer_poll_questions(ctx, message, &questions, now).await?
+    {
+        return Ok(reply);
+    }
     let Some(user) = ctx
         .bot
         .linked_user(&message.sender_id)
@@ -392,6 +399,26 @@ where
     let input = match complete(&draft) {
         Ok(input) => input,
         Err(missing) => {
+            // Next to an open poll, a message with neither a venue nor a time is
+            // a player talking about the poll, not a match post.
+            if missing.contains(&"venue")
+                && missing.contains(&"startTime")
+                && let Some(poll) = ctx
+                    .bot
+                    .open_polls(&message.chat_id, now)
+                    .await
+                    .map_err(fail)?
+                    .first()
+            {
+                return Ok(fill(
+                    &COPY.answer_hint,
+                    &[
+                        ("mention", mention),
+                        ("example", &answer_example(&poll.plan)),
+                        ("url", &poll_url(ctx.frontend_origin, poll)),
+                    ],
+                ));
+            }
             let venue_names = venues
                 .iter()
                 .map(|venue| venue.name.as_str())
@@ -1865,6 +1892,93 @@ where
     }))
 }
 
+/// Names of the players who said yes for `day`, in answer order.
+fn yes_names(answers: &[PollAnswer], day: chrono::NaiveDate) -> Vec<&str> {
+    answers
+        .iter()
+        .filter(|answer| answer.day == day && answer.attending)
+        .map(|answer| answer.name.as_deref().unwrap_or(&COPY.player_name))
+        .take(MAX_NAMES_IN_NUDGE)
+        .collect()
+}
+
+/// Answers questions about the chat's newest open poll; `None` without one.
+async fn answer_poll_questions<B, D, M, P>(
+    ctx: &BotContext<'_, B, D, M, P>,
+    message: &Incoming,
+    questions: &[PollQuestion],
+    now: DateTime<Utc>,
+) -> Result<Option<String>, BotError>
+where
+    B: PollRepository,
+{
+    let polls = ctx
+        .bot
+        .open_polls(&message.chat_id, now)
+        .await
+        .map_err(fail)?;
+    let Some(poll) = polls.first() else {
+        return Ok(None);
+    };
+    let mut parts = Vec::new();
+    for question in questions {
+        parts.push(match question {
+            PollQuestion::Who => {
+                let answers = ctx.bot.answers(poll.id).await.map_err(fail)?;
+                let lines = poll
+                    .plan
+                    .days
+                    .iter()
+                    .map(|day| {
+                        let names = yes_names(&answers, *day);
+                        if names.is_empty() {
+                            fill(&COPY.poll_who_none, &[("day", &day_label(*day))])
+                        } else {
+                            fill(
+                                &COPY.poll_who_line,
+                                &[
+                                    ("day", &day_label(*day)),
+                                    ("n", &names.len().to_string()),
+                                    ("names", &names.join(", ")),
+                                ],
+                            )
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                fill(
+                    &COPY.poll_who,
+                    &[("title", &poll.plan.title), ("lines", &lines)],
+                )
+            }
+            PollQuestion::Where => match ctx.bot.poll_venue(poll.id).await.map_err(fail)? {
+                Some(venue) => fill(
+                    &COPY.poll_where,
+                    &[
+                        ("venue", &venue.name),
+                        ("address", &venue.address),
+                        (
+                            "maps",
+                            &venue
+                                .maps_url
+                                .map_or_else(String::new, |url| format!("\n{url}")),
+                        ),
+                    ],
+                ),
+                None => fill(&COPY.poll_no_venue, &[("title", &poll.plan.title)]),
+            },
+            PollQuestion::When => fill(
+                &COPY.poll_when,
+                &[
+                    ("title", &poll.plan.title),
+                    ("days", &days_line(&poll.plan)),
+                ],
+            ),
+        });
+    }
+    Ok(Some(parts.join("\n\n")))
+}
+
 fn poll_url(frontend_origin: &str, poll: &Poll) -> String {
     format!("{frontend_origin}/p/{}", poll.share_id.as_str())
 }
@@ -1912,7 +2026,11 @@ pub async fn run_due_polls<B: PollRepository>(
             tracing::info!(poll = poll.id, "skipping a poll nudge that is too late");
             continue;
         }
-        let text = match nudge_text(bot, &poll, frontend_origin, bot_name, now).await {
+        let text = match poll.plan.game_call_day(due_at) {
+            Some(day) => game_call_text(bot, &poll, day, frontend_origin, bot_name).await,
+            None => nudge_text(bot, &poll, frontend_origin, bot_name, now).await,
+        };
+        let text = match text {
             Ok(text) => text,
             Err(error) => {
                 tracing::error!(error = %error, poll = poll.id, "could not build a poll nudge");
@@ -1927,6 +2045,58 @@ pub async fn run_due_polls<B: PollRepository>(
         }
     }
     Ok(delivered)
+}
+
+/// The game-day call: where and when, who comes, and how to answer.
+async fn game_call_text<B: PollRepository>(
+    bot: &B,
+    poll: &Poll,
+    day: chrono::NaiveDate,
+    frontend_origin: &str,
+    bot_name: &str,
+) -> Result<String, BotError> {
+    let answers = bot.answers(poll.id).await.map_err(fail)?;
+    let names = yes_names(&answers, day);
+    let who = if names.is_empty() {
+        COPY.poll_game_call_no_one.clone()
+    } else {
+        fill(
+            &COPY.poll_game_call_who,
+            &[
+                ("n", &names.len().to_string()),
+                ("names", &names.join(", ")),
+            ],
+        )
+    };
+    let venue = bot
+        .poll_venue(poll.id)
+        .await
+        .map_err(fail)?
+        .map_or_else(String::new, |venue| {
+            fill(&COPY.poll_game_call_venue, &[("venue", &venue.name)])
+        });
+    let weekday = COPY
+        .weekdays
+        .get(day.weekday().num_days_from_sunday() as usize)
+        .map_or("", String::as_str);
+    Ok(fill(
+        &COPY.poll_game_call,
+        &[
+            (
+                "time",
+                &poll
+                    .plan
+                    .play_time
+                    .map_or_else(String::new, |time| time.format("%H:%M").to_string()),
+            ),
+            ("venue", &venue),
+            ("title", &poll.plan.title),
+            ("who", &who),
+            ("mention", &format!("@{bot_name} ")),
+            ("day", weekday),
+            ("url", &poll_url(frontend_origin, poll)),
+        ],
+    ))
 }
 
 async fn nudge_text<B: PollRepository>(
@@ -1944,10 +2114,16 @@ async fn nudge_text<B: PollRepository>(
         .yes_per_day
         .iter()
         .map(|(day, yes)| {
-            fill(
+            let names = yes_names(&answers, *day);
+            let count = fill(
                 &COPY.poll_count,
                 &[("day", &day_label(*day)), ("n", &yes.to_string())],
-            )
+            );
+            if names.is_empty() {
+                count
+            } else {
+                count + &fill(&COPY.poll_count_names, &[("names", &names.join(", "))])
+            }
         })
         .collect::<Vec<_>>()
         .join("\n");

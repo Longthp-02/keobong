@@ -29,6 +29,10 @@ pub struct AnswerWords {
     pub question_end: Vec<String>,
     /// Playing words ("đá", "đánh"): a yes, except in a question ("T7 đá không").
     pub play: Vec<String>,
+    /// Questions about an open poll: who comes, where, and when.
+    pub who: Vec<String>,
+    pub r#where: Vec<String>,
+    pub when: Vec<String>,
     /// Words an answer may also hold ("tui", "nha"). Any other word means the
     /// message is not an answer: a match post, a question or chatter.
     pub filler: Vec<String>,
@@ -83,6 +87,31 @@ struct Part {
     only_days: bool,
     /// Parts after a break word ("còn") never share an answer with earlier ones.
     segment: usize,
+}
+
+/// What a player asks about an open poll.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PollQuestion {
+    Who,
+    Where,
+    When,
+}
+
+/// The questions a message asks about the chat's poll ("chủ nhật mấy người là
+/// ai", "sân nào vậy"), in that order; empty when it asks none.
+pub fn poll_questions(text: &str) -> Vec<PollQuestion> {
+    let words = &COPY.answer_words;
+    let text = text.to_lowercase();
+    let tokens = tokens(&text);
+    [
+        (&words.who, PollQuestion::Who),
+        (&words.r#where, PollQuestion::Where),
+        (&words.when, PollQuestion::When),
+    ]
+    .into_iter()
+    .filter(|(phrases, _)| has_phrase(&tokens, phrases))
+    .map(|(_, question)| question)
+    .collect()
 }
 
 /// Reads a chat message as a poll answer; `None` when it is not one.
@@ -451,6 +480,33 @@ mod tests {
         assert_eq!(
             intent.resolve(&[date(10, 31)], date(11, 1)),
             Err(ResolveError::NotInPoll)
+        );
+    }
+
+    #[test]
+    fn reads_questions_about_the_poll() {
+        assert_eq!(
+            poll_questions("chủ nhật 3 người là ai vậy"),
+            vec![PollQuestion::Who]
+        );
+        assert_eq!(
+            poll_questions("liệt kê những người đăng ký"),
+            vec![PollQuestion::Who]
+        );
+        assert_eq!(
+            poll_questions("sân nào vậy quên r"),
+            vec![PollQuestion::Where]
+        );
+        assert_eq!(
+            poll_questions("mấy giờ chơi ở đâu"),
+            vec![PollQuestion::Where, PollQuestion::When]
+        );
+        assert!(poll_questions("T7 có, CN không").is_empty());
+        assert!(poll_questions("haizzz").is_empty());
+        // "hổng" is a no.
+        assert_eq!(
+            weekend("thứ 7 hổng, chủ nhật có"),
+            Ok(vec![(date(10, 31), false), (date(11, 1), true)])
         );
     }
 
