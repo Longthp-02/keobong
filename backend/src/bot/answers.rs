@@ -33,6 +33,9 @@ pub struct AnswerWords {
     pub who: Vec<String>,
     pub r#where: Vec<String>,
     pub when: Vec<String>,
+    /// Words that start a new request ("tạo"): an earlier incomplete one is
+    /// dropped, and next to an open poll a time with one is a new game.
+    pub new_request_words: Vec<String>,
     /// Sport words ("bóng", "rổ"): a message with one is not a bare answer.
     pub sport_words: Vec<String>,
     /// Words of making a game ("tạo kèo"): with a day, a casual group game.
@@ -185,11 +188,12 @@ pub fn casual_game(text: &str) -> bool {
     tokens.iter().any(is_time) || (named_day && has_phrase(&tokens, &words.create_words))
 }
 
-/// Whether a message uses a word of making a game ("tạo", "kèo"): a new
-/// request rather than a follow-up or a player's chatter.
+/// Whether a message starts a new request ("tạo", "lập", "mở"), rather than
+/// following up on one or chatting.
 pub fn has_create_word(text: &str) -> bool {
-    let text = text.to_lowercase();
-    has_phrase(&tokens(&text), &COPY.answer_words.create_words)
+    use unicode_normalization::UnicodeNormalization;
+    let text: String = text.nfc().collect::<String>().to_lowercase();
+    has_phrase(&tokens(&text), &COPY.answer_words.new_request_words)
 }
 
 /// Reads a chat message as a poll answer; `None` when it is not one.
@@ -643,6 +647,9 @@ mod tests {
         assert_eq!(read_answer("có"), Some(AnswerIntent::NoDay(true)));
         assert_eq!(read_answer("không nha"), Some(AnswerIntent::NoDay(false)));
         assert_eq!(read_answer("bóng rổ ko"), None);
+        assert!(has_create_word("ta\u{323}o ke\u{300}o mai 8h"));
+        assert!(!has_create_word("tao 7h30 tới"));
+        assert!(!has_create_word("kèo tối nay 19h30"));
         assert_eq!(read_answer("đá"), None);
     }
 

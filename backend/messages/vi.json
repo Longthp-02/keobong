@@ -663,7 +663,6 @@
     ],
     "createWords": [
       "tạo",
-      "tao",
       "kèo",
       "keo",
       "lập",
@@ -675,6 +674,11 @@
       "bong",
       "rổ",
       "ro"
+    ],
+    "newRequestWords": [
+      "tạo",
+      "lập",
+      "mở"
     ]
   },
   "answerWhichPollLinks": "Nhóm đang có {n} bảng điểm danh cùng ngày đó. Bạn bấm vào bảng muốn trả lời nhé:\n{links}"
