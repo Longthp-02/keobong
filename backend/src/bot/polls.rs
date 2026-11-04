@@ -142,10 +142,15 @@ impl RawPoll {
 /// A clock time in a message ("19h", "7h30 tối", "18:45"); "tối"/"chiều" after
 /// a morning hour means the afternoon or evening.
 pub fn read_clock(text: &str) -> Option<NaiveTime> {
-    let text = text.to_lowercase();
-    let words: Vec<&str> = text.split_whitespace().collect();
+    use unicode_normalization::UnicodeNormalization;
+    let text: String = text.nfc().collect::<String>().to_lowercase();
+    // A range ("19h–20h30") starts at its first time.
+    let words: Vec<&str> = text
+        .split(|c: char| c.is_whitespace() || matches!(c, '-' | '–' | '—'))
+        .map(|word| word.trim_matches(|c: char| !c.is_alphanumeric() && c != ':'))
+        .filter(|word| !word.is_empty())
+        .collect();
     words.iter().enumerate().find_map(|(index, word)| {
-        let word = word.trim_matches(|c: char| !c.is_alphanumeric() && c != ':');
         let lead = word.chars().take_while(char::is_ascii_digit).count();
         if lead == 0 || lead > 2 {
             return None;
@@ -160,7 +165,7 @@ pub fn read_clock(text: &str) -> Option<NaiveTime> {
         };
         let later = words
             .get(index + 1)
-            .is_some_and(|next| ["tối", "chiều", "toi", "chieu"].contains(next));
+            .is_some_and(|next| ["tối", "chiều", "đêm", "toi", "chieu", "dem"].contains(next));
         let hour = if later && hour < 12 { hour + 12 } else { hour };
         NaiveTime::from_hms_opt(hour, minute, 0)
     })
@@ -732,6 +737,18 @@ mod tests {
 
     #[test]
     fn reads_a_clock_time() {
+        assert_eq!(
+            read_clock("đổi giờ 19h–20h30"),
+            NaiveTime::from_hms_opt(19, 0, 0)
+        );
+        assert_eq!(
+            read_clock("7h30 tối, nhé"),
+            NaiveTime::from_hms_opt(19, 30, 0)
+        );
+        assert_eq!(read_clock("10h đêm"), NaiveTime::from_hms_opt(22, 0, 0));
+        assert_eq!(read_clock("0h"), NaiveTime::from_hms_opt(0, 0, 0));
+        assert_eq!(read_clock("25h"), None);
+        assert_eq!(read_clock("đổi sang CN"), None);
         let time = |h, m| NaiveTime::from_hms_opt(h, m, 0);
         assert_eq!(read_clock("đổi giờ 19h"), time(19, 0));
         assert_eq!(read_clock("đổi thành 7h30 tối"), time(19, 30));

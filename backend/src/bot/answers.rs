@@ -152,7 +152,7 @@ pub fn poll_questions(text: &str) -> Vec<PollQuestion> {
         .copied()
         .filter(|token| !token.starts_with(|c: char| c.is_ascii_digit()))
         .collect();
-    if has_phrase(&words_only, &words.when_choice) {
+    if has_phrase(&words_only, &words.when_choice) && !has_create_word(&text) {
         return vec![PollQuestion::When];
     }
     // A match post ("19h SSA sân 7 thiếu 3, ai đá không") has times, prices or
@@ -652,6 +652,7 @@ mod tests {
             vec![PollQuestion::When]
         );
         assert_eq!(poll_questions("sáng hay tối"), vec![PollQuestion::When]);
+        assert!(poll_questions("tạo kèo T7 sáng hay tối đều được, sân 7").is_empty());
         // Match posts are not questions about the poll.
         assert!(poll_questions("tối nay 19h SSA sân 7 thiếu 3, ai đá không").is_empty());
         assert!(poll_questions("CN còn thiếu 2, ai đi không").is_empty());

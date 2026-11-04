@@ -3104,4 +3104,10 @@ async fn seven_today_after_seven_means_the_evening_and_the_time_can_be_changed(p
     // Asking which half of the day is a question about the time.
     let when = bot.in_group(OTHER, "7h sáng hay 7h tối").await.unwrap();
     assert!(when.contains("19:30"), "{when}");
+    // A morning hour already past today is the evening here too.
+    let moved = bot.in_group(HOST, "đổi giờ 8h").await.unwrap();
+    assert!(moved.contains("20:00"), "{moved}");
+    // A day change is not a time change.
+    let day = bot.in_group(HOST, "đổi sang CN").await.unwrap();
+    assert!(!day.contains("Đã đổi giờ"), "{day}");
 }

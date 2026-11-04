@@ -353,10 +353,15 @@ impl PollRepository for PgBotRepository {
             return Ok(None);
         };
         let mut poll = poll_from_row(row)?;
-        poll.plan.play_time = Some(play_time);
+        // "đổi giờ 8h" at 15:00 for today's game means 20:00, as when it was made.
+        poll.plan = PollPlan {
+            play_time: Some(play_time),
+            ..poll.plan
+        }
+        .evening_if_past(now);
         sqlx::query("UPDATE bot_polls SET play_time = $2, next_nudge_at = $3 WHERE id = $1")
             .bind(poll.id)
-            .bind(play_time)
+            .bind(poll.plan.play_time)
             .bind(poll.plan.next_nudge(now))
             .execute(&mut *tx)
             .await
