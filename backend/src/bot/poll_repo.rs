@@ -4,8 +4,8 @@ use chrono::{DateTime, NaiveDate, NaiveTime, Utc};
 
 use super::polls::{
     AnswerOutcome, MAX_OPEN_POLLS_PER_CHAT, MAX_SERIES_FAILURES, MAX_SERIES_PER_CHAT, Member,
-    PendingPoll, Poll, PollAnswer, PollGroup, PollPlan, PollRepoError, PollRepository, PollSeries,
-    PollVenue, PublicGroup, post_at, week_posted_at,
+    NewPoll, PendingPoll, Poll, PollAnswer, PollGroup, PollPlan, PollRepoError, PollRepository,
+    PollSeries, PollVenue, PublicGame, PublicGroup, post_at, week_posted_at,
 };
 use super::repo::PgBotRepository;
 use crate::auth::UserId;
@@ -263,13 +263,18 @@ impl PollRepository for PgBotRepository {
 
     async fn add_poll(
         &self,
-        chat_id: &str,
-        user: UserId,
-        plan: &PollPlan,
-        share_id: &ShareId,
-        series_id: Option<i64>,
+        new: &NewPoll<'_>,
         now: DateTime<Utc>,
     ) -> Result<Option<Poll>, PollRepoError> {
+        let NewPoll {
+            chat_id,
+            user,
+            plan,
+            share_id,
+            series_id,
+            venue_id,
+            public,
+        } = *new;
         let mut tx = self.pool().begin().await.map_err(poll_error)?;
         // Serialises adds per chat so two "ok"s cannot both pass the count.
         sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended('bot_polls:' || $1, 0))")
@@ -290,8 +295,8 @@ impl PollRepository for PgBotRepository {
         }
         let row: PollRow = sqlx::query_as(&format!(
             "INSERT INTO bot_polls (share_id, chat_id, user_id, title, days, nudge_time,
-                 next_nudge_at, closes_at, created_at, play_time, series_id)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                 next_nudge_at, closes_at, created_at, play_time, series_id, venue_id, public)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
              RETURNING {POLL_COLUMNS}"
         ))
         .bind(share_id.as_str())
@@ -305,6 +310,8 @@ impl PollRepository for PgBotRepository {
         .bind(now)
         .bind(plan.play_time)
         .bind(series_id)
+        .bind(venue_id)
+        .bind(public)
         .fetch_one(&mut *tx)
         .await
         .map_err(poll_error)?;
@@ -323,12 +330,71 @@ impl PollRepository for PgBotRepository {
         row.map(poll_from_row).transpose()
     }
 
+    async fn public_games(&self, now: DateTime<Utc>) -> Result<Vec<PublicGame>, PollRepoError> {
+        // The sport comes from the venue: a one-off poll keeps no sport of its own.
+        type GameRow = (
+            String,
+            String,
+            Option<String>,
+            Option<String>,
+            Option<NaiveTime>,
+            Vec<NaiveDate>,
+            Vec<i64>,
+            Option<Vec<String>>,
+        );
+        let rows: Vec<GameRow> = sqlx::query_as(
+            "SELECT p.title, p.share_id, v.name, v.address, p.play_time, p.days,
+                    ARRAY(
+                        SELECT count(a.user_id) FILTER (WHERE a.attending)
+                        FROM unnest(p.days) AS d(day)
+                        LEFT JOIN bot_poll_answers a ON a.poll_id = p.id AND a.day = d.day
+                        GROUP BY d.day ORDER BY d.day
+                    ),
+                    v.sports
+             FROM bot_polls p
+             LEFT JOIN venues v ON v.id = p.venue_id AND v.status = 'approved'
+             WHERE p.public AND p.series_id IS NULL AND p.closes_at > $1
+             ORDER BY p.days[1], p.play_time NULLS LAST, p.id
+             LIMIT 50",
+        )
+        .bind(now)
+        .fetch_all(self.pool())
+        .await
+        .map_err(poll_error)?;
+        Ok(rows
+            .into_iter()
+            .map(
+                |(title, share_id, venue_name, venue_address, play_time, mut days, yes, sports)| {
+                    days.sort();
+                    // A venue for one sport tells the game's sport.
+                    let sport = sports
+                        .filter(|sports| sports.len() == 1)
+                        .and_then(|sports| Sport::parse(&sports[0]));
+                    PublicGame {
+                        title,
+                        share_id,
+                        group: PollGroup {
+                            sport,
+                            format: None,
+                            venue_id: None,
+                            public: true,
+                        },
+                        venue_name,
+                        venue_address,
+                        play_time,
+                        days: days.into_iter().zip(yes).collect(),
+                    }
+                },
+            )
+            .collect())
+    }
+
     async fn poll_venue(&self, poll_id: i64) -> Result<Option<PollVenue>, PollRepoError> {
         let row: Option<(String, String, Option<String>)> = sqlx::query_as(
             "SELECT v.name, v.address, v.maps_url
              FROM bot_polls p
-             JOIN bot_poll_series s ON s.id = p.series_id
-             JOIN venues v ON v.id = s.venue_id AND v.status = 'approved'
+             LEFT JOIN bot_poll_series s ON s.id = p.series_id
+             JOIN venues v ON v.id = COALESCE(p.venue_id, s.venue_id) AND v.status = 'approved'
              WHERE p.id = $1",
         )
         .bind(poll_id)

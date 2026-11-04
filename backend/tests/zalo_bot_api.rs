@@ -2836,3 +2836,168 @@ async fn the_game_day_call_names_who_has_not_answered(pool: PgPool) {
     assert!(call.contains("Chưa trả lời: Player host"), "{call}");
     assert!(!call.contains("Chưa trả lời: Player nam"), "{call}");
 }
+
+/// A casual game today at Lakeview, as the poll reader might read it.
+async fn tonight_at_lakeview(bot: &Bot, play_time: Option<&str>) -> RawPoll {
+    RawPoll {
+        title: Some("Bóng rổ vui vẻ hôm nay".to_owned()),
+        days: vec!["2099-10-01".to_owned()],
+        play_time: play_time.map(str::to_owned),
+        sport: Some("basketball".to_owned()),
+        venue_id: Some(bot.lakeview_slug().await),
+        ..RawPoll::default()
+    }
+}
+
+#[sqlx::test]
+async fn a_casual_group_game_is_a_one_day_poll_with_its_venue(pool: PgPool) {
+    let bot = bot(pool, tonight());
+    bot.link(HOST, "host").await;
+    bot.add_lakeview().await;
+    let reads = bot.reader.calls.lock().unwrap().len();
+    bot.poll_answer(Some(tonight_at_lakeview(&bot, Some("19:00")).await));
+
+    let text = "tạo kèo bóng rồ vui bẻ hôm nay lakeview 7h hoặc 7h30";
+    let summary = bot.in_group(HOST, text).await.unwrap();
+    assert!(summary.contains("chơi lúc 19:00"), "{summary}");
+    assert!(summary.contains("Sân Lakeview"), "{summary}");
+    assert!(summary.contains("\"@Bot DaGhep có\""), "{summary}");
+    assert!(!summary.contains("mỗi ngày"), "{summary}");
+    assert!(!summary.contains("Mình còn thiếu"), "{summary}");
+    assert_eq!(
+        bot.reader.calls.lock().unwrap().len(),
+        reads,
+        "no match read"
+    );
+    assert_eq!(bot.polls.calls.lock().unwrap().last().unwrap(), text);
+
+    let posted = bot.in_group(HOST, "ok").await.unwrap();
+    assert!(posted.contains("/p/"), "{posted}");
+    bot.link(OTHER, "nam").await;
+    // One day: a bare yes is enough.
+    let saved = bot.in_group(OTHER, "có").await.unwrap();
+    assert!(saved.contains("Đã ghi Player nam"), "{saved}");
+    let venue = bot.in_group(OTHER, "sân nào").await.unwrap();
+    assert!(venue.contains("Sân Lakeview"), "{venue}");
+}
+
+#[sqlx::test]
+async fn a_poll_request_that_left_the_time_out_is_completed_by_the_next_message(pool: PgPool) {
+    let bot = bot(pool, tonight());
+    bot.link(HOST, "host").await;
+    bot.add_lakeview().await;
+    bot.poll_answer(Some(tonight_at_lakeview(&bot, None).await));
+    let asked = bot
+        .in_group(HOST, "tạo kèo bóng rổ hôm nay lakeview")
+        .await
+        .unwrap();
+    assert!(asked.contains("chơi lúc mấy giờ"), "{asked}");
+
+    bot.poll_answer(Some(tonight_at_lakeview(&bot, Some("19:30")).await));
+    let summary = bot.in_group(HOST, "19h30").await.unwrap();
+    assert!(summary.contains("chơi lúc 19:30"), "{summary}");
+    assert_eq!(
+        bot.polls.calls.lock().unwrap().last().unwrap(),
+        "tạo kèo bóng rổ hôm nay lakeview\n19h30"
+    );
+    // Once complete, the next message stands alone again.
+    bot.in_group(HOST, "huỷ").await.unwrap();
+    bot.in_group(HOST, "tối mai 20h lakeview").await.unwrap();
+    assert_eq!(
+        bot.polls.calls.lock().unwrap().last().unwrap(),
+        "tối mai 20h lakeview"
+    );
+}
+
+#[sqlx::test]
+async fn a_match_that_left_something_out_is_completed_by_the_next_message(pool: PgPool) {
+    let bot = bot(
+        pool,
+        RawDraft {
+            start_time: None,
+            end_time: None,
+            ..tonight()
+        },
+    );
+    bot.link(HOST, "host").await;
+    let asked = bot
+        .in_group(HOST, "SSA sân 7 thiếu 3, 60k/người")
+        .await
+        .unwrap();
+    assert!(asked.contains("giờ bắt đầu"), "{asked}");
+    bot.in_group(HOST, "tối nay 19h–20h30").await.unwrap();
+    assert_eq!(
+        bot.reader.calls.lock().unwrap().last().unwrap().0,
+        "SSA sân 7 thiếu 3, 60k/người\ntối nay 19h–20h30"
+    );
+    assert!(bot.polls.calls.lock().unwrap().is_empty(), "never a poll");
+}
+
+#[sqlx::test]
+async fn asking_whether_there_is_a_game_today_lists_games_and_the_poll(pool: PgPool) {
+    let bot = bot(pool, RawDraft::default());
+    bot.link(HOST, "host").await;
+    let share_id = bot.add_weekend_poll().await;
+    let reply = bot
+        .in_group(OTHER, "nay có sân chơi bóng rổ ko")
+        .await
+        .unwrap();
+    assert!(!reply.contains("Muốn điểm danh thì gõ"), "{reply}");
+    assert!(reply.contains("chưa có kèo"), "{reply}");
+    assert!(reply.contains(&format!("/p/{share_id}")), "{reply}");
+}
+
+#[sqlx::test]
+async fn a_casual_game_shows_on_the_home_page_unless_asked_to_stay_private(pool: PgPool) {
+    let bot = bot(pool, tonight());
+    bot.link(HOST, "host").await;
+    bot.add_lakeview().await;
+    bot.poll_answer(Some(tonight_at_lakeview(&bot, Some("19:00")).await));
+    let summary = bot
+        .in_group(HOST, "tạo kèo bóng rổ hôm nay lakeview 7h")
+        .await
+        .unwrap();
+    assert!(summary.contains("Hiện trên trang chủ"), "{summary}");
+    let posted = bot.in_group(HOST, "ok").await.unwrap();
+    let share_id = poll_share_id(&posted);
+    bot.link(OTHER, "nam").await;
+    bot.in_group(OTHER, "có").await.unwrap();
+
+    let response = call(
+        &bot.app,
+        Request::get("/api/groups").body(Body::empty()).unwrap(),
+    )
+    .await;
+    let body = json_body(response).await;
+    assert_eq!(
+        body["games"],
+        json!([{
+            "title": "Bóng rổ vui vẻ hôm nay",
+            "sport": "basketball",
+            "format": null,
+            "venue": { "name": "Sân Lakeview", "address": "Sân bóng rổ Lakeview" },
+            "days": [{ "day": "2099-10-01", "yes": 1 }],
+            "playTime": "19:00",
+            "pollPath": format!("/p/{share_id}"),
+        }])
+    );
+    assert!(!body.to_string().contains("Player"), "no names: {body}");
+
+    // "riêng tư" keeps the next one off the home page.
+    bot.poll_answer(Some(tonight_at_lakeview(&bot, Some("20:00")).await));
+    let private = bot
+        .in_group(HOST, "tạo kèo bóng rổ hôm nay lakeview 8h riêng tư")
+        .await
+        .unwrap();
+    assert!(!private.contains("Hiện trên trang chủ"), "{private}");
+    bot.in_group(HOST, "ok").await.unwrap();
+    let response = call(
+        &bot.app,
+        Request::get("/api/groups").body(Body::empty()).unwrap(),
+    )
+    .await;
+    assert_eq!(
+        json_body(response).await["games"].as_array().unwrap().len(),
+        1
+    );
+}

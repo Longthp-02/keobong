@@ -265,6 +265,32 @@ pub struct PublicGroup {
     pub week: Option<(Vec<(NaiveDate, i64)>, i64)>,
 }
 
+/// A poll to save.
+pub struct NewPoll<'a> {
+    pub chat_id: &'a str,
+    pub user: UserId,
+    pub plan: &'a PollPlan,
+    pub share_id: &'a ShareId,
+    /// The weekly series it was posted for.
+    pub series_id: Option<i64>,
+    pub venue_id: Option<i64>,
+    /// Shown on the home page (one-off games only).
+    pub public: bool,
+}
+
+/// A one-off game shown on the home page: no names.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PublicGame {
+    pub title: String,
+    pub share_id: String,
+    pub group: PollGroup,
+    pub venue_name: Option<String>,
+    pub venue_address: Option<String>,
+    pub play_time: Option<NaiveTime>,
+    /// Yes-counts per day.
+    pub days: Vec<(NaiveDate, i64)>,
+}
+
 /// Weekly polls one chat may have at a time.
 pub const MAX_SERIES_PER_CHAT: i64 = 3;
 /// A weekly post more than this late (an outage) is skipped until next week.
@@ -473,13 +499,15 @@ pub trait PollRepository: Send + Sync {
     /// ones; returns it when saved.
     fn add_poll(
         &self,
-        chat_id: &str,
-        user: UserId,
-        plan: &PollPlan,
-        share_id: &ShareId,
-        series_id: Option<i64>,
+        poll: &NewPoll<'_>,
         now: DateTime<Utc>,
     ) -> impl Future<Output = Result<Option<Poll>, PollRepoError>> + Send;
+
+    /// Open one-off games shown on the home page, soonest first.
+    fn public_games(
+        &self,
+        now: DateTime<Utc>,
+    ) -> impl Future<Output = Result<Vec<PublicGame>, PollRepoError>> + Send;
 
     fn poll(
         &self,

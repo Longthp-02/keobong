@@ -1,4 +1,4 @@
-import type { PublicGroup } from "../lib/api";
+import type { PublicGame, PublicGroup } from "../lib/api";
 import messages from "../messages/vi.json";
 
 const t = messages.groups;
@@ -18,7 +18,16 @@ function answerExample(weekdays: number[]): string {
     .join(", ");
 }
 
-function headline(group: PublicGroup): string | null {
+/** "T5 01/10" from a YYYY-MM-DD day. */
+function dayText(day: string): string {
+  const [year, month, date] = day.split("-").map(Number);
+  const weekday = new Date(Date.UTC(year, month - 1, date)).getUTCDay();
+  return `${messages.poll.weekdays[weekday]} ${String(date).padStart(2, "0")}/${String(month).padStart(2, "0")}`;
+}
+
+function headline(
+  group: Pick<PublicGroup, "sport" | "format" | "venue">,
+): string | null {
   const parts = [
     group.sport ? t.sports[group.sport] : null,
     group.format ? t.formats[group.format] : null,
@@ -30,28 +39,98 @@ function headline(group: PublicGroup): string | null {
 /** A group's sport, venue, days, time, this week's count and how to answer. */
 export function GroupDetails({ group }: { group: PublicGroup }) {
   const top = headline(group);
-  const when = [weekdayNames(group.weekdays).join(", "), group.playTime].filter(Boolean).join(" · ");
+  const when = [weekdayNames(group.weekdays).join(", "), group.playTime]
+    .filter(Boolean)
+    .join(" · ");
   return (
     <>
       {top ? <p className="group-card__top">{top}</p> : null}
       <p className="group-card__title">{group.title}</p>
-      {group.venue ? <p className="muted group-card__address">{group.venue.address}</p> : null}
+      {group.venue ? (
+        <p className="muted group-card__address">{group.venue.address}</p>
+      ) : null}
       <p className="group-card__when">{when}</p>
       <p className="group-card__players">
-        {group.week ? t.playersThisWeek.replace("{n}", String(group.week.players)) : t.noPollYet}
+        {group.week
+          ? t.playersThisWeek.replace("{n}", String(group.week.players))
+          : t.noPollYet}
       </p>
       {group.weekdays.length > 0 ? (
-        <p className="muted group-card__answer">{t.howToAnswer.replace("{example}", answerExample(group.weekdays))}</p>
+        <p className="muted group-card__answer">
+          {t.howToAnswer.replace("{example}", answerExample(group.weekdays))}
+        </p>
       ) : null}
     </>
   );
 }
 
 /** Weekly groups that chose to show on the home page. No member names. */
-export function GroupList({ groups }: { groups: PublicGroup[] }) {
-  if (groups.length === 0) {
+export function GroupList({
+  groups,
+  games = [],
+}: {
+  groups: PublicGroup[];
+  games?: PublicGame[];
+}) {
+  if (groups.length === 0 && games.length === 0) {
     return null;
   }
+  return (
+    <>
+      {games.length > 0 ? <GameList games={games} /> : null}
+      {groups.length > 0 ? <WeeklyGroups groups={groups} /> : null}
+    </>
+  );
+}
+
+/** One-off group games: what, where, when, how many go, and the poll link. */
+function GameList({ games }: { games: PublicGame[] }) {
+  return (
+    <section className="groups" aria-labelledby="games-title">
+      <h2 id="games-title" className="groups__title">
+        {t.gamesTitle}
+      </h2>
+      <p className="muted groups__intro">{t.gamesIntro}</p>
+      <ul className="groups__list">
+        {games.map((game) => {
+          const top = headline(game);
+          return (
+            <li key={game.pollPath} className="group-card">
+              {top ? <p className="group-card__top">{top}</p> : null}
+              <p className="group-card__title">{game.title}</p>
+              {game.venue ? (
+                <p className="muted group-card__address">
+                  {game.venue.address}
+                </p>
+              ) : null}
+              {game.days.map((day) => (
+                <div key={day.day}>
+                  <p className="group-card__when">
+                    {[dayText(day.day), game.playTime]
+                      .filter(Boolean)
+                      .join(" · ")}
+                  </p>
+                  <p className="group-card__players">
+                    {t.gameYes.replace("{n}", String(day.yes))}
+                  </p>
+                </div>
+              ))}
+              <a
+                href={game.pollPath}
+                className="group-card__open"
+                aria-label={t.gameOpenLabel.replace("{title}", game.title)}
+              >
+                {t.gameOpen}
+              </a>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
+}
+
+function WeeklyGroups({ groups }: { groups: PublicGroup[] }) {
   return (
     <section className="groups" aria-labelledby="groups-title">
       <h2 id="groups-title" className="groups__title">

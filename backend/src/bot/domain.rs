@@ -291,6 +291,42 @@ fn strip_prefix_ignore_case<'a>(text: &'a str, prefix: &str) -> Option<&'a str> 
     (whole_word && head.to_lowercase() == prefix.to_lowercase()).then_some(rest)
 }
 
+/// What an incomplete request was for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PartialKind {
+    Match,
+    Poll,
+}
+
+impl PartialKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Match => "match",
+            Self::Poll => "poll",
+        }
+    }
+
+    pub fn parse(raw: &str) -> Option<Self> {
+        match raw {
+            "match" => Some(Self::Match),
+            "poll" => Some(Self::Poll),
+            _ => None,
+        }
+    }
+}
+
+/// A request that left something out; the sender's next message in the chat
+/// within `DRAFT_MINUTES` is read together with it (Long, 2026-11-04).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PartialRequest {
+    pub zalo_user_id: String,
+    pub chat_id: String,
+    pub kind: PartialKind,
+    /// The request's text so far.
+    pub text: String,
+    pub expires_at: DateTime<Utc>,
+}
+
 /// A match waiting for the sender's "ok"; every field already passed the match rules.
 #[derive(Debug, Clone, PartialEq)]
 pub struct BotDraft {
@@ -354,6 +390,20 @@ pub trait BotRepository: Send + Sync {
 
     /// Replaces the sender's pending draft in that chat.
     fn save_draft(&self, draft: &BotDraft) -> impl Future<Output = Result<(), RepoError>> + Send;
+
+    /// Replaces the sender's incomplete request in that chat.
+    fn save_partial(
+        &self,
+        partial: &PartialRequest,
+    ) -> impl Future<Output = Result<(), RepoError>> + Send;
+
+    /// Removes and returns the sender's unexpired incomplete request there.
+    fn take_partial(
+        &self,
+        zalo_user_id: &str,
+        chat_id: &str,
+        now: DateTime<Utc>,
+    ) -> impl Future<Output = Result<Option<PartialRequest>, RepoError>> + Send;
 
     /// Removes and returns the sender's unexpired draft in that chat.
     fn take_draft(
@@ -570,6 +620,7 @@ pub struct BotCopy {
     pub poll_game_call_who: String,
     pub poll_game_call_no_one: String,
     pub poll_not_yet: String,
+    pub poll_summary_one_day: String,
     pub poll_soon: String,
     pub commands: Commands,
     pub answer_words: super::answers::AnswerWords,
@@ -609,6 +660,8 @@ pub struct Commands {
     pub hide_poll: Vec<String>,
     /// Words that ask for a weekly poll to be public when it is made.
     pub public: Vec<String>,
+    /// Words that keep a one-off game off the home page.
+    pub private: Vec<String>,
     /// Sport words in a venue request.
     pub venue_football: Vec<String>,
     pub venue_basketball: Vec<String>,

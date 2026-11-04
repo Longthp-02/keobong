@@ -19,7 +19,7 @@ export default async function HomePage() {
       <h1 className="visually-hidden">{messages.app.name}</h1>
       <p className="muted home__tagline">{messages.app.tagline}</p>
       <MatchList />
-      <GroupList groups={await getGroups()} />
+      <GroupList {...await getGroups()} />
     </>
   );
 }

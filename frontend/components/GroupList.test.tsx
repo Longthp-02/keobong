@@ -58,8 +58,36 @@ describe("GroupList", () => {
     expect(link.getAttribute("href")).toBe("/g/0123456789ab");
   });
 
-  it("renders nothing without groups", () => {
-    const { container } = render(<GroupList groups={[]} />);
+  it("lists upcoming group games with a link to answer", () => {
+    render(
+      <GroupList
+        groups={[]}
+        games={[
+          {
+            title: "Bóng rổ vui vẻ hôm nay",
+            sport: "basketball",
+            format: null,
+            venue: { name: "Sân Lakeview", address: "Sân bóng rổ Lakeview" },
+            days: [{ day: "2099-10-01", yes: 3 }],
+            playTime: "19:00",
+            pollPath: "/p/abcDEF12",
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByRole("heading", { name: t.gamesTitle })).toBeTruthy();
+    const card = screen.getByRole("listitem");
+    expect(within(card).getByText("🏀 Bóng rổ · Sân Lakeview")).toBeTruthy();
+    expect(within(card).getByText("Bóng rổ vui vẻ hôm nay")).toBeTruthy();
+    expect(within(card).getByText("T5 01/10 · 19:00")).toBeTruthy();
+    expect(within(card).getByText(t.gameYes.replace("{n}", "3"))).toBeTruthy();
+    const link = within(card).getByRole("link", { name: t.gameOpenLabel.replace("{title}", "Bóng rổ vui vẻ hôm nay") });
+    expect(link.getAttribute("href")).toBe("/p/abcDEF12");
+  });
+
+  it("renders nothing without groups or games", () => {
+    const { container } = render(<GroupList groups={[]} games={[]} />);
     expect(container.innerHTML).toBe("");
   });
 });
