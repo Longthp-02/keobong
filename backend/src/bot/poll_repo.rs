@@ -330,6 +330,46 @@ impl PollRepository for PgBotRepository {
         row.map(poll_from_row).transpose()
     }
 
+    async fn change_play_time(
+        &self,
+        chat_id: &str,
+        user: UserId,
+        play_time: NaiveTime,
+        now: DateTime<Utc>,
+    ) -> Result<Option<Poll>, PollRepoError> {
+        let mut tx = self.pool().begin().await.map_err(poll_error)?;
+        let row: Option<PollRow> = sqlx::query_as(&format!(
+            "SELECT {POLL_COLUMNS} FROM bot_polls
+             WHERE chat_id = $1 AND user_id = $2 AND series_id IS NULL AND closes_at > $3
+             ORDER BY created_at DESC, id DESC LIMIT 1 FOR UPDATE"
+        ))
+        .bind(chat_id)
+        .bind(user.0)
+        .bind(now)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(poll_error)?;
+        let Some(row) = row else {
+            return Ok(None);
+        };
+        let mut poll = poll_from_row(row)?;
+        // "đổi giờ 8h" at 15:00 for today's game means 20:00, as when it was made.
+        poll.plan = PollPlan {
+            play_time: Some(play_time),
+            ..poll.plan
+        }
+        .evening_if_past(now);
+        sqlx::query("UPDATE bot_polls SET play_time = $2, next_nudge_at = $3 WHERE id = $1")
+            .bind(poll.id)
+            .bind(poll.plan.play_time)
+            .bind(poll.plan.next_nudge(now))
+            .execute(&mut *tx)
+            .await
+            .map_err(poll_error)?;
+        tx.commit().await.map_err(poll_error)?;
+        Ok(Some(poll))
+    }
+
     async fn public_games(&self, now: DateTime<Utc>) -> Result<Vec<PublicGame>, PollRepoError> {
         // The sport comes from the venue: a one-off poll keeps no sport of its own.
         type GameRow = (

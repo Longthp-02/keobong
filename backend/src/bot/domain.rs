@@ -92,6 +92,8 @@ pub enum Command {
     SetGroupLink(String),
     /// An organiser asks which join requests wait ("nhận" alone).
     WaitingJoins,
+    /// The organiser moves their game's time ("đổi giờ 19h").
+    ChangeTime(String),
     /// A match described in the organiser's own words.
     Describe(String),
 }
@@ -163,6 +165,8 @@ pub fn parse_command(text: &str, kind: ChatKind, bot_name: &str) -> Option<Comma
         })
     } else if is(&commands.waiting_joins) {
         Command::WaitingJoins
+    } else if starts_with_words(&word, &commands.change_time) {
+        Command::ChangeTime(rest.to_owned())
     } else if starts_with_words(&word, &commands.group_link) {
         Command::SetGroupLink(rest.to_owned())
     } else if is(&commands.pending_venues) {
@@ -623,6 +627,9 @@ pub struct BotCopy {
     pub poll_summary_one_day: String,
     pub poll_public_hint: String,
     pub poll_soon: String,
+    pub time_changed: String,
+    pub time_not_found: String,
+    pub time_missing: String,
     pub commands: Commands,
     pub answer_words: super::answers::AnswerWords,
 }
@@ -675,6 +682,8 @@ pub struct Commands {
     pub waiting_joins: Vec<String>,
     /// A player asking for the chat's poll ("bảng điểm danh" alone).
     pub show_poll: Vec<String>,
+    /// Prefixes of moving a game's time ("đổi giờ 19h").
+    pub change_time: Vec<String>,
 }
 
 const COPY_JSON: &str = include_str!("../../messages/vi.json");

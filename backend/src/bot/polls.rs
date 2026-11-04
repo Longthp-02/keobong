@@ -6,7 +6,7 @@
 use std::future::Future;
 use std::pin::Pin;
 
-use chrono::{DateTime, Datelike, Duration, NaiveDate, NaiveTime, Utc};
+use chrono::{DateTime, Datelike, Duration, NaiveDate, NaiveTime, Timelike, Utc};
 
 use crate::auth::UserId;
 use crate::matches::domain::{ShareId, local_date, local_instant};
@@ -139,7 +139,59 @@ impl RawPoll {
     }
 }
 
+/// A clock time in a message ("19h", "7h30 tối", "18:45"); "tối"/"chiều" after
+/// a morning hour means the afternoon or evening.
+pub fn read_clock(text: &str) -> Option<NaiveTime> {
+    use unicode_normalization::UnicodeNormalization;
+    let text: String = text.nfc().collect::<String>().to_lowercase();
+    // A range ("19h–20h30") starts at its first time.
+    let words: Vec<&str> = text
+        .split(|c: char| c.is_whitespace() || matches!(c, '-' | '–' | '—'))
+        .map(|word| word.trim_matches(|c: char| !c.is_alphanumeric() && c != ':'))
+        .filter(|word| !word.is_empty())
+        .collect();
+    words.iter().enumerate().find_map(|(index, word)| {
+        let lead = word.chars().take_while(char::is_ascii_digit).count();
+        if lead == 0 || lead > 2 {
+            return None;
+        }
+        let hour: u32 = word[..lead].parse().ok()?;
+        let rest = &word[lead..];
+        let rest = rest.strip_prefix(['h', 'g', ':'])?;
+        let minute: u32 = if rest.is_empty() {
+            0
+        } else {
+            rest.parse().ok()?
+        };
+        let next = words.get(index + 1).copied().unwrap_or_default();
+        // "2h đêm" is still the small hours; "10h đêm" is the evening.
+        let later = ["tối", "chiều", "toi", "chieu"].contains(&next)
+            || (["đêm", "dem"].contains(&next) && hour >= 5);
+        let hour = if later && hour < 12 { hour + 12 } else { hour };
+        NaiveTime::from_hms_opt(hour, minute, 0)
+    })
+}
+
 impl PollPlan {
+    /// A morning play time that has already passed today, for a poll of today
+    /// only, means the evening ("hôm nay 7h" at 15:00 is 19:00).
+    pub fn evening_if_past(self, now: DateTime<Utc>) -> Self {
+        let today = local_date(now);
+        match self.play_time {
+            Some(play)
+                if self.days == [today]
+                    && play.hour() < 12
+                    && local_instant(today, play) <= now =>
+            {
+                Self {
+                    play_time: Some(play + Duration::hours(12)),
+                    ..self
+                }
+            }
+            _ => self,
+        }
+    }
+
     /// Answers close at the end of the last day, Ho Chi Minh City time.
     pub fn closes_at(&self) -> DateTime<Utc> {
         let last = self.days.last().copied().unwrap_or_default();
@@ -503,6 +555,16 @@ pub trait PollRepository: Send + Sync {
         now: DateTime<Utc>,
     ) -> impl Future<Output = Result<Option<Poll>, PollRepoError>> + Send;
 
+    /// Moves the play time of the newest open one-off poll `user` made in the
+    /// chat, and its next nudge; returns it, or `None` when there is none.
+    fn change_play_time(
+        &self,
+        chat_id: &str,
+        user: UserId,
+        play_time: NaiveTime,
+        now: DateTime<Utc>,
+    ) -> impl Future<Output = Result<Option<Poll>, PollRepoError>> + Send;
+
     /// Open one-off games shown on the home page, soonest first.
     fn public_games(
         &self,
@@ -643,6 +705,58 @@ mod tests {
             weekly: false,
             ..RawPoll::default()
         }
+    }
+
+    #[test]
+    fn a_morning_time_already_past_today_means_the_evening() {
+        let today_poll = |time: &str| PollPlan {
+            days: vec![day("2099-10-01")],
+            play_time: NaiveTime::parse_from_str(time, "%H:%M").ok(),
+            ..raw().checked(today()).unwrap()
+        };
+        // 15:07 local on 1 October.
+        let afternoon = at("2099-10-01T08:07:00Z");
+        assert_eq!(
+            today_poll("07:00").evening_if_past(afternoon).play_time,
+            NaiveTime::from_hms_opt(19, 0, 0)
+        );
+        // Still ahead, or already afternoon: kept.
+        assert_eq!(
+            today_poll("07:00")
+                .evening_if_past(at("2099-09-30T22:00:00Z"))
+                .play_time,
+            NaiveTime::from_hms_opt(7, 0, 0)
+        );
+        assert_eq!(
+            today_poll("14:00").evening_if_past(afternoon).play_time,
+            NaiveTime::from_hms_opt(14, 0, 0)
+        );
+        // Another day: kept.
+        let saturday = raw().checked(today()).unwrap();
+        assert_eq!(saturday.clone().evening_if_past(afternoon), saturday);
+    }
+
+    #[test]
+    fn reads_a_clock_time() {
+        assert_eq!(
+            read_clock("đổi giờ 19h–20h30"),
+            NaiveTime::from_hms_opt(19, 0, 0)
+        );
+        assert_eq!(
+            read_clock("7h30 tối, nhé"),
+            NaiveTime::from_hms_opt(19, 30, 0)
+        );
+        assert_eq!(read_clock("10h đêm"), NaiveTime::from_hms_opt(22, 0, 0));
+        assert_eq!(read_clock("0h"), NaiveTime::from_hms_opt(0, 0, 0));
+        assert_eq!(read_clock("25h"), None);
+        assert_eq!(read_clock("2h đêm"), NaiveTime::from_hms_opt(2, 0, 0));
+        let time = |h, m| NaiveTime::from_hms_opt(h, m, 0);
+        assert_eq!(read_clock("đổi giờ 19h"), time(19, 0));
+        assert_eq!(read_clock("đổi thành 7h30 tối"), time(19, 30));
+        assert_eq!(read_clock("dời giờ 18:45"), time(18, 45));
+        assert_eq!(read_clock("đổi giờ 7h sáng"), time(7, 0));
+        assert_eq!(read_clock("đổi giờ"), None);
+        assert_eq!(read_clock("đổi giờ 25h"), None);
     }
 
     #[test]

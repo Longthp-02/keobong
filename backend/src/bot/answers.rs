@@ -33,6 +33,8 @@ pub struct AnswerWords {
     pub who: Vec<String>,
     pub r#where: Vec<String>,
     pub when: Vec<String>,
+    /// "7h sáng hay tối": a question about the time even with a time in it.
+    pub when_choice: Vec<String>,
     /// Words that start a new request ("tạo"): an earlier incomplete one is
     /// dropped, and next to an open poll a time with one is a new game.
     pub new_request_words: Vec<String>,
@@ -111,6 +113,32 @@ pub enum PollQuestion {
     When,
 }
 
+/// The days a message names ("T7 CN có ai" → Saturday, Sunday), as a yes for
+/// each, so a question can find the poll they belong to.
+pub fn days_named(text: &str) -> Option<AnswerIntent> {
+    use unicode_normalization::UnicodeNormalization;
+    let text: String = text.nfc().collect::<String>().to_lowercase();
+    let tokens = tokens(&text);
+    let table = phrase_table(&COPY.answer_words);
+    let mut days = Vec::new();
+    let mut index = 0;
+    while index < tokens.len() {
+        let found = table.iter().find(|(phrase, item)| {
+            matches!(item, Item::Day(_))
+                && tokens[index..].len() >= phrase.len()
+                && phrase.iter().zip(&tokens[index..]).all(|(a, b)| a == b)
+        });
+        match found {
+            Some((phrase, Item::Day(day))) => {
+                days.push((*day, true));
+                index += phrase.len();
+            }
+            _ => index += 1,
+        }
+    }
+    (!days.is_empty()).then_some(AnswerIntent::Days(days))
+}
+
 /// The questions a message asks about the chat's poll ("chủ nhật mấy người là
 /// ai", "sân nào vậy"), in that order; empty when it asks none.
 pub fn poll_questions(text: &str) -> Vec<PollQuestion> {
@@ -118,6 +146,15 @@ pub fn poll_questions(text: &str) -> Vec<PollQuestion> {
     let words = &COPY.answer_words;
     let text: String = text.nfc().collect::<String>().to_lowercase();
     let tokens = tokens(&text);
+    // "7h sáng hay 7h tối": the times between the words are left out.
+    let words_only: Vec<&str> = tokens
+        .iter()
+        .copied()
+        .filter(|token| !token.starts_with(|c: char| c.is_ascii_digit()))
+        .collect();
+    if has_phrase(&words_only, &words.when_choice) && !has_create_word(&text) {
+        return vec![PollQuestion::When];
+    }
     // A match post ("19h SSA sân 7 thiếu 3, ai đá không") has times, prices or
     // match words: it is read as a match, not as a question about the poll.
     let timeish = |token: &&str| {
@@ -580,6 +617,15 @@ mod tests {
     }
 
     #[test]
+    fn finds_the_days_a_question_names() {
+        let Some(AnswerIntent::Days(days)) = days_named("T7 CN có ai") else {
+            panic!("no days");
+        };
+        assert_eq!(days.len(), 2);
+        assert_eq!(days_named("sân nào"), None);
+    }
+
+    #[test]
     fn reads_questions_about_the_poll() {
         assert_eq!(
             poll_questions("chủ nhật 3 người là ai vậy"),
@@ -599,6 +645,14 @@ mod tests {
         );
         assert!(poll_questions("T7 có, CN không").is_empty());
         assert!(poll_questions("haizzz").is_empty());
+        assert_eq!(poll_questions("T7 CN có ai"), vec![PollQuestion::Who]);
+        // Which half of the day, even with the times in it.
+        assert_eq!(
+            poll_questions("7h sáng hay 7h tối"),
+            vec![PollQuestion::When]
+        );
+        assert_eq!(poll_questions("sáng hay tối"), vec![PollQuestion::When]);
+        assert!(poll_questions("tạo kèo T7 sáng hay tối đều được, sân 7").is_empty());
         // Match posts are not questions about the poll.
         assert!(poll_questions("tối nay 19h SSA sân 7 thiếu 3, ai đá không").is_empty());
         assert!(poll_questions("CN còn thiếu 2, ai đi không").is_empty());

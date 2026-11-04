@@ -8,8 +8,8 @@ use chrono::{DateTime, Datelike, Duration, Utc};
 use sha2::{Digest, Sha256};
 
 use super::answers::{
-    AnswerIntent, PollQuestion, ResolveError, casual_game, has_create_word, poll_questions,
-    read_answer,
+    AnswerIntent, PollQuestion, ResolveError, casual_game, days_named, has_create_word,
+    poll_questions, read_answer,
 };
 use super::domain::{
     BotDraft, BotRepository, COPY, ChatKind, ChatReply, Command, DEFAULT_LEVEL_MAX_TENTHS,
@@ -22,7 +22,7 @@ use super::maps::{MapsLocator, find_maps_link};
 use super::polls::{
     AnswerOutcome, MAX_NAMES_IN_NUDGE, MAX_SERIES_LATE_HOURS, MEMBER_DAYS, NewPoll, PendingPoll,
     Poll, PollAnswer, PollGroup, PollPlan, PollReader, PollRepository, PollRequest, PollSeries,
-    RawPoll, first_week, tally, weekday_bits,
+    RawPoll, first_week, read_clock, tally, weekday_bits,
 };
 use super::reminders::{
     EVERY_DAY, MAX_LATE_MINUTES, PendingReminder, ReminderReader, ReminderRequest, Repeat, Schedule,
@@ -230,6 +230,7 @@ where
         Command::DecideJoin { id, approve } => decide_join(ctx, message, id, approve, now).await?,
         Command::SetGroupLink(text) => set_group_link(ctx, message, &text, &mention).await?,
         Command::WaitingJoins => waiting_joins(ctx, message, now).await?,
+        Command::ChangeTime(text) => change_time(ctx, message, &text, &mention, now).await?,
         Command::Describe(text) => describe(ctx, message, &text, &mention, now).await?,
     };
     Ok(Some(reply))
@@ -1005,7 +1006,7 @@ where
         group.public = false;
     }
     let plan = match raw.checked(today) {
-        Ok(plan) => plan,
+        Ok(plan) => plan.evening_if_past(now),
         Err(gaps) => {
             ctx.bot
                 .save_partial(&PartialRequest {
@@ -1838,7 +1839,22 @@ where
     // An answer goes to a poll only when it clearly fits one: with no day named,
     // only when the chat has one poll; with days, only the one poll they fit.
     let fits: Vec<(&Poll, Vec<(chrono::NaiveDate, bool)>)> = match intent {
-        AnswerIntent::NoDay(_) if polls.len() > 1 => Vec::new(),
+        // A bare yes with several polls: the one with a game today, when only
+        // one has.
+        AnswerIntent::NoDay(_) if polls.len() > 1 => {
+            let todays: Vec<&Poll> = polls
+                .iter()
+                .filter(|poll| poll.plan.days.contains(&today))
+                .collect();
+            match todays.as_slice() {
+                [poll] => intent
+                    .resolve(&[today], today)
+                    .ok()
+                    .map(|answers| vec![(*poll, answers)])
+                    .unwrap_or_default(),
+                _ => Vec::new(),
+            }
+        }
         _ => polls
             .iter()
             .filter_map(|poll| {
@@ -2102,9 +2118,20 @@ where
         .open_polls(&message.chat_id, now)
         .await
         .map_err(fail)?;
-    let Some(poll) = polls.first() else {
+    let Some(newest) = polls.first() else {
         return poll_not_yet(ctx.bot, &message.chat_id, now).await;
     };
+    // The poll the named days belong to ("T7 CN có ai"), or else the newest.
+    let today = local_date(now);
+    let named = days_named(&message.text);
+    let poll = named
+        .as_ref()
+        .and_then(|named| {
+            polls
+                .iter()
+                .find(|poll| named.resolve(&poll.plan.days, today).is_ok())
+        })
+        .unwrap_or(newest);
     let mut parts = Vec::new();
     for question in questions {
         parts.push(match question {
@@ -2649,6 +2676,46 @@ where
             &[("name", name), ("title", &decision.title)],
         )
     })
+}
+
+/// The organiser moves their newest open one-off game ("đổi giờ 19h").
+async fn change_time<B, D, M, P>(
+    ctx: &BotContext<'_, B, D, M, P>,
+    message: &Incoming,
+    text: &str,
+    mention: &str,
+    now: DateTime<Utc>,
+) -> Result<String, BotError>
+where
+    B: BotRepository + PollRepository,
+{
+    let Some(user) = ctx
+        .bot
+        .linked_user(&message.sender_id)
+        .await
+        .map_err(fail)?
+    else {
+        return unlinked(ctx, message, now).await;
+    };
+    let Some(time) = read_clock(text) else {
+        return Ok(fill(&COPY.time_missing, &[("mention", mention)]));
+    };
+    match ctx
+        .bot
+        .change_play_time(&message.chat_id, user, time, now)
+        .await
+        .map_err(fail)?
+    {
+        Some(poll) => Ok(fill(
+            &COPY.time_changed,
+            &[
+                ("title", &poll.plan.title),
+                ("days", &days_line(&poll.plan)),
+                ("mention", mention),
+            ],
+        )),
+        None => Ok(COPY.time_not_found.clone()),
+    }
 }
 
 async fn waiting_joins<B, D, M, P>(

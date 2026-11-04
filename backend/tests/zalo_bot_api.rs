@@ -3059,3 +3059,55 @@ async fn a_match_request_completed_with_a_time_becomes_a_casual_game(pool: PgPoo
         "tạo kèo bóng rổ mai lakeview 8h"
     );
 }
+
+#[sqlx::test]
+async fn seven_today_after_seven_means_the_evening_and_the_time_can_be_changed(pool: PgPool) {
+    let bot = bot(pool, tonight());
+    bot.link(HOST, "host").await;
+    bot.add_lakeview().await;
+    let share_id = bot.add_weekend_poll().await;
+    // 15:07 local, as the model reads "7h" literally.
+    bot.clock.advance(Duration::hours(8) + Duration::minutes(7));
+    bot.poll_answer(Some(tonight_at_lakeview(&bot, Some("07:00")).await));
+    let summary = bot
+        .in_group(HOST, "tạo kèo bóng rổ hôm nay lakeview 7h")
+        .await
+        .unwrap();
+    assert!(summary.contains("chơi lúc 19:00"), "{summary}");
+    let posted = bot.in_group(HOST, "ok").await.unwrap();
+    let today = poll_share_id(&posted);
+
+    // A bare yes goes to the only poll with a game today.
+    bot.link(OTHER, "nam").await;
+    let saved = bot.in_group(OTHER, "có").await.unwrap();
+    assert!(saved.contains("Thứ 5 01/10 có"), "{saved}");
+    let (_, weekend) = bot.get_poll(&share_id, None).await;
+    assert_eq!(weekend["players"], json!([]));
+
+    // The organiser moves it; only they can.
+    let refused = bot.in_group(OTHER, "đổi giờ 20h").await.unwrap();
+    assert!(refused.contains("Không thấy kèo"), "{refused}");
+    let moved = bot.in_group(HOST, "đổi giờ 19h30").await.unwrap();
+    assert!(moved.contains("19:30"), "{moved}");
+    let (_, poll) = bot.get_poll(&today, None).await;
+    assert_eq!(poll["playTime"], "19:30");
+    // Days in a question pick the poll they belong to.
+    let weekend_who = bot.in_group(HOST, "T7 CN có ai").await.unwrap();
+    assert!(
+        weekend_who.contains("Ai chơi bóng rổ cuối tuần này?"),
+        "{weekend_who}"
+    );
+    assert!(
+        weekend_who.contains("Thứ 7 03/10: chưa có ai"),
+        "{weekend_who}"
+    );
+    // Asking which half of the day is a question about the time.
+    let when = bot.in_group(OTHER, "7h sáng hay 7h tối").await.unwrap();
+    assert!(when.contains("19:30"), "{when}");
+    // A morning hour already past today is the evening here too.
+    let moved = bot.in_group(HOST, "đổi giờ 8h").await.unwrap();
+    assert!(moved.contains("20:00"), "{moved}");
+    // A day change is not a time change.
+    let day = bot.in_group(HOST, "đổi sang CN").await.unwrap();
+    assert!(!day.contains("Đã đổi giờ"), "{day}");
+}
