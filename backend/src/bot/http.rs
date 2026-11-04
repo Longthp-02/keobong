@@ -374,8 +374,8 @@ async fn get_groups(State(state): State<BotState>) -> Response {
                     "address": game.venue_address,
                 })),
                 "days": game.days.iter().map(|(d, n)| json!({ "day": day(d), "yes": n })).collect::<Vec<_>>(),
+                // No poll link: the poll page names its players.
                 "playTime": game.play_time.map(|time| time.format("%H:%M").to_string()),
-                "pollPath": format!("/p/{}", game.share_id),
             })
         })
         .collect();

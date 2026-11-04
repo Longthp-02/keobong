@@ -502,9 +502,7 @@
     },
     "openLabel": "Xem nhóm {title} và xin tham gia",
     "gamesTitle": "Kèo nhóm sắp tới",
-    "gamesIntro": "Các nhóm rủ nhau chơi, điểm danh qua Bot DaGhep. Bấm vào để xem ai đi và điểm danh.",
-    "gameYes": "{n} người đi",
-    "gameOpen": "Xem và điểm danh",
-    "gameOpenLabel": "Xem {title} và điểm danh"
+    "gamesIntro": "Các nhóm rủ nhau chơi, điểm danh trong nhóm Zalo qua Bot DaGhep.",
+    "gameYes": "{n} người đi"
   }
 }

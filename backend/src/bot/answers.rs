@@ -33,6 +33,8 @@ pub struct AnswerWords {
     pub who: Vec<String>,
     pub r#where: Vec<String>,
     pub when: Vec<String>,
+    /// Sport words ("bóng", "rổ"): a message with one is not a bare answer.
+    pub sport_words: Vec<String>,
     /// Words of making a game ("tạo kèo"): with a day, a casual group game.
     pub create_words: Vec<String>,
     /// Words of a public match for strangers (places, price): a request with
@@ -141,7 +143,12 @@ pub fn poll_questions(text: &str) -> Vec<PollQuestion> {
 pub fn casual_game(text: &str) -> bool {
     use unicode_normalization::UnicodeNormalization;
     let words = &COPY.answer_words;
-    let text: String = text.nfc().collect::<String>().to_lowercase();
+    // "60k/người", "19h-21h": split at slashes and dashes too.
+    let text: String = text
+        .nfc()
+        .collect::<String>()
+        .to_lowercase()
+        .replace(['/', '-', '–', '—'], " ");
     let tokens = tokens(&text);
     let digits = |token: &str| token.chars().take_while(char::is_ascii_digit).count();
     // "7h", "19h30", "19:00", "7g"; not "60k".
@@ -152,9 +159,13 @@ pub fn casual_game(text: &str) -> bool {
             rest.starts_with(['h', 'g', ':']) && rest[1..].chars().all(|c| c.is_ascii_digit())
         }
     };
-    // "60k", "60.000đ".
+    // "60k", "60.000đ", "1tr2".
     let is_price = |token: &&str| {
-        digits(token) > 0 && (token.ends_with('k') || token.ends_with('đ') || token.contains('.'))
+        digits(token) > 0
+            && (token.ends_with('k')
+                || token.ends_with('đ')
+                || token.contains('.')
+                || token[digits(token)..].starts_with("tr"))
     };
     if tokens.iter().any(is_price)
         || has_phrase(&tokens, &words.match_markers)
@@ -172,6 +183,13 @@ pub fn casual_game(text: &str) -> bool {
             })
     });
     tokens.iter().any(is_time) || (named_day && has_phrase(&tokens, &words.create_words))
+}
+
+/// Whether a message uses a word of making a game ("tạo", "kèo"): a new
+/// request rather than a follow-up or a player's chatter.
+pub fn has_create_word(text: &str) -> bool {
+    let text = text.to_lowercase();
+    has_phrase(&tokens(&text), &COPY.answer_words.create_words)
 }
 
 /// Reads a chat message as a poll answer; `None` when it is not one.
@@ -244,8 +262,17 @@ pub fn read_answer(text: &str) -> Option<AnswerIntent> {
         let mut answers = parts.iter().filter_map(|part| part.answer);
         let first = answers.next()?;
         let agreed = answers.all(|answer| answer == first);
-        // A clear word ("đăng ký"), or nothing but yes or no ("@Bot DaGhep có").
-        let plain = parts.iter().all(|part| part.plain);
+        // A clear word ("đăng ký"), or nothing but yes or no ("@Bot DaGhep có");
+        // not "bóng rổ ko", which asks rather than answers.
+        let all = tokens(&text);
+        let plain = parts.iter().all(|part| part.plain)
+            && !all.iter().any(|token| {
+                words
+                    .play
+                    .iter()
+                    .chain(&words.sport_words)
+                    .any(|word| word == token)
+            });
         return (agreed && (plain || has_phrase(&tokens(&text), &words.strong)))
             .then_some(AnswerIntent::NoDay(first));
     }
@@ -308,7 +335,7 @@ fn read_part(items: &[&(Item, &[String])], words: &AnswerWords, segment: usize) 
     Some(Part {
         plain: items
             .iter()
-            .all(|(item, _)| matches!(item, Item::Yes | Item::No | Item::Play)),
+            .all(|(item, _)| matches!(item, Item::Yes | Item::No)),
         only_days: items.iter().all(|(item, _)| matches!(item, Item::Day(_))),
         days,
         answer,
@@ -592,6 +619,8 @@ mod tests {
             "tối nay 19h30 lakeview",
             "tạo kèo bóng rổ hôm nay lakeview",
             "T7 15h đánh bóng rổ",
+            "tối nay 19h-21h lakeview",
+            "tối nay 19h–20h30 bóng rổ",
         ] {
             assert!(casual_game(text), "{text}");
         }
@@ -604,12 +633,17 @@ mod tests {
             "hôm nay trời đẹp quá",
             "đăng ký chơi chủ nhật",
             "có kèo 19h không",
+            "tối nay 19h lakeview 60k/người",
+            "tối nay 19h lakeview còn 3 chỗ",
+            "CN 19h 1tr2 tiền sân",
         ] {
             assert!(!casual_game(text), "{text}");
         }
         // A bare yes answers a one-day poll.
         assert_eq!(read_answer("có"), Some(AnswerIntent::NoDay(true)));
         assert_eq!(read_answer("không nha"), Some(AnswerIntent::NoDay(false)));
+        assert_eq!(read_answer("bóng rổ ko"), None);
+        assert_eq!(read_answer("đá"), None);
     }
 
     #[test]

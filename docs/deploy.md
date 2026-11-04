@@ -169,6 +169,7 @@ UPDATE venues SET submitted_by = NULL WHERE submitted_by = :uid;
 DELETE FROM bot_poll_answers WHERE user_id = :uid;
 DELETE FROM bot_pending_reminders WHERE user_id = :uid;
 DELETE FROM bot_drafts WHERE user_id = :uid;
+DELETE FROM bot_partial_requests WHERE zalo_user_id IN (SELECT zalo_user_id FROM zalo_links WHERE user_id = :uid);
 DELETE FROM zalo_link_codes WHERE zalo_user_id IN (SELECT zalo_user_id FROM zalo_links WHERE user_id = :uid);
 DELETE FROM zalo_links WHERE user_id = :uid;
 COMMIT;

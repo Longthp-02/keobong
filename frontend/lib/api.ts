@@ -421,7 +421,7 @@ export type PublicGroup = {
   week: { players: number; yes: { day: string; yes: number }[] } | null;
 };
 
-/** A one-off group game on the home page: no names; answered at its poll page. */
+/** A one-off group game on the home page: no names and no poll link (the poll page names its players). */
 export type PublicGame = {
   title: string;
   sport: "football" | "basketball" | null;
@@ -429,7 +429,6 @@ export type PublicGame = {
   venue: { name: string; address: string } | null;
   days: { day: string; yes: number }[];
   playTime: string | null;
-  pollPath: string;
 };
 
 export type HomeGroups = { groups: PublicGroup[]; games: PublicGame[] };

@@ -83,7 +83,7 @@ export function GroupList({
   );
 }
 
-/** One-off group games: what, where, when, how many go, and the poll link. */
+/** One-off group games: what, where, when and how many go. Members answer in their Zalo group. */
 function GameList({ games }: { games: PublicGame[] }) {
   return (
     <section className="groups" aria-labelledby="games-title">
@@ -92,10 +92,10 @@ function GameList({ games }: { games: PublicGame[] }) {
       </h2>
       <p className="muted groups__intro">{t.gamesIntro}</p>
       <ul className="groups__list">
-        {games.map((game) => {
+        {games.map((game, index) => {
           const top = headline(game);
           return (
-            <li key={game.pollPath} className="group-card">
+            <li key={`${game.title}-${game.days[0]?.day}-${index}`} className="group-card">
               {top ? <p className="group-card__top">{top}</p> : null}
               <p className="group-card__title">{game.title}</p>
               {game.venue ? (
@@ -115,13 +115,6 @@ function GameList({ games }: { games: PublicGame[] }) {
                   </p>
                 </div>
               ))}
-              <a
-                href={game.pollPath}
-                className="group-card__open"
-                aria-label={t.gameOpenLabel.replace("{title}", game.title)}
-              >
-                {t.gameOpen}
-              </a>
             </li>
           );
         })}

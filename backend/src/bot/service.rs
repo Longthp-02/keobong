@@ -8,7 +8,8 @@ use chrono::{DateTime, Datelike, Duration, Utc};
 use sha2::{Digest, Sha256};
 
 use super::answers::{
-    AnswerIntent, PollQuestion, ResolveError, casual_game, poll_questions, read_answer,
+    AnswerIntent, PollQuestion, ResolveError, casual_game, has_create_word, poll_questions,
+    read_answer,
 };
 use super::domain::{
     BotDraft, BotRepository, COPY, ChatKind, ChatReply, Command, DEFAULT_LEVEL_MAX_TENTHS,
@@ -348,22 +349,41 @@ where
         return Ok(reply);
     }
     // A follow-up to the sender's request that left something out ("19h30") is
-    // read together with it (Long, 2026-11-04).
+    // read together with it (Long, 2026-11-04). A new request ("tạo kèo …")
+    // starts afresh, and the follow-up keeps the request's first 30 minutes.
     let partial = ctx
         .bot
         .take_partial(&message.sender_id, &message.chat_id, now)
         .await
-        .map_err(fail)?;
-    let continued = partial.as_ref().map(|partial| partial.kind);
-    let combined = partial.map(|partial| format!("{}\n{text}", partial.text));
-    let text = combined.as_deref().unwrap_or(text);
+        .map_err(fail)?
+        .filter(|_| !has_create_word(text))
+        .map(|partial| {
+            let combined = format!("{}\n{text}", partial.text);
+            (partial, combined)
+        })
+        .filter(|(_, combined)| combined.chars().count() <= MAX_TEXT_CHARS);
+    let continued = partial.as_ref().map(|(partial, _)| partial.kind);
+    let keep_until = partial.as_ref().map(|(partial, _)| partial.expires_at);
+    let text = partial
+        .as_ref()
+        .map_or(text, |(_, combined)| combined.as_str());
     // A casual group game ("tạo kèo bóng rổ hôm nay lakeview 7h") is a one-day
     // poll people answer, not a match for strangers with places and a price.
-    // Only in a group: privately, a match post is read as before.
-    if continued == Some(PartialKind::Poll)
-        || (continued.is_none() && message.chat_kind == ChatKind::Group && casual_game(text))
-    {
-        return poll(ctx, message, text, mention, now).await;
+    // Only in a group: privately, a match post is read as before. Next to an
+    // open poll, a player's "7h30 mình tới" is not a new game: it takes a word
+    // of making one, or a request already under way.
+    let casual = message.chat_kind == ChatKind::Group
+        && casual_game(text)
+        && (has_create_word(text)
+            || continued.is_some()
+            || ctx
+                .bot
+                .open_polls(&message.chat_id, now)
+                .await
+                .map_err(fail)?
+                .is_empty());
+    if continued == Some(PartialKind::Poll) || casual {
+        return poll_with(ctx, message, text, mention, now, keep_until).await;
     }
     let Some(user) = ctx
         .bot
@@ -457,7 +477,7 @@ where
                     chat_id: message.chat_id.clone(),
                     kind: PartialKind::Match,
                     text: text.to_owned(),
-                    expires_at: now + Duration::minutes(DRAFT_MINUTES),
+                    expires_at: keep_until.unwrap_or(now + Duration::minutes(DRAFT_MINUTES)),
                 })
                 .await
                 .map_err(fail)?;
@@ -900,6 +920,23 @@ where
     B: BotRepository + PollRepository + VenueRepository,
     D: DraftRepository,
 {
+    poll_with(ctx, message, text, mention, now, None).await
+}
+
+/// A poll request; `keep_until` is when an incomplete request it continues is
+/// forgotten (a follow-up does not extend it).
+async fn poll_with<B, D, M, P>(
+    ctx: &BotContext<'_, B, D, M, P>,
+    message: &Incoming,
+    text: &str,
+    mention: &str,
+    now: DateTime<Utc>,
+    keep_until: Option<DateTime<Utc>>,
+) -> Result<String, BotError>
+where
+    B: BotRepository + PollRepository + VenueRepository,
+    D: DraftRepository,
+{
     // "@Bot DaGhep bảng điểm danh" alone is a player looking for the poll, not
     // an organiser making one ("tạo bảng điểm danh …" still makes one).
     let bare = text
@@ -959,7 +996,7 @@ where
         &raw,
         &venues,
         if weekly {
-            asks_public(text)
+            asks_public(text) && !asks_private(text)
         } else {
             !asks_private(text)
         },
@@ -976,7 +1013,7 @@ where
                     chat_id: message.chat_id.clone(),
                     kind: PartialKind::Poll,
                     text: text.to_owned(),
-                    expires_at: now + Duration::minutes(DRAFT_MINUTES),
+                    expires_at: keep_until.unwrap_or(now + Duration::minutes(DRAFT_MINUTES)),
                 })
                 .await
                 .map_err(fail)?;
@@ -1039,6 +1076,10 @@ where
     if let Some(line) = group_line(&pending.group, &venues) {
         reply.push('\n');
         reply.push_str(&line);
+    }
+    if !weekly && pending.group.public {
+        reply.push('\n');
+        reply.push_str(&COPY.poll_public_hint);
     }
     if weekly {
         reply.push('\n');

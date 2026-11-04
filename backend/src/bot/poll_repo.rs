@@ -354,6 +354,11 @@ impl PollRepository for PgBotRepository {
              FROM bot_polls p
              LEFT JOIN venues v ON v.id = p.venue_id AND v.status = 'approved'
              WHERE p.public AND p.series_id IS NULL AND p.closes_at > $1
+               AND v.id IS NOT NULL
+               -- Not once the last game has started.
+               AND (p.play_time IS NULL
+                    OR ((SELECT max(d) FROM unnest(p.days) AS d) + p.play_time)
+                       AT TIME ZONE 'Asia/Ho_Chi_Minh' > $1)
              ORDER BY p.days[1], p.play_time NULLS LAST, p.id
              LIMIT 50",
         )

@@ -27,7 +27,6 @@ describe("getGroups", () => {
       venue: { name: "Sân Lakeview", address: "Sân bóng rổ Lakeview" },
       days: [{ day: "2099-10-01", yes: 3 }],
       playTime: "19:00",
-      pollPath: "/p/abcDEF12",
     };
     const fetchImpl = respond(200, { groups: [group], games: [game] });
     await expect(getGroups({ baseUrl: "http://api", fetchImpl })).resolves.toEqual({ groups: [group], games: [game] });

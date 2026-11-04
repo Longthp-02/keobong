@@ -179,7 +179,8 @@
   "pollGameCallNoOne": "Chưa có ai điểm danh.",
   "pollNotYet": "📋 Bảng điểm danh tuần này của nhóm chưa được đăng. Mình sẽ đăng lúc {when}, lúc đó bạn điểm danh hoặc hỏi lại nhé.",
   "pollSoon": "📋 Bảng điểm danh tuần này của nhóm chưa được đăng, mình sẽ đăng sớm thôi. Lúc đó bạn điểm danh hoặc hỏi lại nhé.",
-  "pollSummaryOneDay": "📋 {title}\n{days}\nMọi người điểm danh bằng cách gõ \"{mention}có\" hoặc \"{mention}không\". Mình sẽ nhắc 3 tiếng trước giờ chơi.",
+  "pollSummaryOneDay": "📋 {title}\n{days}\nMọi người điểm danh bằng cách gõ \"{mention}có\" hoặc \"{mention}không\". Mình sẽ nhắc 3 tiếng trước giờ chơi nếu còn kịp.",
+  "pollPublicHint": "Không muốn hiện trên trang chủ thì gõ \"huỷ\" rồi tạo lại với chữ \"riêng tư\".",
   "commands": {
     "help": [
       "",
@@ -302,8 +303,7 @@
       "kiem keo",
       "ai đá không",
       "ai da khong",
-      "có sân",
-      "có ai chơi"
+      "có sân"
     ],
     "addVenue": [
       "thêm sân",
@@ -655,7 +655,11 @@
       "giá",
       "nghìn",
       "ngàn",
-      "/người"
+      "/người",
+      "còn",
+      "chỗ",
+      "triệu",
+      "ng"
     ],
     "createWords": [
       "tạo",
@@ -665,6 +669,12 @@
       "lập",
       "mở",
       "rủ"
+    ],
+    "sportWords": [
+      "bóng",
+      "bong",
+      "rổ",
+      "ro"
     ]
   },
   "answerWhichPollLinks": "Nhóm đang có {n} bảng điểm danh cùng ngày đó. Bạn bấm vào bảng muốn trả lời nhé:\n{links}"

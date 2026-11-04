@@ -2978,9 +2978,10 @@ async fn a_casual_game_shows_on_the_home_page_unless_asked_to_stay_private(pool:
             "venue": { "name": "Sân Lakeview", "address": "Sân bóng rổ Lakeview" },
             "days": [{ "day": "2099-10-01", "yes": 1 }],
             "playTime": "19:00",
-            "pollPath": format!("/p/{share_id}"),
         }])
     );
+    // No link to the poll page, which names its players.
+    assert!(!body.to_string().contains(&share_id), "{body}");
     assert!(!body.to_string().contains("Player"), "no names: {body}");
 
     // "riêng tư" keeps the next one off the home page.
@@ -2999,5 +3000,62 @@ async fn a_casual_game_shows_on_the_home_page_unless_asked_to_stay_private(pool:
     assert_eq!(
         json_body(response).await["games"].as_array().unwrap().len(),
         1
+    );
+}
+
+#[sqlx::test]
+async fn messages_next_to_an_open_poll_stay_answers_and_questions(pool: PgPool) {
+    let bot = bot(pool, tonight());
+    bot.link(HOST, "host").await;
+    bot.add_weekend_poll().await;
+    bot.link(OTHER, "nam").await;
+    bot.in_group(OTHER, "T7 có").await.unwrap();
+    let polls_read = bot.polls.calls.lock().unwrap().len();
+    let who = bot.in_group(HOST, "CN có ai chơi không").await.unwrap();
+    assert!(who.contains("Thứ 7 03/10 (1): Player nam"), "{who}");
+    // A player's time is not a new game.
+    bot.in_group(OTHER, "7h30 mình tới").await.unwrap();
+    assert_eq!(
+        bot.polls.calls.lock().unwrap().len(),
+        polls_read,
+        "no poll read"
+    );
+}
+
+#[sqlx::test]
+async fn a_match_request_completed_with_a_time_becomes_a_casual_game(pool: PgPool) {
+    // What the model read from the first message: only a day.
+    let bot = bot(
+        pool,
+        RawDraft {
+            date: Some("2099-10-01".to_owned()),
+            ..RawDraft::default()
+        },
+    );
+    bot.link(HOST, "host").await;
+    bot.add_lakeview().await;
+    // No day or time yet: read as a match, which asks for the rest.
+    bot.in_group(HOST, "tạo kèo bóng rổ lakeview")
+        .await
+        .unwrap();
+    bot.poll_answer(Some(tonight_at_lakeview(&bot, Some("19:30")).await));
+    let summary = bot.in_group(HOST, "tối nay 19h30").await.unwrap();
+    assert!(summary.contains("chơi lúc 19:30"), "{summary}");
+    assert_eq!(
+        bot.polls.calls.lock().unwrap().last().unwrap(),
+        "tạo kèo bóng rổ lakeview\ntối nay 19h30"
+    );
+    // A new request starts afresh instead of joining an old one.
+    bot.in_group(HOST, "huỷ").await.unwrap();
+    bot.poll_answer(Some(tonight_at_lakeview(&bot, None).await));
+    bot.in_group(HOST, "tạo kèo bóng rổ hôm nay lakeview")
+        .await
+        .unwrap();
+    bot.in_group(HOST, "tạo kèo bóng rổ mai lakeview 8h")
+        .await
+        .unwrap();
+    assert_eq!(
+        bot.polls.calls.lock().unwrap().last().unwrap(),
+        "tạo kèo bóng rổ mai lakeview 8h"
     );
 }
