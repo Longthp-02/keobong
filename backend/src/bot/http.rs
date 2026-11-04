@@ -350,9 +350,38 @@ async fn get_groups(State(state): State<BotState>) -> Response {
         }
     };
     let body: Vec<Value> = groups.iter().map(group_json).collect();
+    let games = match state.bot.public_games(state.clock.now()).await {
+        Ok(games) => games,
+        Err(error) => {
+            tracing::error!(error = %error, "failed to load public games");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "internal_error" })),
+            )
+                .into_response();
+        }
+    };
+    let day = |day: &chrono::NaiveDate| day.format("%Y-%m-%d").to_string();
+    let games: Vec<Value> = games
+        .iter()
+        .map(|game| {
+            json!({
+                "title": game.title,
+                "sport": game.group.sport.map(|sport| sport.as_str()),
+                "format": game.group.format.map(|format| format.as_str()),
+                "venue": game.venue_name.as_ref().map(|name| json!({
+                    "name": name,
+                    "address": game.venue_address,
+                })),
+                "days": game.days.iter().map(|(d, n)| json!({ "day": day(d), "yes": n })).collect::<Vec<_>>(),
+                // No poll link: the poll page names its players.
+                "playTime": game.play_time.map(|time| time.format("%H:%M").to_string()),
+            })
+        })
+        .collect();
     (
         [(CACHE_CONTROL, "public, max-age=60")],
-        Json(json!({ "groups": body })),
+        Json(json!({ "groups": body, "games": games })),
     )
         .into_response()
 }

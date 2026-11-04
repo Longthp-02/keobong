@@ -58,8 +58,35 @@ describe("GroupList", () => {
     expect(link.getAttribute("href")).toBe("/g/0123456789ab");
   });
 
-  it("renders nothing without groups", () => {
-    const { container } = render(<GroupList groups={[]} />);
+  it("lists upcoming group games without names or poll links", () => {
+    render(
+      <GroupList
+        groups={[]}
+        games={[
+          {
+            title: "Bóng rổ vui vẻ hôm nay",
+            sport: "basketball",
+            format: null,
+            venue: { name: "Sân Lakeview", address: "Sân bóng rổ Lakeview" },
+            days: [{ day: "2099-10-01", yes: 3 }],
+            playTime: "19:00",
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByRole("heading", { name: t.gamesTitle })).toBeTruthy();
+    const card = screen.getByRole("listitem");
+    expect(within(card).getByText("🏀 Bóng rổ · Sân Lakeview")).toBeTruthy();
+    expect(within(card).getByText("Bóng rổ vui vẻ hôm nay")).toBeTruthy();
+    expect(within(card).getByText("T5 01/10 · 19:00")).toBeTruthy();
+    expect(within(card).getByText(t.gameYes.replace("{n}", "3"))).toBeTruthy();
+    // No poll link: the poll page names its players.
+    expect(within(card).queryByRole("link")).toBeNull();
+  });
+
+  it("renders nothing without groups or games", () => {
+    const { container } = render(<GroupList groups={[]} games={[]} />);
     expect(container.innerHTML).toBe("");
   });
 });

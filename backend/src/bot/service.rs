@@ -7,18 +7,22 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use chrono::{DateTime, Datelike, Duration, Utc};
 use sha2::{Digest, Sha256};
 
-use super::answers::{AnswerIntent, PollQuestion, ResolveError, poll_questions, read_answer};
+use super::answers::{
+    AnswerIntent, PollQuestion, ResolveError, casual_game, has_create_word, poll_questions,
+    read_answer,
+};
 use super::domain::{
     BotDraft, BotRepository, COPY, ChatKind, ChatReply, Command, DEFAULT_LEVEL_MAX_TENTHS,
     DEFAULT_LEVEL_MIN_TENTHS, DEFAULT_MATCH_TYPE, DRAFT_MINUTES, Incoming, LINK_CODE_MINUTES,
-    MatchFinder, UpdateOutcome, entry, fill, mentions_find_phrase, parse_command,
+    MatchFinder, PartialKind, PartialRequest, UpdateOutcome, entry, fill, mentions_find_phrase,
+    parse_command,
 };
 use super::groups::{DecideOutcome, GroupRepository, JoinOutcome, find_group_link};
 use super::maps::{MapsLocator, find_maps_link};
 use super::polls::{
-    AnswerOutcome, MAX_NAMES_IN_NUDGE, MAX_SERIES_LATE_HOURS, MEMBER_DAYS, PendingPoll, Poll,
-    PollAnswer, PollGroup, PollPlan, PollReader, PollRepository, PollRequest, PollSeries, RawPoll,
-    first_week, tally, weekday_bits,
+    AnswerOutcome, MAX_NAMES_IN_NUDGE, MAX_SERIES_LATE_HOURS, MEMBER_DAYS, NewPoll, PendingPoll,
+    Poll, PollAnswer, PollGroup, PollPlan, PollReader, PollRepository, PollRequest, PollSeries,
+    RawPoll, first_week, tally, weekday_bits,
 };
 use super::reminders::{
     EVERY_DAY, MAX_LATE_MINUTES, PendingReminder, ReminderReader, ReminderRequest, Repeat, Schedule,
@@ -172,7 +176,12 @@ where
                 .take_pending_poll(&message.sender_id, &message.chat_id, now)
                 .await
                 .map_err(fail)?;
-            if draft.is_some() || reminder.is_some() || poll.is_some() {
+            let partial = ctx
+                .bot
+                .take_partial(&message.sender_id, &message.chat_id, now)
+                .await
+                .map_err(fail)?;
+            if draft.is_some() || reminder.is_some() || poll.is_some() || partial.is_some() {
                 COPY.cancelled.clone()
             } else {
                 COPY.no_draft.clone()
@@ -321,7 +330,7 @@ async fn describe<B, D, M, P>(
     now: DateTime<Utc>,
 ) -> Result<String, BotError>
 where
-    B: BotRepository + PollRepository,
+    B: BotRepository + PollRepository + VenueRepository,
     D: DraftRepository,
     M: MatchRepository,
     P: PayoutRepository,
@@ -338,6 +347,43 @@ where
         && let Some(reply) = answer_poll_questions(ctx, message, &questions, now).await?
     {
         return Ok(reply);
+    }
+    // A follow-up to the sender's request that left something out ("19h30") is
+    // read together with it (Long, 2026-11-04). A new request ("tạo kèo …")
+    // starts afresh, and the follow-up keeps the request's first 30 minutes.
+    let partial = ctx
+        .bot
+        .take_partial(&message.sender_id, &message.chat_id, now)
+        .await
+        .map_err(fail)?
+        .filter(|_| !has_create_word(text))
+        .map(|partial| {
+            let combined = format!("{}\n{text}", partial.text);
+            (partial, combined)
+        })
+        .filter(|(_, combined)| combined.chars().count() <= MAX_TEXT_CHARS);
+    let continued = partial.as_ref().map(|(partial, _)| partial.kind);
+    let keep_until = partial.as_ref().map(|(partial, _)| partial.expires_at);
+    let text = partial
+        .as_ref()
+        .map_or(text, |(_, combined)| combined.as_str());
+    // A casual group game ("tạo kèo bóng rổ hôm nay lakeview 7h") is a one-day
+    // poll people answer, not a match for strangers with places and a price.
+    // Only in a group: privately, a match post is read as before. Next to an
+    // open poll, a player's "7h30 mình tới" is not a new game: it takes a word
+    // of making one, or a request already under way.
+    let casual = message.chat_kind == ChatKind::Group
+        && casual_game(text)
+        && (has_create_word(text)
+            || continued.is_some()
+            || ctx
+                .bot
+                .open_polls(&message.chat_id, now)
+                .await
+                .map_err(fail)?
+                .is_empty());
+    if continued == Some(PartialKind::Poll) || casual {
+        return poll_with(ctx, message, text, mention, now, keep_until).await;
     }
     let Some(user) = ctx
         .bot
@@ -401,7 +447,8 @@ where
         Err(missing) => {
             // Next to an open poll, a message with neither a venue nor a time is
             // a player talking about the poll, not a match post.
-            if missing.contains(&"venue")
+            if continued.is_none()
+                && missing.contains(&"venue")
                 && missing.contains(&"startTime")
                 && let Some(poll) = ctx
                     .bot
@@ -424,6 +471,16 @@ where
                 .map(|venue| venue.name.as_str())
                 .collect::<Vec<_>>()
                 .join(", ");
+            ctx.bot
+                .save_partial(&PartialRequest {
+                    zalo_user_id: message.sender_id.clone(),
+                    chat_id: message.chat_id.clone(),
+                    kind: PartialKind::Match,
+                    text: text.to_owned(),
+                    expires_at: keep_until.unwrap_or(now + Duration::minutes(DRAFT_MINUTES)),
+                })
+                .await
+                .map_err(fail)?;
             let fields = missing
                 .iter()
                 .map(|field| fill(entry(&COPY.fields, field), &[("venues", &venue_names)]))
@@ -863,6 +920,23 @@ where
     B: BotRepository + PollRepository + VenueRepository,
     D: DraftRepository,
 {
+    poll_with(ctx, message, text, mention, now, None).await
+}
+
+/// A poll request; `keep_until` is when an incomplete request it continues is
+/// forgotten (a follow-up does not extend it).
+async fn poll_with<B, D, M, P>(
+    ctx: &BotContext<'_, B, D, M, P>,
+    message: &Incoming,
+    text: &str,
+    mention: &str,
+    now: DateTime<Utc>,
+    keep_until: Option<DateTime<Utc>>,
+) -> Result<String, BotError>
+where
+    B: BotRepository + PollRepository + VenueRepository,
+    D: DraftRepository,
+{
     // "@Bot DaGhep bảng điểm danh" alone is a player looking for the poll, not
     // an organiser making one ("tạo bảng điểm danh …" still makes one).
     let bare = text
@@ -916,10 +990,33 @@ where
     // The reader must say weekly and the request must too, so a poll never
     // repeats unless someone asked for it.
     let weekly = raw.weekly && asks_weekly(text);
-    let group = poll_group(&raw, &venues, weekly && asks_public(text));
+    // A weekly series is public when asked ("công khai"); a one-off game with
+    // a venue is public unless asked not to be ("riêng tư") (Long, 2026-11-04).
+    let mut group = poll_group(
+        &raw,
+        &venues,
+        if weekly {
+            asks_public(text) && !asks_private(text)
+        } else {
+            !asks_private(text)
+        },
+    );
+    if !weekly && group.venue_id.is_none() {
+        group.public = false;
+    }
     let plan = match raw.checked(today) {
         Ok(plan) => plan,
         Err(gaps) => {
+            ctx.bot
+                .save_partial(&PartialRequest {
+                    zalo_user_id: message.sender_id.clone(),
+                    chat_id: message.chat_id.clone(),
+                    kind: PartialKind::Poll,
+                    text: text.to_owned(),
+                    expires_at: keep_until.unwrap_or(now + Duration::minutes(DRAFT_MINUTES)),
+                })
+                .await
+                .map_err(fail)?;
             let fields = gaps
                 .iter()
                 .map(|gap| entry(&COPY.poll_gaps, gap.key()))
@@ -955,18 +1052,34 @@ where
         .map(|day| day_label(*day))
         .unwrap_or_default();
     let nudge_time = plan.nudge_time.format("%H:%M").to_string();
-    let mut reply = fill(
-        &COPY.poll_summary,
-        &[
-            ("title", &plan.title),
-            ("days", &days_line(plan)),
-            ("time", &nudge_time),
-            ("lastDay", &last_day),
-        ],
-    );
+    // A one-day game with a play time gets its call, not evening nudges.
+    let mut reply = if plan.days.len() == 1 && plan.play_time.is_some() && !weekly {
+        fill(
+            &COPY.poll_summary_one_day,
+            &[
+                ("title", &plan.title),
+                ("days", &days_line(plan)),
+                ("mention", mention),
+            ],
+        )
+    } else {
+        fill(
+            &COPY.poll_summary,
+            &[
+                ("title", &plan.title),
+                ("days", &days_line(plan)),
+                ("time", &nudge_time),
+                ("lastDay", &last_day),
+            ],
+        )
+    };
     if let Some(line) = group_line(&pending.group, &venues) {
         reply.push('\n');
         reply.push_str(&line);
+    }
+    if !weekly && pending.group.public {
+        reply.push('\n');
+        reply.push_str(&COPY.poll_public_hint);
     }
     if weekly {
         reply.push('\n');
@@ -1007,7 +1120,19 @@ where
     let share_id = ShareId::generate().map_err(fail)?;
     let Some(poll) = ctx
         .bot
-        .add_poll(&pending.chat_id, pending.user, &plan, &share_id, None, now)
+        .add_poll(
+            &NewPoll {
+                chat_id: &pending.chat_id,
+                user: pending.user,
+                plan: &plan,
+                share_id: &share_id,
+                series_id: None,
+                venue_id: pending.group.venue_id,
+                // A weekly series is shown through the series, not each poll.
+                public: !pending.weekly && pending.group.public,
+            },
+            now,
+        )
         .await
         .map_err(fail)?
     else {
@@ -1099,6 +1224,15 @@ fn asks_public(text: &str) -> bool {
     let text = text.to_lowercase();
     COPY.commands
         .public
+        .iter()
+        .any(|word| text.contains(word.as_str()))
+}
+
+/// Whether the request asks to stay off the home page ("riêng tư").
+fn asks_private(text: &str) -> bool {
+    let text = text.to_lowercase();
+    COPY.commands
+        .private
         .iter()
         .any(|word| text.contains(word.as_str()))
 }
@@ -1594,11 +1728,15 @@ pub async fn run_due_series<B: PollRepository>(
         let share_id = ShareId::generate().map_err(fail)?;
         let poll = match bot
             .add_poll(
-                &series.chat_id,
-                series.user,
-                &plan,
-                &share_id,
-                Some(series.id),
+                &NewPoll {
+                    chat_id: &series.chat_id,
+                    user: series.user,
+                    plan: &plan,
+                    share_id: &share_id,
+                    series_id: Some(series.id),
+                    venue_id: series.group.venue_id,
+                    public: false,
+                },
                 now,
             )
             .await

@@ -421,8 +421,20 @@ export type PublicGroup = {
   week: { players: number; yes: { day: string; yes: number }[] } | null;
 };
 
-/** Public weekly groups for the home page; empty when unavailable, so the page still loads. */
-export async function getGroups(options: Options = {}): Promise<PublicGroup[]> {
+/** A one-off group game on the home page: no names and no poll link (the poll page names its players). */
+export type PublicGame = {
+  title: string;
+  sport: "football" | "basketball" | null;
+  format: PublicGroup["format"];
+  venue: { name: string; address: string } | null;
+  days: { day: string; yes: number }[];
+  playTime: string | null;
+};
+
+export type HomeGroups = { groups: PublicGroup[]; games: PublicGame[] };
+
+/** Public weekly groups and one-off games for the home page; empty when unavailable, so the page still loads. */
+export async function getGroups(options: Options = {}): Promise<HomeGroups> {
   try {
     const baseUrl = options.baseUrl ?? apiBaseUrl();
     const fetchImpl = options.fetchImpl ?? fetch;
@@ -435,10 +447,11 @@ export async function getGroups(options: Options = {}): Promise<PublicGroup[]> {
     if (!response.ok) {
       throw new Error(`Groups API failed with status ${response.status}`);
     }
-    return ((await response.json()) as { groups: PublicGroup[] }).groups;
+    const body = (await response.json()) as { groups: PublicGroup[]; games?: PublicGame[] };
+    return { groups: body.groups, games: body.games ?? [] };
   } catch (error) {
     console.error("groups unavailable", error);
-    return [];
+    return { groups: [], games: [] };
   }
 }
 

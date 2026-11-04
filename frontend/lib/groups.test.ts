@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { type GroupView, type PublicGroup, browserJoinGroup, getGroup, getGroups } from "./api";
+import { type GroupView, type PublicGame, type PublicGroup, browserJoinGroup, getGroup, getGroups } from "./api";
 
 const group: PublicGroup = {
   id: "0123456789ab",
@@ -19,9 +19,17 @@ function respond(status: number, body: unknown = {}) {
 }
 
 describe("getGroups", () => {
-  it("reads the public groups, refreshed every minute", async () => {
-    const fetchImpl = respond(200, { groups: [group] });
-    await expect(getGroups({ baseUrl: "http://api", fetchImpl })).resolves.toEqual([group]);
+  it("reads the public groups and games, refreshed every minute", async () => {
+    const game: PublicGame = {
+      title: "Bóng rổ vui vẻ hôm nay",
+      sport: "basketball",
+      format: null,
+      venue: { name: "Sân Lakeview", address: "Sân bóng rổ Lakeview" },
+      days: [{ day: "2099-10-01", yes: 3 }],
+      playTime: "19:00",
+    };
+    const fetchImpl = respond(200, { groups: [group], games: [game] });
+    await expect(getGroups({ baseUrl: "http://api", fetchImpl })).resolves.toEqual({ groups: [group], games: [game] });
     expect(fetchImpl).toHaveBeenCalledWith(
       "http://api/api/groups",
       expect.objectContaining({ next: { revalidate: 60 }, signal: expect.any(AbortSignal) }),
@@ -30,10 +38,16 @@ describe("getGroups", () => {
 
   it("shows no groups rather than failing the home page", async () => {
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
-    await expect(getGroups({ baseUrl: "http://api", fetchImpl: respond(500) })).resolves.toEqual([]);
+    const empty = { groups: [], games: [] };
+    await expect(getGroups({ baseUrl: "http://api", fetchImpl: respond(500) })).resolves.toEqual(empty);
     await expect(
       getGroups({ baseUrl: "http://api", fetchImpl: vi.fn().mockRejectedValue(new TypeError("offline")) }),
-    ).resolves.toEqual([]);
+    ).resolves.toEqual(empty);
+    // An older API without games.
+    await expect(getGroups({ baseUrl: "http://api", fetchImpl: respond(200, { groups: [group] }) })).resolves.toEqual({
+      groups: [group],
+      games: [],
+    });
     expect(error).toHaveBeenCalled();
     error.mockRestore();
   });

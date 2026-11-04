@@ -6,7 +6,8 @@ use sqlx::PgPool;
 use chrono::NaiveTime;
 
 use super::domain::{
-    BotDraft, BotRepository, DRAFT_MINUTES, REPLIES_PER_SENDER_PER_HOUR, RepoError, UpdateOutcome,
+    BotDraft, BotRepository, DRAFT_MINUTES, PartialKind, PartialRequest,
+    REPLIES_PER_SENDER_PER_HOUR, RepoError, UpdateOutcome,
 };
 use super::reminders::{
     MAX_REMINDERS_PER_CHAT, MAX_SEND_FAILURES, PendingReminder, REMINDERS_PER_RUN, Reminder,
@@ -493,10 +494,61 @@ impl BotRepository for PgBotRepository {
         Ok(deleted == 1)
     }
 
+    async fn save_partial(&self, partial: &PartialRequest) -> Result<(), RepoError> {
+        sqlx::query(
+            "INSERT INTO bot_partial_requests (zalo_user_id, chat_id, kind, text, expires_at)
+             VALUES ($1, $2, $3, $4, $5)
+             ON CONFLICT (zalo_user_id, chat_id) DO UPDATE SET
+                 kind = EXCLUDED.kind, text = EXCLUDED.text, expires_at = EXCLUDED.expires_at",
+        )
+        .bind(&partial.zalo_user_id)
+        .bind(&partial.chat_id)
+        .bind(partial.kind.as_str())
+        .bind(&partial.text)
+        .bind(partial.expires_at)
+        .execute(&self.pool)
+        .await
+        .map_err(repo_error)?;
+        Ok(())
+    }
+
+    async fn take_partial(
+        &self,
+        zalo_user_id: &str,
+        chat_id: &str,
+        now: DateTime<Utc>,
+    ) -> Result<Option<PartialRequest>, RepoError> {
+        let row: Option<(String, String, DateTime<Utc>)> = sqlx::query_as(
+            "DELETE FROM bot_partial_requests WHERE zalo_user_id = $1 AND chat_id = $2
+             RETURNING kind, text, expires_at",
+        )
+        .bind(zalo_user_id)
+        .bind(chat_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(repo_error)?;
+        Ok(row.filter(|(_, _, expires_at)| *expires_at > now).and_then(
+            |(kind, text, expires_at)| {
+                Some(PartialRequest {
+                    zalo_user_id: zalo_user_id.to_owned(),
+                    chat_id: chat_id.to_owned(),
+                    kind: PartialKind::parse(&kind)?,
+                    text,
+                    expires_at,
+                })
+            },
+        ))
+    }
+
     async fn claim_due_reminders(&self, now: DateTime<Utc>) -> Result<Vec<Reminder>, RepoError> {
         // Every run also clears pending items nobody confirmed, so their text
         // does not stay longer than the 30 minutes they wait.
-        for table in ["bot_pending_reminders", "bot_drafts", "bot_pending_polls"] {
+        for table in [
+            "bot_pending_reminders",
+            "bot_drafts",
+            "bot_pending_polls",
+            "bot_partial_requests",
+        ] {
             sqlx::query(&format!("DELETE FROM {table} WHERE expires_at <= $1"))
                 .bind(now)
                 .execute(&self.pool)
