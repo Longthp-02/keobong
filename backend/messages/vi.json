@@ -1,5 +1,5 @@
 {
-  "help": "Chào bạn! Mình là {bot} ⚽ Mình giúp được mấy việc này:\n\n🔎 Tìm kèo để đá:\n{mention}tìm kèo\n\n⚽ Tạo kèo:\n{mention}tối nay 19h–20h30 SSA sân 7 thiếu 3, 60k/người\n\n📋 Bảng điểm danh (ai chơi ngày nào):\n{mention}tạo bảng điểm danh T7, CN tuần này, chơi lúc 18h\nTrả lời bảng: {mention}T7 có, CN không\nHỏi về bảng: {mention}CN ai đi? · {mention}sân nào? · {mention}mấy giờ?\nThêm \"hằng tuần\" để mỗi tối Thứ 2 mình tự đăng bảng mới, thêm \"công khai\" để nhóm hiện trên trang chủ daghep.vn. Tắt: {mention}tắt bảng\nLink nhóm Zalo cho người được nhận vào nhóm: {mention}link nhóm: https://zalo.me/g/...\nCó người xin vào nhóm? Nhắn riêng cho mình \"nhận\" để xem và duyệt.\n\n📍 Thêm sân (gửi link Google Maps):\n{mention}thêm sân Lakeview bóng rổ https://maps.app.goo.gl/...\n\n⏰ Nhắc hẹn:\n{mention}nhắc mỗi thứ 5 lúc 20h: Cuối tuần này ai đá không?\nXem hoặc tắt: {mention}tắt nhắc\n\nSau khi mình tóm tắt, trả lời \"{mention}ok\" để lưu hoặc \"{mention}huỷ\".\nLần đầu dùng, nhắn riêng cho mình chữ \"liên kết\".",
+  "help": "Chào bạn! Mình là {bot} ⚽ Mình giúp được mấy việc này:\n\n🔎 Tìm kèo để đá:\n{mention}tìm kèo\n\n⚽ Tạo kèo:\n{mention}tối nay 19h–20h30 SSA sân 7 thiếu 3, 60k/người\n\n📋 Bảng điểm danh (ai chơi ngày nào):\n{mention}tạo bảng điểm danh T7, CN tuần này, chơi lúc 18h\nTrả lời bảng: {mention}T7 có, CN không\nHỏi về bảng: {mention}CN ai đi? · {mention}sân nào? · {mention}mấy giờ?\nĐổi giờ kèo bạn tạo: {mention}đổi giờ 19h30\nThêm \"hằng tuần\" để mỗi tối Thứ 2 mình tự đăng bảng mới, thêm \"công khai\" để nhóm hiện trên trang chủ daghep.vn. Tắt: {mention}tắt bảng\nLink nhóm Zalo cho người được nhận vào nhóm: {mention}link nhóm: https://zalo.me/g/...\nCó người xin vào nhóm? Nhắn riêng cho mình \"nhận\" để xem và duyệt.\n\n📍 Thêm sân (gửi link Google Maps):\n{mention}thêm sân Lakeview bóng rổ https://maps.app.goo.gl/...\n\n⏰ Nhắc hẹn:\n{mention}nhắc mỗi thứ 5 lúc 20h: Cuối tuần này ai đá không?\nXem hoặc tắt: {mention}tắt nhắc\n\nSau khi mình tóm tắt, trả lời \"{mention}ok\" để lưu hoặc \"{mention}huỷ\".\nLần đầu dùng, nhắn riêng cho mình chữ \"liên kết\".",
   "linkInGroup": "Để bắt đầu, bạn nhắn riêng cho {bot} chữ \"liên kết\" nhé. Link liên kết chỉ gửi trong chat riêng để không ai dùng nhầm tài khoản của bạn.",
   "linkSentPrivately": "Mình vừa nhắn riêng cho bạn link liên kết 👆 Mở chat với {bot}, bấm link rồi đăng nhập Google (chỉ 1 lần) là đăng kèo được.\nNếu bạn chỉ muốn tìm kèo để đá thì gõ \"@{bot} tìm kèo\" nhé.",
   "linkPrivate": "Bấm link này để liên kết Zalo với tài khoản Đá Ghép (đăng nhập bằng Google). Link dùng một lần, hết hạn sau 15 phút, đừng gửi cho ai:\n{url}",
@@ -181,6 +181,9 @@
   "pollSoon": "📋 Bảng điểm danh tuần này của nhóm chưa được đăng, mình sẽ đăng sớm thôi. Lúc đó bạn điểm danh hoặc hỏi lại nhé.",
   "pollSummaryOneDay": "📋 {title}\n{days}\nMọi người điểm danh bằng cách gõ \"{mention}có\" hoặc \"{mention}không\". Mình sẽ nhắc 3 tiếng trước giờ chơi nếu còn kịp.",
   "pollPublicHint": "Không muốn hiện trên trang chủ thì gõ \"huỷ\" rồi tạo lại với chữ \"riêng tư\".",
+  "timeChanged": "⏰ Đã đổi giờ \"{title}\": {days}. Mọi người kiểm tra lại nhé, ai không đi được thì gõ \"{mention}không\".",
+  "timeNotFound": "Không thấy kèo nào bạn tạo đang mở trong nhóm này. Chỉ người tạo kèo mới đổi được giờ.",
+  "timeMissing": "Bạn muốn đổi sang mấy giờ? Ví dụ: {mention}đổi giờ 19h",
   "commands": {
     "help": [
       "",
@@ -375,6 +378,15 @@
       "không công khai",
       "ko công khai",
       "khong cong khai"
+    ],
+    "changeTime": [
+      "đổi giờ",
+      "doi gio",
+      "đổi thành",
+      "doi thanh",
+      "dời giờ",
+      "đổi sang",
+      "dời sang"
     ]
   },
   "answerWords": {
@@ -622,7 +634,10 @@
       "danh sách",
       "mấy người",
       "bao nhiêu người",
-      "bn người"
+      "bn người",
+      "có ai",
+      "ai rồi",
+      "mấy ai"
     ],
     "where": [
       "sân nào",
@@ -679,6 +694,12 @@
       "tạo",
       "lập",
       "mở"
+    ],
+    "whenChoice": [
+      "sáng hay tối",
+      "sáng hay chiều",
+      "chiều hay tối",
+      "sáng hay trưa"
     ]
   },
   "answerWhichPollLinks": "Nhóm đang có {n} bảng điểm danh cùng ngày đó. Bạn bấm vào bảng muốn trả lời nhé:\n{links}"
