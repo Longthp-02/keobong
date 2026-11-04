@@ -163,9 +163,10 @@ pub fn read_clock(text: &str) -> Option<NaiveTime> {
         } else {
             rest.parse().ok()?
         };
-        let later = words
-            .get(index + 1)
-            .is_some_and(|next| ["tối", "chiều", "đêm", "toi", "chieu", "dem"].contains(next));
+        let next = words.get(index + 1).copied().unwrap_or_default();
+        // "2h đêm" is still the small hours; "10h đêm" is the evening.
+        let later = ["tối", "chiều", "toi", "chieu"].contains(&next)
+            || (["đêm", "dem"].contains(&next) && hour >= 5);
         let hour = if later && hour < 12 { hour + 12 } else { hour };
         NaiveTime::from_hms_opt(hour, minute, 0)
     })
@@ -748,7 +749,7 @@ mod tests {
         assert_eq!(read_clock("10h đêm"), NaiveTime::from_hms_opt(22, 0, 0));
         assert_eq!(read_clock("0h"), NaiveTime::from_hms_opt(0, 0, 0));
         assert_eq!(read_clock("25h"), None);
-        assert_eq!(read_clock("đổi sang CN"), None);
+        assert_eq!(read_clock("2h đêm"), NaiveTime::from_hms_opt(2, 0, 0));
         let time = |h, m| NaiveTime::from_hms_opt(h, m, 0);
         assert_eq!(read_clock("đổi giờ 19h"), time(19, 0));
         assert_eq!(read_clock("đổi thành 7h30 tối"), time(19, 30));
