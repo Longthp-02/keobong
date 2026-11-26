@@ -24,7 +24,7 @@
 - Bot link messages (2026-10-26, merged #25): Zalo sends a link with a preview as message.unsupported.received (seen in production logs); its text or caption is read when present, otherwise the bot says it reads only text (at most hourly per group). Group cards on the home page say how to answer in Zalo.
 - Bot poll answers in the chat (2026-10-26, merged #24): linked players answer "T7 có, CN không" in the group without an AI read; unlinked players get the link code privately.
 - Bot attendance polls (2026-10-26, PR pending): "@Bot DaGhep tạo bảng điểm danh …" → link to /p/<id>; signed-in yes/no per day; daily nudge with counts and names of who has not answered.
-- Bot reminders (2026-10-25, merged and verified live): "@Bot DaGhep nhắc …" read by AI, saved on "ok", posted by a 5-minute scheduler; "tắt nhắc" lists and stops; a message with nothing about a match gets a short answer.
+- Bot reminders (2026-10-25, merged and verified live): "@Bot DaGhep nhắc …" read by AI, saved on "ok", posted by a 15-minute scheduler (5-minute until 2026-11-26); "tắt nhắc" lists and stops; a message with nothing about a match gets a short answer.
 - Zalo bot live (2026-10-25): webhook set; parser accepts the bare update Zalo posts as well as the getUpdates envelope.
 - Match drafts (2026-10-12): `drafts` feature, `POST /api/match-drafts`, Anthropic reader, daily limits in `draft_reads`; "Dán tin kèo" box on `/create`. Zalo bot steps planned in `docs/zalo-bot-plan.md`.
 - Page-view analytics (2026-10-12): Vercel Web Analytics in the root layout; privacy policy updated (no cookies, aggregated dashboard, visitor hash dropped after 24 hours).
