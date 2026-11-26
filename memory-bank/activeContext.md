@@ -29,6 +29,9 @@ Production is live (2026-10-10): API on Cloud Run (`daghep-api`, asia-southeast1
 ## Open Questions
 1. Remaining proposed rules in `spec.md` (slot capacity, price rounding, who can host, cancellations).
 
+## Incidents
+- 2026-11-18 to 2026-11-26: the bot and web returned 500. The 5-minute Cloud Scheduler job kept Neon awake all day and used the free plan's 100 CU-hours; Neon locked compute until 2026-12-01. Fix (Long, 2026-11-26): stay on the free plan, schedule every 15 minutes.
+
 ## Pending on Long
 - Check whether the iNET mailbox lienhe@daghep.vn is a time-limited trial (it is the contact in the legal pages).
 - Zalo for Developers: activate the app, verify the domain daghep.vn, set the callback `https://daghep.vn/api/auth/zalo/callback`.
